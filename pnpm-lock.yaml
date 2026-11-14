@@ -122,6 +122,9 @@ importers:
       puppeteer-core:
         specifier: 25.17.0
         version: 25.17.0
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@26.6.6)
       tailwindcss:
         specifier: 4.3.5
         version: 4.3.5

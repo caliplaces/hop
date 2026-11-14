@@ -19,3 +19,7 @@ TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 # R2_ACCOUNT_ID=
 # R2_ACCESS_KEY_ID=
 # R2_SECRET_ACCESS_KEY=
+
+# Optional: a Resend API key. Without it, emails are printed to the wrangler
+# console instead of sent. Preview them at http://localhost:5173/api/dev/emails
+# RESEND_API_KEY=

@@ -44,6 +44,7 @@ wrangler secret put TURNSTILE_SECRET_KEY --env staging
 wrangler secret put R2_ACCOUNT_ID --env staging
 wrangler secret put R2_ACCESS_KEY_ID --env staging        # R2 API token, Object Read & Write, this bucket only
 wrangler secret put R2_SECRET_ACCESS_KEY --env staging
+wrangler secret put RESEND_API_KEY --env staging          # Resend API key, Sending access, onmyhop.com only
 ```
 
 You also need to:
@@ -51,6 +52,18 @@ You also need to:
 - Fill in `OIDC_CLIENT_ID` and `TURNSTILE_SITE_KEY` in `wrangler.jsonc`.
 - Register `https://staging.onmyhop.com/api/auth/callback` on the Caliplaces developer app.
 - Verify the app's domain with the DNS TXT record, which removes the "unverified app" warning and the 100-user cap.
+
+## Emails
+
+Hop sends its own emails through [Resend](https://resend.com) from `EMAIL_FROM` (see `wrangler.jsonc`); sign-in emails come from Caliplaces auth. Templates live in `src/email/` as JSX components that hono/jsx renders to table-based HTML with inline styles, with a plain-text version alongside. Each email goes only to verified addresses, and carries an idempotency key so retries never send it twice.
+
+| Email   | When                           |
+| ------- | ------------------------------ |
+| Welcome | An athlete claims their handle |
+
+While `pnpm dev` runs, open [localhost:5173/email-lab.html](http://localhost:5173/email-lab.html) to see every email with sample data, in each colour, at phone and desktop width, and in dark mode. Without `RESEND_API_KEY` in `.dev.vars`, emails are printed to the wrangler console instead of sent.
+
+The Bobble images in emails are rendered per colour by `pnpm --filter @hop/web mascot:assets email` into `apps/web/public/email/`.
 
 ## Deploys
 
