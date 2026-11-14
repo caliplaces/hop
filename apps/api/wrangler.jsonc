@@ -48,7 +48,7 @@
         "ENVIRONMENT": "staging",
         "APP_URL": "https://staging.onmyhop.com",
         "OIDC_ISSUER": "https://auth.caliplaces.com",
-        "OIDC_CLIENT_ID": "REPLACE_WITH_STAGING_CLIENT_ID",
+        "OIDC_CLIENT_ID": "399581759521488902",
         "R2_BUCKET_NAME": "hop-staging",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzxw0pDT6tjGB4"
       },
