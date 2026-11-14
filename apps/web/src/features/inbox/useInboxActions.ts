@@ -27,6 +27,7 @@ export function useInboxActions(handle: string) {
   });
 
   const remove = async (ids: string[]) => {
+    if (removeMutation.isPending) return false; // one delete at a time
     const ok = await confirm({
       title: ids.length === 1 ? "Delete this file?" : `Delete ${ids.length} files?`,
       description:

@@ -48,10 +48,20 @@ export function Viewer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Another dialog on top (e.g. "Delete this file?") owns the keyboard.
-      if (document.querySelectorAll("dialog[open]").length > 1) return;
-      if (e.key === "ArrowLeft") onPrev?.();
-      if (e.key === "ArrowRight") onNext?.();
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      // Another dialog on top (e.g. "Delete this file?") owns the keyboard, and
+      // arrows on the video (seeking) or a field belong to that element. Buttons
+      // don't use arrows, and the dialog focuses its Close button on open.
+      if (e.defaultPrevented || document.querySelectorAll("dialog[open]").length > 1) return;
+      if (
+        e.target instanceof Element &&
+        e.target.closest("video, input, select, textarea, [role=slider]")
+      )
+        return;
+      const go = e.key === "ArrowLeft" ? onPrev : onNext;
+      if (!go) return;
+      e.preventDefault();
+      go();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

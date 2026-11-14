@@ -15,6 +15,8 @@ export type UploadItem = {
   status: UploadStatus;
   uploadedBytes: number;
   error?: string;
+  /** The failure was the network (or a temporary server error), so reconnecting can resume it. */
+  retryable?: boolean;
 };
 
 type Session = CreateUploadResult & { etags: Record<number, string> };
@@ -154,8 +156,17 @@ export class Uploader {
   }
 
   retry(id: string) {
-    this.update(id, { status: "queued", error: undefined });
+    this.update(id, { status: "queued", error: undefined, retryable: undefined });
     this.pump();
+  }
+
+  /** Re-queue everything that failed for network reasons, e.g. when the device comes back online. */
+  retryFailed() {
+    const failed = this.items.filter((i) => i.status === "error" && i.retryable);
+    for (const item of failed) {
+      this.update(item.id, { status: "queued", error: undefined, retryable: undefined });
+    }
+    if (failed.length) this.pump();
   }
 
   cancel(id: string) {
@@ -264,10 +275,12 @@ export class Uploader {
         error instanceof ApiError || error instanceof PassError
           ? error.message
           : "Upload interrupted. Tap retry.";
-      if (error instanceof ApiError && error.status < 500 && error.status !== 429) {
-        saveSession(key, null);
-      }
-      this.update(item.id, { status: "error", error: message });
+      const rejected = error instanceof ApiError && error.status < 500 && error.status !== 429;
+      if (rejected) saveSession(key, null);
+      // Network failures (no ApiError) and server hiccups resume on reconnect;
+      // rejections (too big, Hop closed, …) and failed human checks need the user.
+      const retryable = !rejected && !(error instanceof PassError);
+      this.update(item.id, { status: "error", error: message, retryable });
     } finally {
       this.controllers.delete(item.id);
     }

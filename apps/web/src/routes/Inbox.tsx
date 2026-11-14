@@ -142,6 +142,7 @@ function InboxPage({ me }: { me: AthleteMe }) {
                 <LoadMore
                   onLoad={() => filesQuery.fetchNextPage()}
                   loading={filesQuery.isFetchingNextPage}
+                  failed={filesQuery.isFetchNextPageError}
                 />
               )
             }

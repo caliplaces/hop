@@ -16,6 +16,14 @@ export function useUploadQueue(
   const [items, setItems] = useState<UploadItem[]>([]);
   useEffect(() => uploader?.subscribe(setItems), [uploader]);
 
+  // Uploads that failed because the connection dropped pick up again on their own.
+  useEffect(() => {
+    if (!uploader) return;
+    const resume = () => uploader.retryFailed();
+    window.addEventListener("online", resume);
+    return () => window.removeEventListener("online", resume);
+  }, [uploader]);
+
   const busy = items.some((i) => ACTIVE.has(i.status));
   useEffect(() => {
     if (!busy) return;

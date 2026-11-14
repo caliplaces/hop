@@ -1,8 +1,8 @@
+import { isAcceptableDeclaredType } from "@hop/shared";
 import { Plus, Upload } from "lucide-react";
 import { useState } from "react";
 import { cx } from "../../components/ui/cx";
-
-const isMedia = (file: File) => !file.type || /^(video|image)\//.test(file.type);
+import { useFeedback } from "../../components/ui/feedback";
 
 /** The one big target: tap to pick from the camera roll, or drop files on desktop. */
 export function Dropzone({
@@ -13,8 +13,20 @@ export function Dropzone({
   onFiles: (files: File[]) => void;
 }) {
   const [dragging, setDragging] = useState(false);
+  const { toast } = useFeedback();
+  /** Same rule as the server's early check; the server has the final say from the bytes. */
   const take = (list: FileList | null | undefined) => {
-    const media = [...(list ?? [])].filter(isMedia);
+    const files = [...(list ?? [])];
+    const media = files.filter((f) => isAcceptableDeclaredType(f.type));
+    const skipped = files.length - media.length;
+    if (skipped) {
+      toast(
+        skipped === 1
+          ? "Skipped 1 file that isn’t a video or photo"
+          : `Skipped ${skipped} files that aren’t videos or photos`,
+        "error",
+      );
+    }
     if (media.length) onFiles(media);
   };
 

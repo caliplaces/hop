@@ -45,7 +45,7 @@ export function SelectionBar({
           label="Delete selected"
           className="text-danger"
           onClick={onDelete}
-          disabled={count === 0}
+          disabled={count === 0 || busy}
         >
           <Trash2 className="size-5" />
         </IconButton>
