@@ -1,4 +1,9 @@
 {
   "extends": "@hop/typescript-config/worker.json",
+  "compilerOptions": {
+    // Email templates are JSX rendered to HTML strings by hono/jsx (no React).
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
+  },
   "include": ["src", "drizzle.config.ts"]
 }
