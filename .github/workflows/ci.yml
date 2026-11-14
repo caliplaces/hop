@@ -14,8 +14,11 @@ on:
 permissions:
   contents: read
 
+# One queue per ref (PRs run on refs/pull/*), shared by pushes and manual runs,
+# so a branch's runs deploy in the order they started and an older commit can
+# never land after a newer one.
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   # Superseded PR runs can stop; runs that deploy always finish.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -71,9 +74,6 @@ jobs:
     environment:
       name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
       url: ${{ github.ref_name == 'main' && 'https://onmyhop.com' || 'https://staging.onmyhop.com' }}
-    concurrency:
-      group: deploy-${{ github.ref_name }}
-      cancel-in-progress: false
     env:
       TARGET: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
     steps:
