@@ -67,12 +67,15 @@ export const DEFAULT_HOP_TITLE = "Main";
 export const HOP_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
 export function slugify(input: string): string {
-  return input
+  // Split into words rather than trimming dashes with an anchored regex, which
+  // can backtrack polynomially on long runs of separators.
+  const slug = input
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-    .replace(/-+$/g, "");
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .join("-")
+    .slice(0, 40);
+  return slug.endsWith("-") ? slug.slice(0, -1) : slug;
 }
