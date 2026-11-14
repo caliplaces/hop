@@ -24,7 +24,7 @@ export function SenderName({
     return (
       <p className="flex items-center gap-1.5 text-sm text-muted">
         Sending as <span className="font-semibold text-fg">{verifiedAs}</span>
-        <BadgeCheck className="size-4 text-hop-strong" aria-label="Signed in" />
+        <BadgeCheck className="size-4 text-fg" aria-label="Signed in" />
       </p>
     );
   }

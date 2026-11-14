@@ -76,7 +76,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             className="animate-fade-up flex items-center gap-2 rounded-full bg-fg py-2.5 pr-5 pl-3 text-sm font-medium text-canvas shadow-lift"
           >
             {t.tone === "success" ? (
-              <CircleCheck className="size-5 text-hop" />
+              <CircleCheck className="size-5 text-canvas" />
             ) : (
               <CircleAlert className="size-5 text-danger" />
             )}

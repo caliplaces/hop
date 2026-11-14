@@ -18,6 +18,8 @@
   --line-strong: rgb(11 11 12 / 0.14);
   --danger: #e5484d;
   --shadow-color: 30 30 20;
+  --accent: #0b0b0c;
+  --on-accent: #fafaf7;
 
   /* Layout and stacking, shared by the tab bar, floating bars and overlays. */
   --tabbar-h: 4.5rem;
@@ -40,6 +42,8 @@
     --line-strong: rgb(255 255 255 / 0.16);
     --danger: #ff6369;
     --shadow-color: 0 0 0;
+    --accent: #f4f4ef;
+    --on-accent: #0b0b0c;
   }
 }
 
@@ -48,9 +52,11 @@
 
   --color-ink: #0b0b0c;
   --color-paper: #fafaf7;
-  --color-hop: #c8f03c;
-  --color-hop-strong: #a8d60f;
-  --color-hop-soft: rgb(200 240 60 / 0.18);
+
+  /* The accent: neutral ink on Hop's own pages, the athlete's colour inside an .accent-scope. */
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
 
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
@@ -71,6 +77,37 @@
   --animate-fade-up: fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-pop: pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both;
   --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-drift: drift 22s ease-in-out infinite;
+  --animate-slide-in: slide-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/*
+ * Derived accent tones are declared on every scope (not just :root), so they
+ * are recomputed from the athlete's --accent instead of inheriting the root's.
+ */
+:root,
+.accent-scope {
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(6%, -8%, 0) scale(1.08);
+  }
+  66% {
+    transform: translate3d(-7%, 5%, 0) scale(0.94);
+  }
+}
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.45em) rotateX(-40deg);
+    filter: blur(4px);
+  }
 }
 
 @keyframes fade-up {
@@ -102,13 +139,13 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-hop-strong);
+  outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: var(--color-hop);
-  color: var(--color-ink);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -139,7 +176,7 @@ body:has([data-selection-bar]) [data-tabbar] {
   @apply h-9 px-4 text-sm;
 }
 @utility btn-primary {
-  @apply btn bg-hop text-ink shadow-[inset_0_-1px_0_rgb(0_0_0/0.08)] hover:bg-hop-strong;
+  @apply btn bg-accent text-on-accent shadow-[inset_0_-1px_0_rgb(0_0_0/0.08)] hover:brightness-95;
 }
 @utility btn-dark {
   @apply btn bg-fg text-canvas hover:opacity-90;
@@ -163,10 +200,10 @@ body:has([data-selection-bar]) [data-tabbar] {
   @apply rounded-(--radius-card) border border-line bg-surface p-5 shadow-soft sm:p-6;
 }
 @utility input {
-  @apply h-12 w-full rounded-2xl border border-line-strong bg-surface px-4 text-base text-fg outline-none transition placeholder:text-subtle focus:border-fg focus:ring-4 focus:ring-hop-soft;
+  @apply h-12 w-full rounded-2xl border border-line-strong bg-surface px-4 text-base text-fg outline-none transition placeholder:text-subtle focus:border-fg focus:ring-4 focus:ring-accent-soft;
 }
 @utility pill {
-  @apply relative inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-line bg-surface px-4 text-sm font-medium text-muted transition hover:text-fg has-checked:border-fg has-checked:bg-fg has-checked:text-canvas has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-hop-soft;
+  @apply relative inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-line bg-surface px-4 text-sm font-medium text-muted transition hover:text-fg has-checked:border-fg has-checked:bg-fg has-checked:text-canvas has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-accent-soft;
 }
 @utility badge {
   @apply inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-semibold;

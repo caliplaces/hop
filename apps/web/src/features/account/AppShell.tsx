@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Inbox, Layers, type LucideIcon, QrCode } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Logo } from "../../components/Logo";
+import { AccentScope } from "../../components/ui/AccentScope";
 import { Avatar } from "../../components/ui/Avatar";
 import { hopUrl } from "../../lib/format";
 import { QrDialog } from "../share/QrDialog";
@@ -23,7 +24,7 @@ export function AppShell({ me, children }: { me: AthleteMe; children: ReactNode 
   const [qrOpen, setQrOpen] = useState(false);
 
   return (
-    <div className="min-h-dvh pb-[calc(var(--tabbar-h)+2.5rem)] sm:pb-12">
+    <AccentScope color={me.color} className="min-h-dvh pb-[calc(var(--tabbar-h)+2.5rem)] sm:pb-12">
       <header className="sticky top-0 z-(--z-bar) border-b border-line bg-canvas/80 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <Logo />
@@ -81,6 +82,6 @@ export function AppShell({ me, children }: { me: AthleteMe; children: ReactNode 
         open={qrOpen}
         onClose={() => setQrOpen(false)}
       />
-    </div>
+    </AccentScope>
   );
 }
