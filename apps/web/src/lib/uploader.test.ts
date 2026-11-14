@@ -103,7 +103,9 @@ describe("Uploader cancellation", () => {
       if (url.endsWith("/uploads") && init.method === "POST") {
         creates++;
         if (failWith === "network") return Promise.reject(new TypeError("Failed to fetch"));
-        return Promise.resolve(json({ error: "unsupported_type", message: "Only videos and photos." }, 415));
+        return Promise.resolve(
+          json({ error: "unsupported_type", message: "Only videos and photos." }, 415),
+        );
       }
       return new Promise(() => {});
     });
@@ -118,7 +120,9 @@ describe("Uploader cancellation", () => {
       items = next;
     });
 
-    uploader.add([new File([new Uint8Array(2048)], "a.mp4", { type: "video/mp4", lastModified: 1 })]);
+    uploader.add([
+      new File([new Uint8Array(2048)], "a.mp4", { type: "video/mp4", lastModified: 1 }),
+    ]);
     await flush();
     expect(items[0]).toMatchObject({ status: "error", retryable: true });
 
@@ -133,4 +137,3 @@ describe("Uploader cancellation", () => {
     expect(creates).toBe(2);
   });
 });
-
