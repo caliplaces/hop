@@ -51,8 +51,16 @@ private struct ComingSoon: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu("Account", systemImage: "person.crop.circle") {
+                        if let me = session.me {
+                            Section {
+                                Text(me.name ?? me.email ?? String(localized: "Signed in"))
+                                if let handle = me.handle {
+                                    Text(verbatim: "onmyhop.com/\(handle)")
+                                }
+                            }
+                        }
                         Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                            withAnimation(.smooth(duration: 0.45)) { session.signOut() }
+                            Task { await session.signOut() }
                         }
                     }
                 }
@@ -63,5 +71,5 @@ private struct ComingSoon: View {
 
 #Preview {
     HomeView()
-        .environment(Session(defaults: UserDefaults(suiteName: "preview")!))
+        .environment(Session())
 }

@@ -4,8 +4,6 @@ import SwiftUI
 /// it follows the finger, swells, fills with colour and, once let go past
 /// halfway, opens into the sign-in screen.
 struct WelcomeView: View {
-    var onContinue: () -> Void
-
     private enum Phase { case resting, dragging, opening, open }
 
     @State private var phase = Phase.resting
@@ -48,10 +46,7 @@ struct WelcomeView: View {
                 startButton(layout)
             }
             if phase == .open {
-                SignInPanel(
-                    layout: layout, onContinue: onContinue, onClose: close,
-                    onScroll: { signInScroll = $0 }
-                )
+                SignInPanel(layout: layout, onClose: close, onScroll: { signInScroll = $0 })
                     .transition(.opacity.combined(with: .offset(y: 20)))
             }
         }
@@ -289,5 +284,6 @@ struct BubbleScene: View, Animatable {
 }
 
 #Preview {
-    WelcomeView {}
+    WelcomeView()
+        .environment(Session())
 }

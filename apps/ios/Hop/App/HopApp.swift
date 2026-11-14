@@ -22,11 +22,11 @@ struct RootView: View {
                 HomeView()
                     .transition(.opacity.combined(with: .scale(scale: 1.04)))
             } else {
-                WelcomeView {
-                    withAnimation(.smooth(duration: 0.45)) { session.signIn() }
-                }
-                .transition(.opacity)
+                WelcomeView()
+                    .transition(.opacity)
             }
         }
+        .animation(.smooth(duration: 0.45), value: session.isSignedIn)
+        .task { await session.refresh() }
     }
 }
