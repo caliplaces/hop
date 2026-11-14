@@ -16,6 +16,15 @@ Without R2 S3 credentials in `.dev.vars`, upload parts and downloads go through 
 
 To sign in locally, register your own **web** app at [developer.caliplaces.com/apps](https://developer.caliplaces.com/apps) with the redirect URI `http://localhost:5173/api/auth/callback`, and put its client ID and secret in `.dev.vars`. Each environment (local, staging, production) uses a separate developer app, so production credentials never reach dev machines.
 
+The iPhone app signs in through its own developer app, `OIDC_APP_CLIENT_ID` in `wrangler.jsonc`. It's a **Native** app: a public client with PKCE and no secret, whose redirect URI is the custom scheme `com.onmyhop.app:/auth/callback`. Because nothing about it is secret or tied to a host, every environment, including local development, uses the same one.
+
+## How the app signs in
+
+1. `POST /api/auth/app/start` returns Caliplaces' authorization URL and a signed `flow` holding its state, nonce and PKCE verifier.
+2. The app opens the URL in a web authentication session. Caliplaces redirects back to `com.onmyhop.app:/auth/callback?code=…&state=…`.
+3. `POST /api/auth/app/session` with the `flow` and that URL checks the redirect and state, exchanges the code with the verifier, and returns a session token. Someone who intercepts the redirect gets a code they can't use without the verifier.
+4. The app sends the token as `Authorization: Bearer <token>`. App sessions last 90 days from last use. They're stored as `kind = "app"`, and the website's cookie sessions as `"web"`, so neither kind is accepted in place of the other.
+
 ## How uploads work
 
 1. The contributor page solves Turnstile once. `POST /api/hops/:hopId/pass` returns a signed pass that's valid for 2 hours. One pass can have at most 6 active and 300 total uploads.

@@ -1,8 +1,8 @@
 # Hop for iPhone
 
 The native iOS app, built with SwiftUI and Liquid Glass. It's early: the welcome
-bubble, sign-in screen and an empty home screen are in. The inbox, the Hop pass,
-Event mode and "Share to Hop" come next.
+bubble, Sign in with Caliplaces and an empty home screen are in. The inbox, the
+Hop pass, Event mode and "Share to Hop" come next.
 
 ## Running it
 
@@ -18,9 +18,10 @@ toolchain, install it from Xcode → Settings → Components, or run
 To run on your own iPhone, create `Config/Local.xcconfig` containing
 `DEVELOPMENT_TEAM = <your team ID>`. Git ignores that file.
 
-Sign-in doesn't reach the server yet: "Continue with Caliplaces" signs you in on
-the device only, so you can look around. Sign out from the account menu to see
-the welcome bubble again.
+Debug builds talk to staging.onmyhop.com and sign in with a real Caliplaces
+account. To use the API running on this Mac instead, add the launch argument
+`-HopAPIURL http://127.0.0.1:8787` to the Run scheme. Sign out from the account
+menu to see the welcome bubble again.
 
 ## Tests
 
