@@ -27,7 +27,7 @@ export function AppShell({ me, children }: { me: AthleteMe; children: ReactNode 
     <AccentScope color={me.color} className="min-h-dvh pb-[calc(var(--tabbar-h)+2.5rem)] sm:pb-12">
       <header className="sticky top-0 z-(--z-bar) border-b border-line bg-canvas/80 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Logo />
+          <Logo color={me.color} />
           <nav
             aria-label="Main"
             className="hidden items-center gap-1 rounded-full bg-surface-2 p-1 sm:flex"

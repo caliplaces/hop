@@ -5,12 +5,12 @@ import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "../components/Logo";
 import { AccentScope } from "../components/ui/AccentScope";
-import { Avatar } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { FieldHint, PrefixedInput } from "../components/ui/Input";
 import { PageSpinner, Spinner } from "../components/ui/Spinner";
 import { ColorPicker } from "../features/account/ColorPicker";
 import { type HandleState, useHandleAvailability } from "../features/account/useHandleAvailability";
+import { Mascot } from "../features/mascot/Mascot";
 import { ApiError, api, signInUrl } from "../lib/api";
 import { queries } from "../lib/queries";
 
@@ -57,6 +57,7 @@ export function Onboarding() {
   const { data: me, isPending } = useQuery(queries.me());
   const [input, setInput] = useState("");
   const [color, setColor] = useState<ColorId | null>(null);
+  const [celebrating, setCelebrating] = useState(false);
   const pickedColor: ColorId | undefined = color ?? (me ? colorFor(me.color, me.id).id : undefined);
   const { handle, state } = useHandleAvailability(input);
 
@@ -71,8 +72,12 @@ export function Onboarding() {
     mutationFn: () =>
       api<{ me: Me }>("/me/handle", { method: "PUT", json: { handle, color: pickedColor } }),
     onSuccess: ({ me: updated }) => {
-      queryClient.setQueryData(queries.me().queryKey, updated);
-      navigate({ to: "/app" });
+      // Let Bobble celebrate before moving on (updating the cache redirects).
+      setCelebrating(true);
+      setTimeout(() => {
+        queryClient.setQueryData(queries.me().queryKey, updated);
+        navigate({ to: "/app" });
+      }, 1300);
     },
   });
 
@@ -82,8 +87,20 @@ export function Onboarding() {
   return (
     <AccentScope color={pickedColor} seed={me.id}>
       <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-5">
-        <Logo />
-        <div className="animate-fade-up pt-16 sm:pt-24">
+        <Logo color={pickedColor} />
+        <div className="animate-fade-up pt-4 sm:pt-10">
+          {pickedColor && (
+            <div className="flex justify-center">
+              <Mascot
+                state={celebrating ? "cheer" : "idle"}
+                color={colorFor(pickedColor, me.id).hex}
+                size={168}
+                follow
+                interactive
+                label="Bobble, wearing your colour"
+              />
+            </div>
+          )}
           <h1 className="text-[32px] leading-tight font-bold tracking-tight">Claim your Hop</h1>
           <p className="mt-2 text-[15px] text-muted">
             This is the link everyone uploads your clips to.
@@ -117,13 +134,8 @@ export function Onboarding() {
 
             {pickedColor && (
               <div className="mt-8">
-                <div className="flex items-center gap-3">
-                  <Avatar name={me.name ?? handle} size="sm" />
-                  <div>
-                    <p className="text-[15px] font-semibold">Pick your colour</p>
-                    <p className="text-sm text-muted">Your upload page wears it.</p>
-                  </div>
-                </div>
+                <p className="text-[15px] font-semibold">Pick your colour</p>
+                <p className="text-sm text-muted">Bobble and your upload page wear it.</p>
                 <div className="mt-4">
                   <ColorPicker value={pickedColor} onChange={setColor} />
                 </div>
@@ -134,9 +146,9 @@ export function Onboarding() {
               type="submit"
               size="lg"
               className="mt-8 w-full"
-              disabled={state.kind !== "available" || claim.isPending}
+              disabled={state.kind !== "available" || claim.isPending || celebrating}
             >
-              {claim.isPending ? "Claiming…" : "Claim it"}
+              {celebrating ? "It’s yours! 🎉" : claim.isPending ? "Claiming…" : "Claim it"}
             </Button>
           </form>
         </div>

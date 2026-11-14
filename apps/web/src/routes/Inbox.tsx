@@ -1,7 +1,7 @@
-import type { InboxFile } from "@hop/shared";
+import { colorFor, type InboxFile } from "@hop/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import { Download, Inbox as InboxIcon } from "lucide-react";
+import { Download } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -14,6 +14,7 @@ import { LoadMore } from "../features/inbox/LoadMore";
 import { SelectionBar } from "../features/inbox/SelectionBar";
 import { useInboxActions } from "../features/inbox/useInboxActions";
 import { Viewer } from "../features/inbox/Viewer";
+import { Mascot } from "../features/mascot/Mascot";
 import { ShareBar } from "../features/share/ShareBar";
 import { hopUrl } from "../lib/format";
 import { queries } from "../lib/queries";
@@ -127,7 +128,10 @@ function InboxPage({ me }: { me: AthleteMe }) {
         {filesQuery.isPending ? (
           <FileGridSkeleton />
         ) : files.length === 0 ? (
-          <EmptyState icon={InboxIcon} title="No clips yet">
+          <EmptyState
+            art={<Mascot state="sleep" color={colorFor(me.color, me.id).hex} size={170} />}
+            title="No clips yet"
+          >
             Share your link or QR code and tell people: “upload it on my Hop”.
           </EmptyState>
         ) : (

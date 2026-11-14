@@ -2,17 +2,17 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, CircleAlert } from "lucide-react";
 import { Logo } from "../components/Logo";
-import { AccentScope } from "../components/ui/AccentScope";
 import { buttonClass } from "../components/ui/Button";
 import { AmbientBackground } from "../features/landing/AmbientBackground";
 import { CursorGlow } from "../features/landing/CursorGlow";
 import { HowItWorks } from "../features/landing/HowItWorks";
-import { PhoneMock } from "../features/landing/PhoneMock";
 import { RotatingHandle } from "../features/landing/RotatingHandle";
-import { SHOWCASE, showcaseAt, showcaseHex } from "../features/landing/showcase";
+import { SHOWCASE, showcaseHex } from "../features/landing/showcase";
 import { useCycle } from "../features/landing/useCycle";
+import { Mascot } from "../features/mascot/Mascot";
 import { signInUrl } from "../lib/api";
 import { queries } from "../lib/queries";
+import { useMediaQuery } from "../lib/useMediaQuery";
 
 const AUTH_ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled.",
@@ -23,7 +23,9 @@ const AUTH_ERRORS: Record<string, string> = {
 export function Landing() {
   const { data: me } = useQuery(queries.me());
   const index = useCycle(SHOWCASE.length, 2400);
-  const athlete = showcaseAt(index);
+  const large = useMediaQuery("(min-width: 1024px)");
+  const medium = useMediaQuery("(min-width: 640px)");
+  const mascotSize = large ? 400 : medium ? 300 : 220;
   const authError = new URLSearchParams(window.location.search).get("authError");
   const signedIn = Boolean(me?.handle);
 
@@ -58,7 +60,7 @@ export function Landing() {
         )}
 
         <main>
-          <section className="relative grid items-center gap-12 pt-8 pb-4 sm:pt-20 sm:pb-8 lg:grid-cols-[1.15fr_1fr] lg:gap-8">
+          <section className="relative grid items-center gap-6 pt-2 pb-4 sm:gap-12 sm:pt-20 sm:pb-8 lg:grid-cols-[1.15fr_1fr] lg:gap-8">
             <div className="animate-fade-up text-center lg:text-left">
               <span className="badge bg-surface-2 text-muted">For athletes at events</span>
               <h1 className="mt-5 text-[44px] leading-[1.04] font-bold tracking-tighter text-balance sm:text-6xl lg:text-7xl">
@@ -84,9 +86,16 @@ export function Landing() {
                 <span className="text-sm text-muted">Free · Continue with Caliplaces</span>
               </div>
             </div>
-            <AccentScope color={athlete.color}>
-              <PhoneMock name={athlete.name} handle={athlete.handle} />
-            </AccentScope>
+            {/* First on phones (above the headline), beside the copy on desktop. */}
+            <div className="order-first flex justify-center lg:order-none">
+              <Mascot
+                color={showcaseHex(index)}
+                size={mascotSize}
+                follow
+                interactive
+                label="Bobble, Hop’s mascot. Poke it!"
+              />
+            </div>
           </section>
 
           <HowItWorks />

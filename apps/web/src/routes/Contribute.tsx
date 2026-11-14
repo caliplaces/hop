@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Lock, SearchX, WifiOff } from "lucide-react";
+import { WifiOff } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Logo } from "../components/Logo";
 import { AccentScope } from "../components/ui/AccentScope";
 import { PageSpinner } from "../components/ui/Spinner";
+import type { MascotState } from "../features/mascot/Mascot";
 import { Dropzone } from "../features/upload/Dropzone";
 import { HopHero, ownerNames } from "../features/upload/HopHero";
 import { HumanCheck } from "../features/upload/HumanCheck";
@@ -16,6 +18,30 @@ import { useUploadQueue } from "../features/upload/useUploadQueue";
 import { signInUrl } from "../lib/api";
 import { queries } from "../lib/queries";
 
+const CHEER_MS = 3000;
+
+/**
+ * Bobble narrates the upload: balancing the clip while sending, a celebration
+ * when everything lands, sitting broken if something failed or the
+ * connection dropped, idle otherwise.
+ */
+function useUploadMascot(queue: ReturnType<typeof useUploadQueue>, online: boolean): MascotState {
+  const { items, busy, doneCount, allDone } = queue;
+  const [celebrating, setCelebrating] = useState(false);
+  useEffect(() => {
+    if (!allDone || doneCount === 0) return;
+    setCelebrating(true);
+    const timer = setTimeout(() => setCelebrating(false), CHEER_MS);
+    return () => clearTimeout(timer);
+  }, [allDone, doneCount]);
+
+  if (!online) return "broken";
+  if (busy) return "busy";
+  if (celebrating) return "cheer";
+  if (items.some((i) => i.status === "error")) return "broken";
+  return "idle";
+}
+
 /** onmyhop.com/<handle>[/<slug>]: where anyone sends their clips. */
 export function Contribute({ handle, slug }: { handle: string; slug?: string }) {
   const hopQuery = useQuery(queries.publicHop(handle, slug));
@@ -27,18 +53,19 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
   const pass = usePass(hop?.id);
   const queue = useUploadQueue(hop?.id, pass.getPass, contributor.getName);
   const online = useOnline();
+  const mascot = useUploadMascot(queue, online);
 
   if (hopQuery.isPending) return <PageSpinner />;
   if (!hop) {
     return (
-      <StatusScreen icon={SearchX} title="No Hop here">
+      <StatusScreen mascot="broken" title="No Hop here">
         Double-check the link. It should look like onmyhop.com/handle.
       </StatusScreen>
     );
   }
   if (hop.status === "closed") {
     return (
-      <StatusScreen icon={Lock} title="This Hop is closed">
+      <StatusScreen mascot="sleep" color={hop.owner.color} title="This Hop is closed">
         {ownerNames(hop).full} isn’t accepting uploads here right now.
       </StatusScreen>
     );
@@ -53,11 +80,11 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
     <AccentScope color={hop.owner.color} seed={hop.owner.handle}>
       <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-5 pb-8">
         <header>
-          <Logo />
+          <Logo color={hop.owner.color} />
         </header>
 
         <div className={started ? "mt-6" : "mt-10"}>
-          <HopHero hop={hop} phase={phase} doneCount={doneCount} />
+          <HopHero hop={hop} phase={phase} doneCount={doneCount} mascot={mascot} />
         </div>
 
         {!online && (

@@ -1,6 +1,6 @@
-import { DEFAULT_HOP_SLUG, type PublicHop } from "@hop/shared";
-import { Avatar } from "../../components/ui/Avatar";
+import { colorFor, DEFAULT_HOP_SLUG, type PublicHop } from "@hop/shared";
 import { Badge } from "../../components/ui/Badge";
+import { Mascot, type MascotState } from "../mascot/Mascot";
 
 export function ownerNames(hop: PublicHop) {
   const full = hop.owner.name || `@${hop.owner.handle}`;
@@ -17,12 +17,14 @@ export function HopHero({
   hop,
   phase,
   doneCount,
+  mascot,
 }: {
   hop: PublicHop;
   phase: Phase;
   doneCount: number;
+  mascot: MascotState;
 }) {
-  const { full, first } = ownerNames(hop);
+  const { first } = ownerNames(hop);
   const title = {
     ready: `Send your clips to ${first}`,
     sending: `Sending to ${first}…`,
@@ -36,8 +38,15 @@ export function HopHero({
 
   return (
     <section className="animate-fade-up flex flex-col items-center text-center">
-      <Avatar name={full} size={phase === "ready" ? "lg" : "md"} />
-      <div className="mt-4 flex items-center gap-2 text-sm font-medium text-muted">
+      <Mascot
+        state={mascot}
+        color={colorFor(hop.owner.color, hop.owner.handle).hex}
+        size={176}
+        follow
+        interactive
+        label={`Bobble, ${first}’s Hop mascot`}
+      />
+      <div className="mt-1 flex items-center gap-2 text-sm font-medium text-muted">
         @{hop.owner.handle}
         {hop.slug !== DEFAULT_HOP_SLUG && <Badge tone="event">{hop.title}</Badge>}
       </div>
