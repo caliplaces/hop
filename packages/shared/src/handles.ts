@@ -56,6 +56,14 @@ export function checkHandle(handle: string): HandleProblem | null {
   return null;
 }
 
+/**
+ * Every athlete has one standing Hop, created with their handle. Its slug is
+ * fixed (onmyhop.com/<handle>/inbox) and its default title is "Main", which
+ * reads better next to the Inbox page than "Inbox" did.
+ */
+export const DEFAULT_HOP_SLUG = "inbox";
+export const DEFAULT_HOP_TITLE = "Main";
+
 export const HOP_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
 export function slugify(input: string): string {

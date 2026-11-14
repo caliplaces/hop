@@ -2,6 +2,8 @@ import {
   checkHandle,
   claimHandleSchema,
   createHopSchema,
+  DEFAULT_HOP_SLUG,
+  DEFAULT_HOP_TITLE,
   fileUrlsSchema,
   HOP_SLUG_PATTERN,
   type HopSummary,
@@ -61,9 +63,13 @@ export const meRoutes = new Hono<AppEnv>()
     const now = Date.now();
     try {
       await db.batch([
-        db
-          .insert(hops)
-          .values({ id: hopId, ownerId: user.id, slug: "inbox", title: "Inbox", createdAt: now }),
+        db.insert(hops).values({
+          id: hopId,
+          ownerId: user.id,
+          slug: DEFAULT_HOP_SLUG,
+          title: DEFAULT_HOP_TITLE,
+          createdAt: now,
+        }),
         db
           .update(users)
           .set({ handle, activeHopId: hopId, updatedAt: now })
