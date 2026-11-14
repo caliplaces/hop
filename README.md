@@ -1,45 +1,68 @@
-# Hop
+<p align="center">
+  <img src="apps/web/public/email/cheer-grape.png" width="168" alt="Bobble, Hop's mascot, celebrating" />
+</p>
 
-**Upload it on my Hop.** At an event, an athlete tells everyone who filmed them to upload their clips on [onmyhop.com](https://onmyhop.com). Every video lands in one private inbox. Nobody needs an app or an account to contribute.
+<h1 align="center">Hop</h1>
 
-Hop is a small product from [Caliplaces](https://caliplaces.com) and is developed in the open.
+<p align="center">
+  <strong>Upload it on my Hop.</strong><br />
+  Every clip from the crowd, in one private inbox.
+</p>
 
-## Repository layout
+<p align="center">
+  <a href="https://onmyhop.com">onmyhop.com</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="SECURITY.md">Security</a>
+</p>
 
-```
-apps/
-  api/      Cloudflare Worker (Hono): REST API, OIDC sign-in, R2 upload signing; also serves the web build
-  web/      React + Vite web app: landing page, contributor upload page, athlete inbox
-packages/
-  shared/            Zod schemas, limits and helpers shared by the API and the web app
-  typescript-config/ Shared tsconfig presets
-```
+<p align="center">
+  <a href="https://github.com/caliplaces/hop/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/caliplaces/hop/actions/workflows/ci.yml/badge.svg?branch=main" /></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-7C4DFF" /></a>
+</p>
 
-## Stack
+At a competition, a jam or a training session, everyone around you is filming. Hop gets those clips to you. Say _“upload it on my Hop”_, and people send their videos straight from their phones to your private inbox. Nobody has to install an app or make an account.
 
-- **Cloudflare Workers** with **Hono** for the API
-- **Cloudflare D1** (SQLite) with **Drizzle** for metadata
-- **Cloudflare R2** for files. The bucket is private, and browsers upload straight to it through short-lived presigned multipart URLs.
-- **Sign in with Caliplaces** (OIDC, see [developer.caliplaces.com](https://developer.caliplaces.com))
-- **Turborepo** + **pnpm** workspaces, **Biome** for lint and formatting
+## How it works
 
-## Getting started
+**For athletes**
 
-Requires Node 24 and pnpm 10.
+1. Claim your link, like `onmyhop.com/yourname`.
+2. Share it, or show your QR code at the event.
+3. Get every angle in one inbox, in full quality, sorted by event.
+
+**For everyone filming**
+
+1. Open the athlete's link.
+2. Pick your clips and send them, up to 5 GB each.
+3. That’s it: no app, no sign-up.
+
+## Privacy
+
+- Only the athlete sees what was sent to them. There's no public gallery.
+- Contributors can stay anonymous, or sign in to put their name on their clips.
+- Files go straight from the phone to private storage, and they're only ever shared through links that expire within minutes.
+
+## Development
+
+You'll need Node 24 and pnpm 10.
 
 ```sh
 pnpm install
 pnpm dev
 ```
 
-See [`apps/api/README.md`](apps/api/README.md) for local secrets, how uploads work, and Cloudflare setup.
+Then open [localhost:5173](http://localhost:5173). Local configuration is documented in [`apps/api/README.md`](apps/api/README.md).
 
-## Contributing
+| Folder            | What's inside                                            |
+| ----------------- | -------------------------------------------------------- |
+| `apps/web`        | The website: landing page, upload page and athlete inbox |
+| `apps/api`        | The server behind it                                     |
+| `packages/shared` | Code both use: validation, limits and colours            |
 
 Pull requests go to the `staging` branch; see [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-Copyright © Caliplaces.
+Copyright © [Caliplaces](https://caliplaces.com).
 
-Hop is free software, released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can use, study, modify and self-host it. If you run a modified version as a network service, the AGPL requires you to offer its source code to that service's users under the same license.
+Hop is free software under the [GNU Affero General Public License v3.0](LICENSE). You can use, study, change and self-host it. If you run a modified version as a service, the license requires you to share its source with that service's users.
