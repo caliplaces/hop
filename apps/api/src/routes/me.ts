@@ -18,6 +18,7 @@ import { getDb } from "../db";
 import { files, hops, users } from "../db/schema";
 import type { AppEnv } from "../env";
 import { newId } from "../lib/crypto";
+import { removeFile } from "../lib/files";
 import { fail } from "../lib/http";
 import { currentUser, requireUser } from "../lib/session";
 import { presignGet } from "../lib/storage";
@@ -271,7 +272,6 @@ export const meRoutes = new Hono<AppEnv>()
       .where(and(eq(files.id, c.req.param("fileId")), eq(files.ownerId, user.id)))
       .get();
     if (!file) return fail(c, 404, "not_found");
-    await c.env.BUCKET.delete([file.r2Key, ...(file.thumbKey ? [file.thumbKey] : [])]);
-    await db.delete(files).where(eq(files.id, file.id));
+    await removeFile(c.env, db, file);
     return c.json({ ok: true });
   });

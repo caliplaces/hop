@@ -17,12 +17,13 @@ import {
   signPartsSchema,
   withMediaExtension,
 } from "@hop/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { type Db, getDb } from "../db";
 import { type FileRow, files, hops } from "../db/schema";
 import type { AppEnv, Env } from "../env";
 import { newId, randomToken, sha256Hex, signPayload, verifyPayload } from "../lib/crypto";
+import { originalKey, removeFile, thumbnailKey } from "../lib/files";
 import { BodyTooLargeError, clientIp, fail, readBodyCapped } from "../lib/http";
 import { SNIFF_BYTES, sniffMedia } from "../lib/sniff";
 import { normalizeEtag, presignUploadPart } from "../lib/storage";
@@ -67,21 +68,11 @@ async function holdReservation(db: Db, file: FileRow): Promise<boolean> {
       or (
         select coalesce(sum(size), 0) from ${files}
         where owner_id = ${file.ownerId} and id != ${file.id}
-          and (status = 'complete' or last_activity_at > ${activeSince})
+          and (status = 'complete' or (status = 'pending' and last_activity_at > ${activeSince}))
       ) + ${file.size} <= ${DEFAULT_STORAGE_QUOTA_BYTES}
     )
   `);
   return result.meta.changes === 1;
-}
-
-async function discardUpload(env: Env, db: Db, file: FileRow) {
-  if (file.multipartUploadId) {
-    await env.BUCKET.resumeMultipartUpload(file.r2Key, file.multipartUploadId)
-      .abort()
-      .catch(() => {});
-  }
-  await env.BUCKET.delete([file.r2Key, ...(file.thumbKey ? [file.thumbKey] : [])]);
-  await db.delete(files).where(eq(files.id, file.id));
 }
 
 export const uploadRoutes = new Hono<AppEnv>()
@@ -166,7 +157,7 @@ export const uploadRoutes = new Hono<AppEnv>()
       : (input.contributorName ?? randomContributorName());
 
     const fileId = newId("fil");
-    const r2Key = `hops/${hop.id}/${fileId}/original`;
+    const r2Key = originalKey(hop.id, fileId);
     const uploadToken = randomToken();
     const parts = partCount(input.size);
 
@@ -187,7 +178,7 @@ export const uploadRoutes = new Hono<AppEnv>()
       where (
         select coalesce(sum(size), 0) from ${files}
         where owner_id = ${hop.ownerId}
-          and (status = 'complete' or last_activity_at > ${activeSince})
+          and (status = 'complete' or (status = 'pending' and last_activity_at > ${activeSince}))
       ) + ${input.size} <= ${DEFAULT_STORAGE_QUOTA_BYTES}
     `);
     if (reserved.meta.changes !== 1) {
@@ -247,7 +238,7 @@ export const uploadRoutes = new Hono<AppEnv>()
     if (!file) return fail(c, 404, "not_found");
     // Idempotent: a retry after a lost response must not look like a failure.
     if (file.status === "complete") return c.json({ ok: true });
-    if (!file.multipartUploadId) return fail(c, 404, "not_found");
+    if (file.status !== "pending" || !file.multipartUploadId) return fail(c, 404, "not_found");
 
     const parts = [...c.req.valid("json").parts].sort((a, b) => a.partNumber - b.partNumber);
     const expected =
@@ -265,13 +256,13 @@ export const uploadRoutes = new Hono<AppEnv>()
     const completed = { ...file, multipartUploadId: null };
 
     if (object.size !== file.size) {
-      await discardUpload(c.env, db, completed);
+      await removeFile(c.env, db, completed);
       return fail(c, 400, "size_mismatch", "The uploaded file doesn't match its declared size.");
     }
     const head = await c.env.BUCKET.get(file.r2Key, { range: { offset: 0, length: SNIFF_BYTES } });
     const mime = head ? sniffMedia(new Uint8Array(await head.arrayBuffer()), object.size) : null;
     if (!mime) {
-      await discardUpload(c.env, db, completed);
+      await removeFile(c.env, db, completed);
       return fail(c, 415, "unsupported_type", "That file doesn't look like a video or photo.");
     }
 
@@ -301,7 +292,7 @@ export const uploadRoutes = new Hono<AppEnv>()
   .put("/uploads/:fileId/thumbnail", async (c) => {
     const db = getDb(c.env.DB);
     const file = await authorizeUpload(c, db);
-    if (!file) return fail(c, 404, "not_found");
+    if (!file || file.status === "deleting") return fail(c, 404, "not_found");
     const lateThumbnail =
       file.status === "complete" && (file.completedAt ?? 0) < Date.now() - THUMBNAIL_GRACE_MS;
     if (lateThumbnail) return fail(c, 409, "too_late");
@@ -317,9 +308,19 @@ export const uploadRoutes = new Hono<AppEnv>()
     if (sniffMedia(body.subarray(0, SNIFF_BYTES), body.byteLength) !== "image/jpeg") {
       return fail(c, 415, "unsupported_type");
     }
-    const thumbKey = `hops/${file.hopId}/${file.id}/thumb.jpg`;
+    const thumbKey = thumbnailKey(file);
     await c.env.BUCKET.put(thumbKey, body, { httpMetadata: { contentType: "image/jpeg" } });
-    await db.update(files).set({ thumbKey }).where(eq(files.id, file.id));
+    const attached = await db
+      .update(files)
+      .set({ thumbKey })
+      .where(and(eq(files.id, file.id), inArray(files.status, ["pending", "complete"])))
+      .returning({ id: files.id })
+      .get();
+    if (!attached) {
+      // The upload was cancelled or cleaned up while the thumbnail was being written.
+      await c.env.BUCKET.delete(thumbKey);
+      return fail(c, 404, "not_found");
+    }
     return c.json({ ok: true });
   })
 
@@ -328,6 +329,6 @@ export const uploadRoutes = new Hono<AppEnv>()
     const db = getDb(c.env.DB);
     const file = await authorizeUpload(c, db);
     if (file?.status !== "pending") return fail(c, 404, "not_found");
-    await discardUpload(c.env, db, file);
+    await removeFile(c.env, db, file);
     return c.json({ ok: true });
   });

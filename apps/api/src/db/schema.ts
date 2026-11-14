@@ -63,7 +63,8 @@ export const files = sqliteTable(
     size: integer("size").notNull(),
     partSize: integer("part_size").notNull(),
     partCount: integer("part_count").notNull(),
-    status: text("status", { enum: ["pending", "complete"] })
+    /** "deleting" rows are being removed; see lib/files.ts removeFile. */
+    status: text("status", { enum: ["pending", "complete", "deleting"] })
       .notNull()
       .default("pending"),
     multipartUploadId: text("multipart_upload_id"),
