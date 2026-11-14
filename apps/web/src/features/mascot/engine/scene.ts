@@ -18,6 +18,8 @@ export type MascotOptions = {
   /** Fur shells: 28 for hero sizes, ~12 for small sizes and low-power devices. */
   shells?: number;
   state?: MascotState;
+  /** "stage" frames each state (room for jumps); "portrait" is a fixed close-up for logos. */
+  framing?: "stage" | "portrait";
   /** Keep the GL buffer so screenshots work (used by the lab/capture). */
   preserveDrawingBuffer?: boolean;
 };
@@ -29,6 +31,8 @@ export type MascotController = {
   setLook(x: number, y: number): void;
   /** A tap on Bobble: a giggle and an antenna boing. */
   poke(): void;
+  /** Advance the simulation to an absolute time in seconds without drawing. */
+  advance(time: number): void;
   /** Advance to an absolute time in seconds and draw. */
   render(time: number): void;
   resize(width: number, height: number): void;
@@ -44,8 +48,10 @@ const FRAMING: Record<MascotState, { y: number; distance: number }> = {
   busy: { y: 1.55, distance: 8.9 },
   cheer: { y: 1.4, distance: 8.9 },
   broken: { y: 1.05, distance: 7.6 },
-  sleep: { y: 0.9, distance: 7.1 },
+  sleep: { y: 1.05, distance: 7.6 },
 };
+
+const PORTRAIT = { y: 1.08, distance: 6.4 };
 
 const CONFETTI = ["#FF6B5B", "#FFC93C", "#3DDC97", "#38BDF8", "#7C4DFF", "#F472B6"];
 
@@ -119,7 +125,8 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
   scene.environmentIntensity = 0.55;
 
   const camera = new THREE.PerspectiveCamera(27, 1, 0.1, 50);
-  const initialFrame = FRAMING[options.state ?? "idle"];
+  const portrait = options.framing === "portrait";
+  const initialFrame = portrait ? PORTRAIT : FRAMING[options.state ?? "idle"];
   const shot = { y: initialFrame.y, distance: initialFrame.distance };
   function placeCamera() {
     camera.position.set(0, shot.y + 0.35, shot.distance);
@@ -253,10 +260,10 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
     scene.add(sprite);
     particles.push({
       mesh: sprite,
-      velocity: new THREE.Vector3(0.22, 0.38, 0),
+      velocity: new THREE.Vector3(0.18, 0.26, 0),
       spin: new THREE.Vector3(),
       age: 0,
-      life: 2.6,
+      life: 2.2,
       kind: "z",
     });
   }
@@ -438,7 +445,7 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
   function step(dt: number) {
     simTime += dt;
     // Ease the camera towards this state's framing (a gentle push in or out).
-    const frame = FRAMING[state];
+    const frame = portrait ? PORTRAIT : FRAMING[state];
     const k = Math.min(1, dt * 2.2);
     shot.y += (frame.y - shot.y) * k;
     shot.distance += (frame.distance - shot.distance) * k;
@@ -452,6 +459,17 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
     lastPose = pose;
     applyPose(pose, dt, simTime);
     stepParticles(dt);
+  }
+
+  function advance(time: number) {
+    if (lastTime === null) lastTime = time;
+    let dt = Math.min(0.1, Math.max(0, time - lastTime));
+    lastTime = time;
+    while (dt > 0) {
+      const h = Math.min(STEP, dt);
+      step(h);
+      dt -= h;
+    }
   }
 
   return {
@@ -482,15 +500,9 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
       antennaSpring.x.kick(-9);
       antennaSpring.z.kick((random() - 0.5) * 10);
     },
+    advance,
     render(time) {
-      if (lastTime === null) lastTime = time;
-      let dt = Math.min(0.1, Math.max(0, time - lastTime));
-      lastTime = time;
-      while (dt > 0) {
-        const h = Math.min(STEP, dt);
-        step(h);
-        dt -= h;
-      }
+      advance(time);
       renderer.render(scene, camera);
     },
     resize(width, height) {

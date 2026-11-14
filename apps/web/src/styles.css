@@ -110,6 +110,16 @@
   }
 }
 
+@keyframes mascot-bob {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-3%) scaleY(1.02);
+  }
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;

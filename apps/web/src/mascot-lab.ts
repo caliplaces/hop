@@ -23,7 +23,14 @@ document.body.style.cssText = `margin:0;font:14px system-ui;background:${dark ? 
 function mount(size: number, color: string, state: MascotState, shells?: number) {
   const canvas = document.createElement("canvas");
   canvas.style.width = canvas.style.height = `${size}px`;
-  const mascot = createMascot(canvas, { color, state, shells, preserveDrawingBuffer: true });
+  const framing = params.get("framing") === "portrait" ? "portrait" : "stage";
+  const mascot = createMascot(canvas, {
+    color,
+    state,
+    shells,
+    framing,
+    preserveDrawingBuffer: true,
+  });
   mascot.resize(size, size);
   return { canvas, mascot };
 }
