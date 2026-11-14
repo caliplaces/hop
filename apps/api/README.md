@@ -34,7 +34,7 @@ Replace `staging` with `production` for production.
 # Storage and database
 wrangler r2 bucket create hop-staging
 wrangler r2 bucket cors set hop-staging --file apps/api/infra/r2-cors.staging.json
-wrangler r2 bucket lifecycle add hop-staging abort-multipart --abort-multipart-days 2
+wrangler r2 bucket lifecycle add hop-staging abort-multipart --abort-multipart-days 3
 wrangler d1 create hop-staging        # put the database_id into wrangler.jsonc
 
 # Secrets

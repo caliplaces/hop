@@ -56,7 +56,7 @@
         {
           "binding": "DB",
           "database_name": "hop-staging",
-          "database_id": "REPLACE_WITH_STAGING_D1_ID",
+          "database_id": "644503f2-678a-4c49-8956-bc9efc272465",
           "migrations_dir": "migrations"
         }
       ],
@@ -83,7 +83,7 @@
         {
           "binding": "DB",
           "database_name": "hop-production",
-          "database_id": "REPLACE_WITH_PRODUCTION_D1_ID",
+          "database_id": "61af8f57-7476-43f6-ab88-4ea427ee8d07",
           "migrations_dir": "migrations"
         }
       ],
