@@ -34,6 +34,18 @@ describe("handles", () => {
   it("slugifies", () => {
     expect(slugify("Worlds 2026 — Bratislava!")).toBe("worlds-2026-bratislava");
     expect(slugify("Čierny Balog")).toBe("cierny-balog");
+    expect(slugify("  --Street   Kings!!--  ")).toBe("street-kings");
+    expect(slugify("¿¡")).toBe("");
+  });
+  it("keeps slugs within 40 characters, never ending in a dash", () => {
+    const slug = slugify(`${"a".repeat(39)} b`);
+    expect(slug).toBe("a".repeat(39));
+    expect(slugify("word ".repeat(20)).length).toBeLessThanOrEqual(40);
+    expect(slugify("word ".repeat(20))).toMatch(/^[a-z0-9-]*[a-z0-9]$/);
+  });
+  it("handles long runs of separators", () => {
+    expect(slugify(`${"-".repeat(100_000)}a`)).toBe("a");
+    expect(slugify(`a${"-".repeat(100_000)}`)).toBe("a");
   });
 });
 
