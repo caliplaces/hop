@@ -1,8 +1,8 @@
 # Copy to .dev.vars for local development. Never commit .dev.vars.
 
-# A Caliplaces developer app (type "web") with redirect URI
-# http://localhost:5173/api/auth/callback, from https://developer.caliplaces.com/apps
-OIDC_CLIENT_ID=
+# Secret of the Caliplaces developer app whose client ID is in wrangler.jsonc.
+# Its redirect URIs must include http://localhost:5173/api/auth/callback.
+# Set OIDC_CLIENT_ID here too if you use your own developer app.
 OIDC_CLIENT_SECRET=
 
 # Any long random string (openssl rand -base64 32)
