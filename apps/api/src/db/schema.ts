@@ -67,6 +67,8 @@ export const files = sqliteTable(
       .notNull()
       .default("pending"),
     multipartUploadId: text("multipart_upload_id"),
+    /** Turnstile pass the upload was created under, for per-pass limits. */
+    passId: text("pass_id").notNull(),
     /** SHA-256 of the per-file upload token handed to the contributor. */
     uploadTokenHash: text("upload_token_hash").notNull(),
     contributorName: text("contributor_name"),
@@ -76,12 +78,16 @@ export const files = sqliteTable(
     note: text("note"),
     uploaderIpHash: text("uploader_ip_hash"),
     createdAt: integer("created_at").notNull(),
+    /** Bumped on create, part signing and completion; drives quota reservation and cleanup. */
+    lastActivityAt: integer("last_activity_at").notNull(),
     completedAt: integer("completed_at"),
   },
   (t) => [
+    index("files_owner_status_activity_idx").on(t.ownerId, t.status, t.lastActivityAt),
     index("files_owner_status_created_idx").on(t.ownerId, t.status, t.createdAt),
     index("files_hop_status_created_idx").on(t.hopId, t.status, t.createdAt),
-    index("files_status_created_idx").on(t.status, t.createdAt),
+    index("files_status_activity_idx").on(t.status, t.lastActivityAt),
+    index("files_pass_status_idx").on(t.passId, t.status),
   ],
 );
 

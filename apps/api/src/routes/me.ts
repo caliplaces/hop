@@ -2,6 +2,7 @@ import {
   checkHandle,
   claimHandleSchema,
   createHopSchema,
+  fileUrlsSchema,
   HOP_SLUG_PATTERN,
   type HopSummary,
   type InboxFile,
@@ -10,7 +11,7 @@ import {
   slugify,
   updateHopSchema,
 } from "@hop/shared";
-import { and, desc, eq, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDb } from "../db";
@@ -191,6 +192,7 @@ export const meRoutes = new Hono<AppEnv>()
             size: f.size,
             hasThumbnail: Boolean(f.thumbKey),
             contributorName: f.contributorName,
+            contributorVerified: f.contributorUserId !== null,
             note: f.note,
             createdAt: f.createdAt,
           }),
@@ -223,6 +225,23 @@ export const meRoutes = new Hono<AppEnv>()
     return c.json({ url });
   })
 
+  /** Signed download links for many files at once (used where zipping isn't possible). */
+  .post("/me/files/urls", validate("json", fileUrlsSchema), async (c) => {
+    const user = currentUser(c);
+    const { ids, download } = c.req.valid("json");
+    const rows = await getDb(c.env.DB)
+      .select()
+      .from(files)
+      .where(and(inArray(files.id, ids), eq(files.ownerId, user.id), eq(files.status, "complete")));
+    const urls = await Promise.all(
+      rows.map(async (f) => ({
+        id: f.id,
+        url: await presignGet(c.env, f.r2Key, { filename: f.originalName, mime: f.mime, download }),
+      })),
+    );
+    return c.json({ urls });
+  })
+
   .get("/me/files/:fileId/thumbnail", async (c) => {
     const user = currentUser(c);
     const file = await getDb(c.env.DB)
@@ -237,6 +256,8 @@ export const meRoutes = new Hono<AppEnv>()
       headers: {
         "content-type": "image/jpeg",
         "cache-control": "private, max-age=86400, immutable",
+        "content-security-policy": "default-src 'none'; sandbox",
+        "x-content-type-options": "nosniff",
       },
     });
   })

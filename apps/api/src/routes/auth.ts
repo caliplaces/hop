@@ -36,6 +36,10 @@ export function toMe(user: AppEnv["Variables"]["user"]): Me | null {
 
 export const authRoutes = new Hono<AppEnv>()
   .get("/login", async (c) => {
+    if (!c.env.OIDC_CLIENT_ID || !c.env.OIDC_CLIENT_SECRET) {
+      console.error("OIDC_CLIENT_ID / OIDC_CLIENT_SECRET are not configured");
+      return c.redirect("/?authError=failed");
+    }
     const as = await authorizationServer(c.env);
     if (!as.authorization_endpoint) throw new Error("OIDC issuer has no authorization_endpoint");
 
@@ -45,7 +49,7 @@ export const authRoutes = new Hono<AppEnv>()
       state: oauth.generateRandomState(),
       nonce: oauth.generateRandomNonce(),
       codeVerifier: oauth.generateRandomCodeVerifier(),
-      returnTo: safeReturnTo(c.req.query("returnTo")),
+      returnTo: safeReturnTo(c.req.query("returnTo"), c.env.APP_URL),
     };
     setCookie(c, FLOW_COOKIE, await signPayload(c.env.SESSION_SECRET, flow), {
       httpOnly: true,
@@ -90,58 +94,68 @@ export const authRoutes = new Hono<AppEnv>()
       return c.redirect("/?authError=denied");
     }
 
-    const tokenResponse = await oauth.authorizationCodeGrantRequest(
-      as,
-      client,
-      oauth.ClientSecretBasic(c.env.OIDC_CLIENT_SECRET),
-      params,
-      redirectUri(c.env),
-      flow.codeVerifier,
-    );
-    const tokens = await oauth.processAuthorizationCodeResponse(as, client, tokenResponse, {
-      expectedNonce: flow.nonce,
-      requireIdToken: true,
-    });
-    const idClaims = oauth.getValidatedIdTokenClaims(tokens);
-    if (!idClaims) throw new Error("OIDC token response had no ID token");
+    // Any failure past this point (token exchange, userinfo, database) sends the
+    // user back to the landing page with a message instead of a raw error page.
+    let userId: string;
+    try {
+      const tokenResponse = await oauth.authorizationCodeGrantRequest(
+        as,
+        client,
+        oauth.ClientSecretBasic(c.env.OIDC_CLIENT_SECRET),
+        params,
+        redirectUri(c.env),
+        flow.codeVerifier,
+      );
+      const tokens = await oauth.processAuthorizationCodeResponse(as, client, tokenResponse, {
+        expectedNonce: flow.nonce,
+        requireIdToken: true,
+      });
+      const idClaims = oauth.getValidatedIdTokenClaims(tokens);
+      if (!idClaims) throw new Error("OIDC token response had no ID token");
 
-    // Profile claims aren't guaranteed in the ID token, so ask userinfo too.
-    const info = await oauth.processUserInfoResponse(
-      as,
-      client,
-      idClaims.sub,
-      await oauth.userInfoRequest(as, client, tokens.access_token),
-    );
+      // Profile claims aren't guaranteed in the ID token, so ask userinfo too.
+      const info = await oauth.processUserInfoResponse(
+        as,
+        client,
+        idClaims.sub,
+        await oauth.userInfoRequest(as, client, tokens.access_token),
+      );
 
-    const email = typeof info.email === "string" ? info.email : null;
-    const emailVerified = info.email_verified === true;
-    const name =
-      (typeof info.name === "string" && info.name.trim()) ||
-      (typeof info.preferred_username === "string" && info.preferred_username.trim()) ||
-      null;
+      const email = typeof info.email === "string" ? info.email : null;
+      const emailVerified = info.email_verified === true;
+      const name =
+        (typeof info.name === "string" && info.name.trim()) ||
+        (typeof info.preferred_username === "string" && info.preferred_username.trim()) ||
+        null;
 
-    const db = getDb(c.env.DB);
-    const now = Date.now();
-    const user = await db
-      .insert(users)
-      .values({
-        id: newId("usr"),
-        oidcSub: idClaims.sub,
-        email,
-        emailVerified,
-        name,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: users.oidcSub,
-        set: { email, emailVerified, name, updatedAt: now },
-      })
-      .returning()
-      .get();
+      const db = getDb(c.env.DB);
+      const now = Date.now();
+      const user = await db
+        .insert(users)
+        .values({
+          id: newId("usr"),
+          oidcSub: idClaims.sub,
+          email,
+          emailVerified,
+          name,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: users.oidcSub,
+          set: { email, emailVerified, name, updatedAt: now },
+        })
+        .returning()
+        .get();
+      userId = user.id;
+    } catch (error) {
+      console.error("OIDC sign-in failed", error);
+      return c.redirect("/?authError=failed");
+    }
 
-    await createSession(c, user.id);
-    return c.redirect(flow.returnTo);
+    await createSession(c, userId);
+    // Re-validate: the flow cookie is signed, but this keeps the guarantee local.
+    return c.redirect(safeReturnTo(flow.returnTo, c.env.APP_URL));
   })
 
   .post("/logout", async (c) => {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { contributorNameSchema } from "./api";
 import { checkHandle, normalizeHandle, slugify } from "./handles";
-import { PART_BYTES, partCount } from "./limits";
+import {
+  isAcceptableDeclaredType,
+  PART_BYTES,
+  partCount,
+  partLength,
+  withMediaExtension,
+} from "./limits";
 import { randomContributorName } from "./names";
 
 describe("randomContributorName", () => {
@@ -36,5 +43,33 @@ describe("partCount", () => {
     expect(partCount(PART_BYTES)).toBe(1);
     expect(partCount(PART_BYTES + 1)).toBe(2);
     expect(partCount(5 * 1024 ** 3)).toBe(512);
+  });
+});
+
+describe("media helpers", () => {
+  it("checks declared types loosely but never allows SVG", () => {
+    expect(isAcceptableDeclaredType("video/quicktime")).toBe(true);
+    expect(isAcceptableDeclaredType("")).toBe(true);
+    expect(isAcceptableDeclaredType("image/svg+xml")).toBe(false);
+    expect(isAcceptableDeclaredType("text/html")).toBe(false);
+  });
+  it("fixes extensions to match the real type", () => {
+    expect(withMediaExtension("clip.MOV", "video/quicktime")).toBe("clip.MOV");
+    expect(withMediaExtension("photo.jpeg", "image/jpeg")).toBe("photo.jpeg");
+    expect(withMediaExtension("evil.html", "video/mp4")).toBe("evil.mp4");
+    expect(withMediaExtension("noext", "image/png")).toBe("noext.png");
+    expect(withMediaExtension(".hidden", "video/mp4")).toBe(".hidden.mp4");
+  });
+  it("computes part lengths", () => {
+    expect(partLength(PART_BYTES * 2 + 5, 1)).toBe(PART_BYTES);
+    expect(partLength(PART_BYTES * 2 + 5, 3)).toBe(5);
+  });
+});
+
+describe("contributorNameSchema", () => {
+  it("strips the verified-handle prefix and control characters", () => {
+    expect(contributorNameSchema.parse("  @@matej ")).toBe("matej");
+    expect(contributorNameSchema.parse("Coach\u0000 Peter")).toBe("Coach Peter");
+    expect(contributorNameSchema.safeParse("@").success).toBe(false);
   });
 });

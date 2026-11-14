@@ -48,6 +48,7 @@ export type DevPartToken = {
   key: string;
   uploadId: string;
   partNumber: number;
+  contentLength: number;
 };
 
 export type DevObjectToken = {
@@ -59,11 +60,16 @@ export type DevObjectToken = {
   mime: string;
 };
 
+/**
+ * Presigned URL for one part. Content-Length is part of the signature, so the
+ * URL only accepts a body of exactly the expected size.
+ */
 export async function presignUploadPart(
   env: Env,
   key: string,
   uploadId: string,
   partNumber: number,
+  contentLength: number,
 ): Promise<string> {
   const client = s3Client(env);
   if (!client) {
@@ -74,6 +80,7 @@ export async function presignUploadPart(
       key,
       uploadId,
       partNumber,
+      contentLength,
     });
     return `/api/dev/part?token=${encodeURIComponent(token)}`;
   }
@@ -81,8 +88,11 @@ export async function presignUploadPart(
   url.searchParams.set("partNumber", String(partNumber));
   url.searchParams.set("uploadId", uploadId);
   url.searchParams.set("X-Amz-Expires", String(PART_URL_TTL_S));
-  const signed = await client.sign(new Request(url, { method: "PUT" }), {
-    aws: { signQuery: true },
+  const signed = await client.sign(url.toString(), {
+    method: "PUT",
+    headers: { "content-length": String(contentLength) },
+    // aws4fetch skips content-length unless told to sign every header.
+    aws: { signQuery: true, allHeaders: true },
   });
   return signed.url;
 }

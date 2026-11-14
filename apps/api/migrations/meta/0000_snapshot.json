@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "800e259f-0619-4a36-a065-549704434957",
+  "id": "a76b6f96-8fa1-4667-b3c5-1392cd1cdf88",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "files": {
@@ -92,6 +92,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "pass_id": {
+          "name": "pass_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "upload_token_hash": {
           "name": "upload_token_hash",
           "type": "text",
@@ -134,6 +141,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "last_activity_at": {
+          "name": "last_activity_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "completed_at": {
           "name": "completed_at",
           "type": "integer",
@@ -143,6 +157,15 @@
         }
       },
       "indexes": {
+        "files_owner_status_activity_idx": {
+          "name": "files_owner_status_activity_idx",
+          "columns": [
+            "owner_id",
+            "status",
+            "last_activity_at"
+          ],
+          "isUnique": false
+        },
         "files_owner_status_created_idx": {
           "name": "files_owner_status_created_idx",
           "columns": [
@@ -161,11 +184,19 @@
           ],
           "isUnique": false
         },
-        "files_status_created_idx": {
-          "name": "files_status_created_idx",
+        "files_status_activity_idx": {
+          "name": "files_status_activity_idx",
           "columns": [
             "status",
-            "created_at"
+            "last_activity_at"
+          ],
+          "isUnique": false
+        },
+        "files_pass_status_idx": {
+          "name": "files_pass_status_idx",
+          "columns": [
+            "pass_id",
+            "status"
           ],
           "isUnique": false
         }

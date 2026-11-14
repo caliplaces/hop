@@ -4,29 +4,33 @@ import {
   createUploadSchema,
   DEFAULT_STORAGE_QUOTA_BYTES,
   hopPassSchema,
-  isAllowedMime,
+  isAcceptableDeclaredType,
+  MAX_ACTIVE_UPLOADS_PER_PASS,
   MAX_THUMBNAIL_BYTES,
+  MAX_UPLOADS_PER_PASS,
   PART_BYTES,
-  PENDING_UPLOAD_TTL_MS,
+  PENDING_RESERVATION_MS,
   partCount,
+  partLength,
   randomContributorName,
   type SignedPart,
   signPartsSchema,
+  withMediaExtension,
 } from "@hop/shared";
-import { and, eq, gt, or, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { type Context, Hono } from "hono";
-import { getDb } from "../db";
+import { type Db, getDb } from "../db";
 import { type FileRow, files, hops } from "../db/schema";
 import type { AppEnv, Env } from "../env";
 import { newId, randomToken, sha256Hex, signPayload, verifyPayload } from "../lib/crypto";
-import { clientIp, fail } from "../lib/http";
+import { BodyTooLargeError, clientIp, fail, readBodyCapped } from "../lib/http";
 import { SNIFF_BYTES, sniffMedia } from "../lib/sniff";
 import { normalizeEtag, presignUploadPart } from "../lib/storage";
 import { verifyTurnstile } from "../lib/turnstile";
 import { validate } from "../lib/validate";
 
 /** A pass proves the contributor solved Turnstile for this hop recently. */
-type HopPass = { purpose: "hop-pass"; exp: number; hopId: string };
+type HopPass = { purpose: "hop-pass"; exp: number; hopId: string; passId: string };
 const HOP_PASS_TTL_MS = 2 * 60 * 60 * 1000;
 /** Thumbnails can still be attached shortly after the upload completes. */
 const THUMBNAIL_GRACE_MS = 60 * 60 * 1000;
@@ -36,32 +40,28 @@ async function rateLimited(env: Env, key: string): Promise<boolean> {
   return !success;
 }
 
-/** Bytes an owner has stored, plus in-flight uploads so parallel uploads can't overshoot. */
-async function usedBytes(db: ReturnType<typeof getDb>, ownerId: string): Promise<number> {
-  const row = await db
-    .select({ total: sql<number>`coalesce(sum(${files.size}), 0)` })
-    .from(files)
-    .where(
-      and(
-        eq(files.ownerId, ownerId),
-        or(eq(files.status, "complete"), gt(files.createdAt, Date.now() - PENDING_UPLOAD_TTL_MS)),
-      ),
-    )
-    .get();
-  return Number(row?.total ?? 0);
-}
-
 /** Resolves the file an upload token (Authorization: Bearer) grants access to. */
-async function authorizeUpload(c: Context<AppEnv>): Promise<FileRow | null> {
+async function authorizeUpload(c: Context<AppEnv>, db: Db): Promise<FileRow | null> {
   const token = c.req.header("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return null;
-  const file = await getDb(c.env.DB)
-    .select()
-    .from(files)
-    .where(eq(files.id, c.req.param("fileId") ?? ""))
-    .get();
+  const fileId = c.req.param("fileId");
+  if (!token || !fileId) return null;
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file || file.uploadTokenHash !== (await sha256Hex(token))) return null;
   return file;
+}
+
+async function touch(db: Db, fileId: string) {
+  await db.update(files).set({ lastActivityAt: Date.now() }).where(eq(files.id, fileId));
+}
+
+async function discardUpload(env: Env, db: Db, file: FileRow) {
+  if (file.multipartUploadId) {
+    await env.BUCKET.resumeMultipartUpload(file.r2Key, file.multipartUploadId)
+      .abort()
+      .catch(() => {});
+  }
+  await env.BUCKET.delete([file.r2Key, ...(file.thumbKey ? [file.thumbKey] : [])]);
+  await db.delete(files).where(eq(files.id, file.id));
 }
 
 export const uploadRoutes = new Hono<AppEnv>()
@@ -84,6 +84,7 @@ export const uploadRoutes = new Hono<AppEnv>()
       purpose: "hop-pass",
       exp,
       hopId,
+      passId: randomToken(12),
     });
     return c.json({ pass, expiresAt: exp });
   })
@@ -98,12 +99,15 @@ export const uploadRoutes = new Hono<AppEnv>()
     if (!pass || pass.hopId !== hopId) return fail(c, 403, "pass_required");
 
     const ip = clientIp(c);
-    if (await rateLimited(c.env, `upload:${ip}`)) {
+    if (
+      (await rateLimited(c.env, `upload:${ip}`)) ||
+      (await rateLimited(c.env, `upload-hop:${hopId}`))
+    ) {
       return fail(c, 429, "rate_limited", "Slow down a little, then try again.");
     }
 
     const input = c.req.valid("json");
-    if (!isAllowedMime(input.type)) {
+    if (!isAcceptableDeclaredType(input.type)) {
       return fail(c, 415, "unsupported_type", "Only videos and photos can be uploaded.");
     }
 
@@ -113,10 +117,27 @@ export const uploadRoutes = new Hono<AppEnv>()
     if (hop.status !== "open")
       return fail(c, 403, "hop_closed", "This Hop isn't accepting uploads.");
 
-    if ((await usedBytes(db, hop.ownerId)) + input.size > DEFAULT_STORAGE_QUOTA_BYTES) {
-      return fail(c, 507, "hop_full", "This Hop is full right now.");
+    const now = Date.now();
+    const activeSince = now - PENDING_RESERVATION_MS;
+
+    // Soft per-pass limits: one solved challenge can't open unlimited uploads.
+    const passUsage = await db
+      .select({
+        total: sql<number>`count(*)`,
+        active: sql<number>`sum(case when ${files.status} = 'pending' and ${files.lastActivityAt} > ${activeSince} then 1 else 0 end)`,
+      })
+      .from(files)
+      .where(eq(files.passId, pass.passId))
+      .get();
+    if (
+      Number(passUsage?.total ?? 0) >= MAX_UPLOADS_PER_PASS ||
+      Number(passUsage?.active ?? 0) >= MAX_ACTIVE_UPLOADS_PER_PASS
+    ) {
+      return fail(c, 429, "too_many_uploads", "Let the current uploads finish first.");
     }
 
+    // Signed-in contributors are credited by their verified handle; anonymous
+    // names can't start with "@" (enforced by the schema).
     const user = c.get("user");
     const contributorName = user
       ? user.handle
@@ -126,31 +147,45 @@ export const uploadRoutes = new Hono<AppEnv>()
 
     const fileId = newId("fil");
     const r2Key = `hops/${hop.id}/${fileId}/original`;
-    const multipart = await c.env.BUCKET.createMultipartUpload(r2Key, {
-      httpMetadata: { contentType: input.type },
-      customMetadata: { fileId },
-    });
-
     const uploadToken = randomToken();
     const parts = partCount(input.size);
-    await db.insert(files).values({
-      id: fileId,
-      hopId: hop.id,
-      ownerId: hop.ownerId,
-      r2Key,
-      originalName: input.name,
-      mime: input.type,
-      size: input.size,
-      partSize: PART_BYTES,
-      partCount: parts,
-      multipartUploadId: multipart.uploadId,
-      uploadTokenHash: await sha256Hex(uploadToken),
-      contributorName,
-      contributorUserId: user?.id ?? null,
-      note: input.note || null,
-      uploaderIpHash: await sha256Hex(`${c.env.SESSION_SECRET}:${ip}`),
-      createdAt: Date.now(),
-    });
+
+    // Reserve quota atomically: the row is only inserted if the owner's stored
+    // bytes plus actively uploading bytes still fit.
+    const reserved = await db.run(sql`
+      insert into ${files} (
+        id, hop_id, owner_id, r2_key, original_name, mime, size, part_size, part_count,
+        status, pass_id, upload_token_hash, contributor_name, contributor_user_id, note,
+        uploader_ip_hash, created_at, last_activity_at
+      )
+      select
+        ${fileId}, ${hop.id}, ${hop.ownerId}, ${r2Key}, ${input.name},
+        ${input.type || "application/octet-stream"}, ${input.size}, ${PART_BYTES}, ${parts},
+        'pending', ${pass.passId}, ${await sha256Hex(uploadToken)}, ${contributorName},
+        ${user?.id ?? null}, ${input.note || null}, ${await sha256Hex(`${c.env.SESSION_SECRET}:${ip}`)},
+        ${now}, ${now}
+      where (
+        select coalesce(sum(size), 0) from ${files}
+        where owner_id = ${hop.ownerId}
+          and (status = 'complete' or last_activity_at > ${activeSince})
+      ) + ${input.size} <= ${DEFAULT_STORAGE_QUOTA_BYTES}
+    `);
+    if (reserved.meta.changes !== 1) {
+      return fail(c, 507, "hop_full", "This Hop is full right now.");
+    }
+
+    try {
+      const multipart = await c.env.BUCKET.createMultipartUpload(r2Key, {
+        customMetadata: { fileId },
+      });
+      await db
+        .update(files)
+        .set({ multipartUploadId: multipart.uploadId })
+        .where(eq(files.id, fileId));
+    } catch (error) {
+      await db.delete(files).where(eq(files.id, fileId));
+      throw error;
+    }
 
     return c.json<CreateUploadResult>(
       { fileId, uploadToken, partSize: PART_BYTES, partCount: parts },
@@ -159,90 +194,107 @@ export const uploadRoutes = new Hono<AppEnv>()
   })
 
   .post("/uploads/:fileId/parts", validate("json", signPartsSchema), async (c) => {
-    const file = await authorizeUpload(c);
+    const db = getDb(c.env.DB);
+    const file = await authorizeUpload(c, db);
     if (file?.status !== "pending" || !file.multipartUploadId) return fail(c, 404, "not_found");
     const { partNumbers } = c.req.valid("json");
     if (partNumbers.some((n) => n > file.partCount)) return fail(c, 400, "invalid_part");
 
+    // Uploads already in flight may finish after a Hop is closed; closing only
+    // stops new uploads from starting.
     const uploadId = file.multipartUploadId;
     const parts: SignedPart[] = await Promise.all(
-      partNumbers.map(async (partNumber) => ({
+      [...new Set(partNumbers)].map(async (partNumber) => ({
         partNumber,
-        url: await presignUploadPart(c.env, file.r2Key, uploadId, partNumber),
+        url: await presignUploadPart(
+          c.env,
+          file.r2Key,
+          uploadId,
+          partNumber,
+          partLength(file.size, partNumber, file.partSize),
+        ),
       })),
     );
+    await touch(db, file.id);
     return c.json({ parts });
   })
 
   .post("/uploads/:fileId/complete", validate("json", completeUploadSchema), async (c) => {
-    const file = await authorizeUpload(c);
-    if (!file?.multipartUploadId) return fail(c, 404, "not_found");
+    const db = getDb(c.env.DB);
+    const file = await authorizeUpload(c, db);
+    if (!file) return fail(c, 404, "not_found");
+    // Idempotent: a retry after a lost response must not look like a failure.
     if (file.status === "complete") return c.json({ ok: true });
+    if (!file.multipartUploadId) return fail(c, 404, "not_found");
 
     const parts = [...c.req.valid("json").parts].sort((a, b) => a.partNumber - b.partNumber);
     const expected =
       parts.length === file.partCount && parts.every((p, i) => p.partNumber === i + 1);
     if (!expected) return fail(c, 400, "missing_parts", "Some parts of the file are missing.");
 
-    const db = getDb(c.env.DB);
     const multipart = c.env.BUCKET.resumeMultipartUpload(file.r2Key, file.multipartUploadId);
     const object = await multipart.complete(
       parts.map((p) => ({ partNumber: p.partNumber, etag: normalizeEtag(p.etag) })),
     );
-
-    const reject = async (status: 400 | 415, error: string, message: string) => {
-      await c.env.BUCKET.delete(file.r2Key);
-      if (file.thumbKey) await c.env.BUCKET.delete(file.thumbKey);
-      await db.delete(files).where(eq(files.id, file.id));
-      return fail(c, status, error, message);
-    };
+    const completed = { ...file, multipartUploadId: null };
 
     if (object.size !== file.size) {
-      return reject(400, "size_mismatch", "The uploaded file doesn't match its declared size.");
+      await discardUpload(c.env, db, completed);
+      return fail(c, 400, "size_mismatch", "The uploaded file doesn't match its declared size.");
     }
     const head = await c.env.BUCKET.get(file.r2Key, { range: { offset: 0, length: SNIFF_BYTES } });
-    const kind = head ? sniffMedia(new Uint8Array(await head.arrayBuffer())) : null;
-    if (!kind)
-      return reject(415, "unsupported_type", "That file doesn't look like a video or photo.");
+    const mime = head ? sniffMedia(new Uint8Array(await head.arrayBuffer()), object.size) : null;
+    if (!mime) {
+      await discardUpload(c.env, db, completed);
+      return fail(c, 415, "unsupported_type", "That file doesn't look like a video or photo.");
+    }
 
+    // The stored type and extension come from the bytes, never from the client.
+    const now = Date.now();
     await db
       .update(files)
-      .set({ status: "complete", completedAt: Date.now(), multipartUploadId: null })
-      .where(eq(files.id, file.id));
+      .set({
+        status: "complete",
+        mime,
+        originalName: withMediaExtension(file.originalName, mime),
+        completedAt: now,
+        lastActivityAt: now,
+        multipartUploadId: null,
+      })
+      .where(and(eq(files.id, file.id), eq(files.status, "pending")));
     return c.json({ ok: true });
   })
 
   .put("/uploads/:fileId/thumbnail", async (c) => {
-    const file = await authorizeUpload(c);
+    const db = getDb(c.env.DB);
+    const file = await authorizeUpload(c, db);
     if (!file) return fail(c, 404, "not_found");
     const lateThumbnail =
       file.status === "complete" && (file.completedAt ?? 0) < Date.now() - THUMBNAIL_GRACE_MS;
     if (lateThumbnail) return fail(c, 409, "too_late");
     if (c.req.header("content-type") !== "image/jpeg") return fail(c, 415, "unsupported_type");
 
-    const body = await c.req.arrayBuffer();
-    if (body.byteLength === 0 || body.byteLength > MAX_THUMBNAIL_BYTES) {
-      return fail(c, 413, "too_large");
+    let body: Uint8Array;
+    try {
+      body = await readBodyCapped(c.req.raw, MAX_THUMBNAIL_BYTES);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) return fail(c, 413, "too_large");
+      throw error;
     }
-    if (sniffMedia(new Uint8Array(body.slice(0, SNIFF_BYTES))) !== "image") {
+    if (sniffMedia(body.subarray(0, SNIFF_BYTES), body.byteLength) !== "image/jpeg") {
       return fail(c, 415, "unsupported_type");
     }
     const thumbKey = `hops/${file.hopId}/${file.id}/thumb.jpg`;
     await c.env.BUCKET.put(thumbKey, body, { httpMetadata: { contentType: "image/jpeg" } });
-    await getDb(c.env.DB).update(files).set({ thumbKey }).where(eq(files.id, file.id));
+    await db.update(files).set({ thumbKey }).where(eq(files.id, file.id));
     return c.json({ ok: true });
   })
 
   /** Contributor cancelled before completing. */
   .delete("/uploads/:fileId", async (c) => {
-    const file = await authorizeUpload(c);
+    const db = getDb(c.env.DB);
+    const file = await authorizeUpload(c, db);
     if (file?.status !== "pending") return fail(c, 404, "not_found");
-    if (file.multipartUploadId) {
-      await c.env.BUCKET.resumeMultipartUpload(file.r2Key, file.multipartUploadId)
-        .abort()
-        .catch(() => {});
-    }
-    if (file.thumbKey) await c.env.BUCKET.delete(file.thumbKey);
-    await getDb(c.env.DB).delete(files).where(eq(files.id, file.id));
+    await discardUpload(c.env, db, file);
     return c.json({ ok: true });
   });

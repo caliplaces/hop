@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { Env } from "../env";
 import { newId, randomString, signPayload, verifyPayload } from "./crypto";
 import { safeReturnTo } from "./http";
 import { sniffMedia } from "./sniff";
-import { contentDisposition, normalizeEtag } from "./storage";
+import { contentDisposition, normalizeEtag, presignUploadPart } from "./storage";
 
 const bytes = (...parts: (string | number[])[]) => {
   const out: number[] = [];
@@ -10,7 +11,7 @@ const bytes = (...parts: (string | number[])[]) => {
     if (typeof part === "string") for (const ch of part) out.push(ch.charCodeAt(0));
     else out.push(...part);
   }
-  return new Uint8Array([...out, ...new Array(512).fill(0)]);
+  return new Uint8Array([...out, ...new Array(64).fill(0)]);
 };
 
 describe("signed payloads", () => {
@@ -55,29 +56,59 @@ describe("ids", () => {
 });
 
 describe("safeReturnTo", () => {
-  it("only allows same-site paths", () => {
-    expect(safeReturnTo("/app/hops")).toBe("/app/hops");
-    expect(safeReturnTo("//evil.com")).toBe("/app");
-    expect(safeReturnTo("/\\evil.com")).toBe("/app");
-    expect(safeReturnTo("https://evil.com")).toBe("/app");
-    expect(safeReturnTo(undefined)).toBe("/app");
+  const app = "https://onmyhop.com";
+  it("keeps same-origin paths", () => {
+    expect(safeReturnTo("/app/hops", app)).toBe("/app/hops");
+    expect(safeReturnTo("/matej/worlds?x=1#top", app)).toBe("/matej/worlds?x=1#top");
+  });
+  it("rejects anything that leaves the origin", () => {
+    for (const input of [
+      "//evil.example",
+      "/\\evil.example",
+      "/\t/evil.example",
+      "/\n/evil.example",
+      "https://evil.example",
+      "javascript:alert(1)",
+      "",
+      undefined,
+    ]) {
+      expect(safeReturnTo(input, app)).toBe("/app");
+    }
   });
 });
 
+const MiB = 1024 * 1024;
+
 describe("sniffMedia", () => {
-  it("recognises containers", () => {
-    expect(sniffMedia(bytes([0, 0, 0, 0x20], "ftypisom"))).toBe("video");
-    expect(sniffMedia(bytes([0, 0, 0, 0x14], "ftypqt  "))).toBe("video");
-    expect(sniffMedia(bytes([0, 0, 0, 0x18], "ftypheic"))).toBe("image");
-    expect(sniffMedia(bytes([0x1a, 0x45, 0xdf, 0xa3]))).toBe("video");
-    expect(sniffMedia(bytes([0xff, 0xd8, 0xff, 0xe0]))).toBe("image");
-    expect(sniffMedia(bytes([0x89], "PNG"))).toBe("image");
-    expect(sniffMedia(bytes("RIFF", [0, 0, 0, 0], "WEBP"))).toBe("image");
+  it("recognises what phones produce", () => {
+    expect(sniffMedia(bytes([0, 0, 0, 0x20], "ftypisom"), 50 * MiB)).toBe("video/mp4");
+    expect(sniffMedia(bytes([0, 0, 0, 0x14], "ftypqt  "), 50 * MiB)).toBe("video/quicktime");
+    expect(sniffMedia(bytes([0, 0, 0, 0x18], "ftyp3gp4"), 50 * MiB)).toBe("video/3gpp");
+    expect(sniffMedia(bytes([0, 0, 0, 0x18], "ftypheic"), MiB)).toBe("image/heic");
+    expect(sniffMedia(bytes([0, 0, 0, 0x08], "wide", [0, 0, 0, 0x10], "mdat"), MiB)).toBe(
+      "video/quicktime",
+    );
+    expect(sniffMedia(bytes([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x82, 0x84], "webm"), MiB)).toBe(
+      "video/webm",
+    );
+    expect(sniffMedia(bytes([0xff, 0xd8, 0xff, 0xe0]), MiB)).toBe("image/jpeg");
+    expect(sniffMedia(bytes([0x89], "PNG", [0x0d, 0x0a, 0x1a, 0x0a]), MiB)).toBe("image/png");
+    expect(sniffMedia(bytes("RIFF", [0, 0, 0, 0], "WEBPVP8 "), MiB)).toBe("image/webp");
   });
-  it("rejects other files", () => {
-    expect(sniffMedia(bytes("%PDF-1.7"))).toBeNull();
-    expect(sniffMedia(bytes("PK", [3, 4]))).toBeNull();
-    expect(sniffMedia(bytes("<html>"))).toBeNull();
+  it("rejects polyglots and other files", () => {
+    // HTML/SVG with a magic word at offset 4
+    expect(sniffMedia(bytes("<!--free--><svg onload=alert(1)>"), MiB)).toBeNull();
+    expect(sniffMedia(bytes("<!--ftypisom--><script>"), MiB)).toBeNull();
+    // Windows executable header followed by an atom name
+    expect(sniffMedia(bytes("MZ", [0x90, 0], "free"), MiB)).toBeNull();
+    expect(sniffMedia(bytes("MZ", [0x90, 0], "mdat"), MiB)).toBeNull();
+    // ftyp box larger than the file itself
+    expect(sniffMedia(bytes([0, 0, 0x10, 0], "ftypisom"), 1024)).toBeNull();
+    expect(sniffMedia(bytes("GGGG text"), MiB)).toBeNull();
+    expect(sniffMedia(bytes("%PDF-1.7"), MiB)).toBeNull();
+    expect(sniffMedia(bytes("PK", [3, 4]), MiB)).toBeNull();
+    expect(sniffMedia(bytes("RIFF", [0, 0, 0, 0], "AVI LIST"), MiB)).toBeNull();
+    expect(sniffMedia(new Uint8Array([0xff, 0xd8]), MiB)).toBeNull();
   });
 });
 
@@ -91,5 +122,24 @@ describe("storage helpers", () => {
     expect(contentDisposition('Čo "to".mp4', true)).toBe(
       `attachment; filename="_o _to_.mp4"; filename*=UTF-8''%C4%8Co%20%22to%22.mp4`,
     );
+  });
+  it("signs Content-Length into presigned part URLs", async () => {
+    const env = {
+      ENVIRONMENT: "production",
+      R2_ACCOUNT_ID: "acc",
+      R2_ACCESS_KEY_ID: "AKID",
+      R2_SECRET_ACCESS_KEY: "secret",
+      R2_BUCKET_NAME: "hop-production",
+    } as Env;
+    const url = new URL(await presignUploadPart(env, "hops/h/f/original", "up1", 3, 1234));
+    expect(url.host).toBe("acc.r2.cloudflarestorage.com");
+    expect(url.pathname).toBe("/hop-production/hops/h/f/original");
+    expect(url.searchParams.get("partNumber")).toBe("3");
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;host");
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("3600");
+  });
+  it("refuses the dev fallback outside development", async () => {
+    const env = { ENVIRONMENT: "production", R2_BUCKET_NAME: "b", SESSION_SECRET: "s" } as Env;
+    await expect(presignUploadPart(env, "k", "u", 1, 1)).rejects.toThrow();
   });
 });
