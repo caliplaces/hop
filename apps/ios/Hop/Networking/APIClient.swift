@@ -26,6 +26,13 @@ nonisolated enum HopServer {
         }
     }
 
+    /// Names a server for storing its token: scheme, host and port, so two
+    /// local servers on different ports never share a sign-in.
+    static func storageKey(for url: URL) -> String {
+        let port = url.port.map { ":\($0)" } ?? ""
+        return "\(url.scheme ?? "https")://\(url.host() ?? "")\(port)"
+    }
+
     /// The custom scheme Caliplaces redirects to after sign-in. It matches the
     /// bundle id and the redirect URI registered on the app's developer app.
     static let callbackScheme = "com.onmyhop.app"

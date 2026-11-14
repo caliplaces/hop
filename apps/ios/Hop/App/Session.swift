@@ -29,10 +29,10 @@ final class Session {
         defaults: UserDefaults = .standard
     ) {
         // Tokens are kept per server, so one is never sent to another.
-        let store = store ?? KeychainTokenStore(account: baseURL.host() ?? "default")
-        // A fresh install starts signed out, even if an old token survived.
+        let store = store ?? KeychainTokenStore(account: HopServer.storageKey(for: baseURL))
+        // A fresh install starts signed out, even if old tokens survived.
         if !defaults.bool(forKey: Self.installedKey) {
-            store.delete()
+            store.deleteAll()
             defaults.set(true, forKey: Self.installedKey)
         }
         self.store = store
@@ -64,9 +64,11 @@ final class Session {
     /// Reloads the profile. Signs out here if the server no longer knows the
     /// session; keeps it when offline.
     func refresh() async {
-        guard token != nil else { return }
+        guard let asked = token else { return }
         do {
             let reply: MeReply = try await api.get("api/me")
+            // Signed out, or in as someone else, while this was on its way.
+            guard token == asked else { return }
             if let me = reply.me {
                 self.me = me
             } else {

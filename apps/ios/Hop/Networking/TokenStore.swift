@@ -6,6 +6,8 @@ nonisolated protocol TokenStore: Sendable {
     func read() -> String?
     func write(_ token: String) throws
     func delete()
+    /// Deletes this app's tokens for every server, not just this store's.
+    func deleteAll()
 }
 
 /// Keeps the session token in the Keychain, on this device only. It stays
@@ -46,5 +48,13 @@ nonisolated struct KeychainTokenStore: TokenStore {
 
     func delete() {
         SecItemDelete(query as CFDictionary)
+    }
+
+    func deleteAll() {
+        let everyAccount: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+        ]
+        SecItemDelete(everyAccount as CFDictionary)
     }
 }
