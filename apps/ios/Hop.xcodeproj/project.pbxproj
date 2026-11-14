@@ -1,0 +1,406 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		D20BB72D27883D050202B057 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2FED190865A756C0695606FF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1ACE8AE088B1FAB246636BF8;
+			remoteInfo = Hop;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		2B73C58EFD155FDBF3279C3C /* Hop.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Hop.xcconfig; sourceTree = "<group>"; };
+		B76EB08FBBECCCF421DC0A7F /* Hop.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Hop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8CABA8F7D958E780A75E41F /* HopTests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = HopTests.xcconfig; sourceTree = "<group>"; };
+		DC51AD5366767DDF9D66EE64 /* HopTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = HopTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		89C623768EE00738E1439EAF /* HopTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = HopTests;
+			sourceTree = "<group>";
+		};
+		F1E6AEE72652E3AA70CE8F12 /* Hop */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Hop;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXGroup section */
+		145C147B91587805BDF8D7F5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B76EB08FBBECCCF421DC0A7F /* Hop.app */,
+				DC51AD5366767DDF9D66EE64 /* HopTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5B830CDB949CB502E49F5DD0 = {
+			isa = PBXGroup;
+			children = (
+				F39E2A09465B2961542DCD6C /* Config */,
+				F1E6AEE72652E3AA70CE8F12 /* Hop */,
+				89C623768EE00738E1439EAF /* HopTests */,
+				145C147B91587805BDF8D7F5 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F39E2A09465B2961542DCD6C /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				2B73C58EFD155FDBF3279C3C /* Hop.xcconfig */,
+				B8CABA8F7D958E780A75E41F /* HopTests.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1ACE8AE088B1FAB246636BF8 /* Hop */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E87FA0E44D2AEA3BE30B17D3 /* Build configuration list for PBXNativeTarget "Hop" */;
+			buildPhases = (
+				8B10FD0746211FB2DEA877E8 /* Sources */,
+				916A1BD40E726824B3AD9283 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				F1E6AEE72652E3AA70CE8F12 /* Hop */,
+			);
+			name = Hop;
+			packageProductDependencies = (
+			);
+			productName = Hop;
+			productReference = B76EB08FBBECCCF421DC0A7F /* Hop.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B54F497D6BB1E1850276CCBF /* HopTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A2086AE6B7808476288251C /* Build configuration list for PBXNativeTarget "HopTests" */;
+			buildPhases = (
+				7E101EE2B3ED47C10DF57F36 /* Sources */,
+				CF8F4CD5EE29D2F2881C2507 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4E3FE92755BB913E41A465FA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				89C623768EE00738E1439EAF /* HopTests */,
+			);
+			name = HopTests;
+			packageProductDependencies = (
+			);
+			productName = HopTests;
+			productReference = DC51AD5366767DDF9D66EE64 /* HopTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2FED190865A756C0695606FF /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					1ACE8AE088B1FAB246636BF8 = {
+						DevelopmentTeam = "";
+					};
+					B54F497D6BB1E1850276CCBF = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = 40DD2466A879C8EC5422C4BA /* Build configuration list for PBXProject "Hop" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 5B830CDB949CB502E49F5DD0;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 145C147B91587805BDF8D7F5 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1ACE8AE088B1FAB246636BF8 /* Hop */,
+				B54F497D6BB1E1850276CCBF /* HopTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		916A1BD40E726824B3AD9283 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CF8F4CD5EE29D2F2881C2507 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7E101EE2B3ED47C10DF57F36 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8B10FD0746211FB2DEA877E8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4E3FE92755BB913E41A465FA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1ACE8AE088B1FAB246636BF8 /* Hop */;
+			targetProxy = D20BB72D27883D050202B057 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		083629897C20501BECB25B93 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B8CABA8F7D958E780A75E41F /* HopTests.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Hop.app/Hop";
+			};
+			name = Debug;
+		};
+		09DA4B2B02F57F5061350AE1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 2B73C58EFD155FDBF3279C3C /* Hop.xcconfig */;
+			buildSettings = {
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		12D3F98E76B5101245C2B392 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		2459B2BCCFB9B10A9C4C5F97 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 2B73C58EFD155FDBF3279C3C /* Hop.xcconfig */;
+			buildSettings = {
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		4DD3C100AFC7FF37348305E2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B8CABA8F7D958E780A75E41F /* HopTests.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Hop.app/Hop";
+			};
+			name = Release;
+		};
+		EC4DD04B5B6D1DA02F85F2E8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0A2086AE6B7808476288251C /* Build configuration list for PBXNativeTarget "HopTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				083629897C20501BECB25B93 /* Debug */,
+				4DD3C100AFC7FF37348305E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		40DD2466A879C8EC5422C4BA /* Build configuration list for PBXProject "Hop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EC4DD04B5B6D1DA02F85F2E8 /* Debug */,
+				12D3F98E76B5101245C2B392 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E87FA0E44D2AEA3BE30B17D3 /* Build configuration list for PBXNativeTarget "Hop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				09DA4B2B02F57F5061350AE1 /* Debug */,
+				2459B2BCCFB9B10A9C4C5F97 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 2FED190865A756C0695606FF /* Project object */;
+}
