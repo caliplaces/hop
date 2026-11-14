@@ -5,6 +5,8 @@ export type Env = {
   BUCKET: R2Bucket;
   ASSETS: Fetcher;
   UPLOAD_LIMITER: RateLimit;
+  /** Per IP, on the sign-in endpoints that call out to Caliplaces. */
+  AUTH_LIMITER: RateLimit;
 
   ENVIRONMENT: "development" | "staging" | "production";
   APP_URL: string;

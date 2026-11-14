@@ -7,13 +7,23 @@ nonisolated enum HopServer {
     static var baseURL: URL {
         #if DEBUG
         if let override = UserDefaults.standard.string(forKey: "HopAPIURL"),
-           let url = URL(string: override) {
+           let url = URL(string: override),
+           isAllowedOverride(url) {
             return url
         }
         return URL(string: "https://staging.onmyhop.com")!
         #else
         return URL(string: "https://onmyhop.com")!
         #endif
+    }
+
+    /// Overrides must be https, or plain http to this Mac only.
+    static func isAllowedOverride(_ url: URL) -> Bool {
+        switch url.scheme {
+        case "https": url.host() != nil
+        case "http": ["127.0.0.1", "localhost"].contains(url.host())
+        default: false
+        }
     }
 
     /// The custom scheme Caliplaces redirects to after sign-in. It matches the

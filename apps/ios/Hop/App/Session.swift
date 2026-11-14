@@ -19,11 +19,22 @@ final class Session {
     private let baseURL: URL
     private let urlSession: URLSession
 
+    /// Set once the app has run, because the Keychain outlives an uninstall.
+    private static let installedKey = "session.installed"
+
     init(
-        store: TokenStore = KeychainTokenStore(),
+        store: TokenStore? = nil,
         baseURL: URL = HopServer.baseURL,
-        urlSession: URLSession = .shared
+        urlSession: URLSession = .shared,
+        defaults: UserDefaults = .standard
     ) {
+        // Tokens are kept per server, so one is never sent to another.
+        let store = store ?? KeychainTokenStore(account: baseURL.host() ?? "default")
+        // A fresh install starts signed out, even if an old token survived.
+        if !defaults.bool(forKey: Self.installedKey) {
+            store.delete()
+            defaults.set(true, forKey: Self.installedKey)
+        }
         self.store = store
         self.baseURL = baseURL
         self.urlSession = urlSession

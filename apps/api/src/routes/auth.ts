@@ -8,7 +8,7 @@ import { getDb } from "../db";
 import { type UserRow, users } from "../db/schema";
 import type { AppEnv, Env } from "../env";
 import { newId, signPayload, verifyPayload } from "../lib/crypto";
-import { fail, isSecureUrl, safeReturnTo } from "../lib/http";
+import { clientIp, fail, isSecureUrl, safeReturnTo } from "../lib/http";
 import {
   APP_REDIRECT_URI,
   appOidcClient,
@@ -45,6 +45,28 @@ type AppFlowState = {
   nonce: string;
   codeVerifier: string;
 };
+
+/**
+ * OIDC errors can carry the callback's code and state, or the token
+ * endpoint's reply, in their cause. Log only what identifies the failure.
+ */
+function describeError(error: unknown) {
+  if (!(error instanceof Error)) return { message: String(error) };
+  const details = error as { code?: unknown; error?: unknown; status?: unknown };
+  return {
+    name: error.name,
+    message: error.message,
+    code: details.code,
+    error: details.error,
+    status: details.status,
+  };
+}
+
+/** Sign-in calls out to Caliplaces, so it's limited per IP. */
+async function tooManyAttempts(env: Env, ip: string): Promise<boolean> {
+  const { success } = await env.AUTH_LIMITER.limit({ key: `auth:${ip}` });
+  return !success;
+}
 
 const appSessionSchema = z.object({
   flow: z.string().min(1).max(2048),
@@ -183,6 +205,7 @@ export const authRoutes = new Hono<AppEnv>()
     );
     deleteCookie(c, FLOW_COOKIE, { path: "/api/auth" });
     if (!flow) return c.redirect("/?authError=expired");
+    if (await tooManyAttempts(c.env, clientIp(c))) return c.redirect("/?authError=failed");
 
     const as = await authorizationServer(c.env);
     const client = oidcClient(c.env);
@@ -191,7 +214,7 @@ export const authRoutes = new Hono<AppEnv>()
     try {
       params = oauth.validateAuthResponse(as, client, new URL(c.req.url), flow.state);
     } catch (error) {
-      console.warn("OIDC authorization response rejected", error);
+      console.warn("OIDC authorization response rejected", describeError(error));
       return c.redirect("/?authError=denied");
     }
 
@@ -209,7 +232,7 @@ export const authRoutes = new Hono<AppEnv>()
       });
       userId = user.id;
     } catch (error) {
-      console.error("OIDC sign-in failed", error);
+      console.error("OIDC sign-in failed", describeError(error));
       return c.redirect("/?authError=failed");
     }
 
@@ -223,6 +246,9 @@ export const authRoutes = new Hono<AppEnv>()
    * web authentication session.
    */
   .post("/app/start", async (c) => {
+    if (await tooManyAttempts(c.env, clientIp(c))) {
+      return fail(c, 429, "rate_limited", "Too many sign-in attempts. Please wait a minute.");
+    }
     if (!c.env.OIDC_APP_CLIENT_ID) {
       return fail(c, 503, "unavailable", "Signing in from the app isn't set up here.");
     }
@@ -239,6 +265,9 @@ export const authRoutes = new Hono<AppEnv>()
    * to. The code is exchanged here, so the app only ever holds a Hop session.
    */
   .post("/app/session", validate("json", appSessionSchema), async (c) => {
+    if (await tooManyAttempts(c.env, clientIp(c))) {
+      return fail(c, 429, "rate_limited", "Too many sign-in attempts. Please wait a minute.");
+    }
     if (!c.env.OIDC_APP_CLIENT_ID) {
       return fail(c, 503, "unavailable", "Signing in from the app isn't set up here.");
     }
@@ -266,7 +295,7 @@ export const authRoutes = new Hono<AppEnv>()
     try {
       params = oauth.validateAuthResponse(as, client, callback, flow.state);
     } catch (error) {
-      console.warn("OIDC authorization response rejected (app)", error);
+      console.warn("OIDC authorization response rejected (app)", describeError(error));
       return fail(c, 400, "denied", "Sign-in was cancelled or refused.");
     }
 
@@ -281,7 +310,7 @@ export const authRoutes = new Hono<AppEnv>()
         nonce: flow.nonce,
       });
     } catch (error) {
-      console.error("OIDC sign-in failed (app)", error);
+      console.error("OIDC sign-in failed (app)", describeError(error));
       return fail(c, 502, "failed", "Couldn't sign in with Caliplaces. Please try again.");
     }
 

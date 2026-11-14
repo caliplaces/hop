@@ -18,6 +18,8 @@ let db: ReturnType<typeof getDb>;
 let tokenRequests: { body: URLSearchParams; authorization: string | null }[];
 /** The nonce the next ID token carries; tests set it from the flow they started. */
 let idTokenNonce: string;
+/** Whether the sign-in rate limiter lets the next request through. */
+let allowSignIn: boolean;
 
 function idToken(claims: Record<string, unknown>) {
   const part = (value: unknown) => base64url(new TextEncoder().encode(JSON.stringify(value)));
@@ -90,19 +92,19 @@ async function start() {
   return { ...body, url, state: url.searchParams.get("state") ?? "" };
 }
 
-async function insertSession(kind: "web" | "app", expiresAt = Date.now() + DAY) {
+async function insertSession(
+  kind: "web" | "app",
+  { expiresAt = Date.now() + DAY, createdAt = Date.now() } = {},
+) {
   const now = Date.now();
-  await db.insert(users).values({
-    id: "usr_test",
-    oidcSub: "sub-test",
-    name: "Test",
-    createdAt: now,
-    updatedAt: now,
-  });
-  const token = randomToken();
+  await db
+    .insert(users)
+    .values({ id: "usr_test", oidcSub: "sub-test", name: "Test", createdAt: now, updatedAt: now })
+    .onConflictDoNothing();
+  const token = kind === "app" ? `hs_${randomToken()}` : randomToken();
   await db
     .insert(sessions)
-    .values({ id: await sha256Hex(token), userId: "usr_test", kind, createdAt: now, expiresAt });
+    .values({ id: await sha256Hex(token), userId: "usr_test", kind, createdAt, expiresAt });
   return token;
 }
 
@@ -122,10 +124,12 @@ beforeEach(() => {
     OIDC_CLIENT_SECRET: "web-secret",
     OIDC_APP_CLIENT_ID: APP_CLIENT,
     SESSION_SECRET: "test-secret",
+    AUTH_LIMITER: { limit: async () => ({ success: allowSignIn }) } as RateLimit,
   } as Env;
   db = getDb(DB);
   tokenRequests = [];
   idTokenNonce = "";
+  allowSignIn = true;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -172,6 +176,7 @@ describe("app sign-in", () => {
       me: { name: string; email: string };
     };
     expect(body.me).toMatchObject({ name: "Alex Rider", email: "alex@example.com" });
+    expect(body.token).toMatch(/^hs_[A-Za-z0-9_-]{43}$/);
     expect(body.expiresAt).toBeGreaterThan(Date.now() + 89 * DAY);
     expect(response.headers.get("set-cookie")).toBeNull();
 
@@ -255,6 +260,13 @@ describe("app sign-in", () => {
     expect(tokenRequests).toHaveLength(0);
   });
 
+  it("is rate limited per IP", async () => {
+    allowSignIn = false;
+    expect((await post("/auth/app/start")).status).toBe(429);
+    const session = await post("/auth/app/session", { flow: "x.y", callbackUrl: APP_REDIRECT });
+    expect(session.status).toBe(429);
+  });
+
   it("is unavailable where the app's client isn't configured", async () => {
     env.OIDC_APP_CLIENT_ID = "";
     expect((await post("/auth/app/start")).status).toBe(503);
@@ -266,20 +278,21 @@ describe("sessions", () => {
     const web = await insertSession("web");
     expect(await me({ cookie: `hop_session=${web}` })).toMatchObject({ id: "usr_test" });
     expect(await me({ authorization: `Bearer ${web}` })).toBeNull();
+    expect(await me({ authorization: `Bearer hs_${web}` })).toBeNull();
 
-    await db.delete(users);
     const app = await insertSession("app");
     expect(await me({ authorization: `Bearer ${app}` })).toMatchObject({ id: "usr_test" });
     expect(await me({ cookie: `hop_session=${app}` })).toBeNull();
   });
 
-  it("ignore the cookie when a request carries an Authorization header", async () => {
+  it("keep using the cookie alongside other bearer tokens, like upload tokens", async () => {
     const web = await insertSession("web");
-    expect(await me({ cookie: `hop_session=${web}`, authorization: "Basic abc" })).toBeNull();
+    const headers = { cookie: `hop_session=${web}`, authorization: `Bearer ${randomToken()}` };
+    expect(await me(headers)).toMatchObject({ id: "usr_test" });
   });
 
   it("renew app sessions to 90 days without setting a cookie", async () => {
-    const app = await insertSession("app", Date.now() + 80 * DAY);
+    const app = await insertSession("app", { expiresAt: Date.now() + 80 * DAY });
     const response = await call("/me", { headers: { authorization: `Bearer ${app}` } });
     expect(response.headers.get("set-cookie")).toBeNull();
     const row = await db
@@ -291,7 +304,25 @@ describe("sessions", () => {
   });
 
   it("reject expired app sessions", async () => {
-    const app = await insertSession("app", Date.now() - 1);
+    const app = await insertSession("app", { expiresAt: Date.now() - 1 });
     expect(await me({ authorization: `Bearer ${app}` })).toBeNull();
+  });
+
+  it("end app sessions a year after sign-in, however recently used", async () => {
+    const createdAt = Date.now() - 300 * DAY;
+    const app = await insertSession("app", { createdAt, expiresAt: Date.now() + 10 * DAY });
+    await call("/me", { headers: { authorization: `Bearer ${app}` } });
+    const row = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, await sha256Hex(app)))
+      .get();
+    expect(row?.expiresAt).toBe(createdAt + 365 * DAY);
+
+    const old = await insertSession("app", {
+      createdAt: Date.now() - 366 * DAY,
+      expiresAt: Date.now() + 10 * DAY,
+    });
+    expect(await me({ authorization: `Bearer ${old}` })).toBeNull();
   });
 });

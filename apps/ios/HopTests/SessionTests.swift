@@ -60,12 +60,22 @@ struct SessionTests {
         StubProtocol.requests = []
     }
 
-    private func makeSession(store: MemoryTokenStore? = nil) -> Session {
+    /// Defaults for an app that has run before; see `freshInstallStartsSignedOut`.
+    private func installedDefaults() -> UserDefaults {
+        let defaults = UserDefaults(suiteName: "SessionTests.\(UUID().uuidString)")!
+        defaults.set(true, forKey: "session.installed")
+        return defaults
+    }
+
+    private func makeSession(
+        store: MemoryTokenStore? = nil, defaults: UserDefaults? = nil
+    ) -> Session {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubProtocol.self]
         return Session(
             store: store ?? self.store, baseURL: base,
-            urlSession: URLSession(configuration: configuration)
+            urlSession: URLSession(configuration: configuration),
+            defaults: defaults ?? installedDefaults()
         )
     }
 
@@ -138,6 +148,26 @@ struct SessionTests {
         let session = makeSession(store: MemoryTokenStore("tok_saved"))
         await session.refresh()
         #expect(session.isSignedIn)
+    }
+
+    @Test func freshInstallStartsSignedOut() {
+        let saved = MemoryTokenStore("tok_from_before_uninstall")
+        let fresh = UserDefaults(suiteName: "SessionTests.\(UUID().uuidString)")!
+        let session = makeSession(store: saved, defaults: fresh)
+        #expect(!session.isSignedIn)
+        #expect(saved.token == nil)
+        #expect(fresh.bool(forKey: "session.installed"))
+    }
+
+    @Test(arguments: [
+        ("https://staging.onmyhop.com", true),
+        ("http://127.0.0.1:8787", true),
+        ("http://localhost:8787", true),
+        ("http://example.com", false),
+        ("ftp://127.0.0.1", false),
+    ])
+    func serverOverridesMustBeSecureOrLocal(url: String, allowed: Bool) {
+        #expect(HopServer.isAllowedOverride(URL(string: url)!) == allowed)
     }
 
     @Test func signOutForgetsLocallyAndEndsTheServerSession() async throws {

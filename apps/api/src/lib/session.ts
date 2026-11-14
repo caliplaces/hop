@@ -17,15 +17,20 @@ type SessionKind = "web" | "app";
  * How long each kind of session lasts, and when using it pushes the expiry
  * back. Website sessions last 30 days and renew in their last week. The app's
  * last 90 days from when it was last opened, renewed at most once a day,
- * because people may only open it at events.
+ * because people may only open it at events, and never beyond a year in all.
  */
-const POLICY: Record<SessionKind, { ttl: number; renewWithin: number }> = {
-  web: { ttl: 30 * DAY_MS, renewWithin: 7 * DAY_MS },
-  app: { ttl: 90 * DAY_MS, renewWithin: 89 * DAY_MS },
+const POLICY: Record<SessionKind, { ttl: number; renewWithin: number; maxAge: number }> = {
+  web: { ttl: 30 * DAY_MS, renewWithin: 7 * DAY_MS, maxAge: Number.POSITIVE_INFINITY },
+  app: { ttl: 90 * DAY_MS, renewWithin: 89 * DAY_MS, maxAge: 365 * DAY_MS },
 };
 
-/** A session token as the app sends it: `Authorization: Bearer <token>`. */
-const BEARER = /^Bearer ([A-Za-z0-9_-]{20,200})$/;
+/**
+ * App session tokens carry a prefix, so they can't be mistaken for the other
+ * bearer tokens the API accepts, like upload tokens.
+ */
+const APP_TOKEN_PREFIX = "hs_";
+/** An app session token as the app sends it: `Authorization: Bearer hs_…`. */
+const BEARER = /^Bearer (hs_[A-Za-z0-9_-]{43})$/;
 
 function writeCookie(c: Context<AppEnv>, token: string, expiresAt: number) {
   setCookie(c, SESSION_COOKIE, token, {
@@ -38,7 +43,7 @@ function writeCookie(c: Context<AppEnv>, token: string, expiresAt: number) {
 }
 
 async function insertSession(env: Env, userId: string, kind: SessionKind) {
-  const token = randomToken();
+  const token = kind === "app" ? `${APP_TOKEN_PREFIX}${randomToken()}` : randomToken();
   const now = Date.now();
   const expiresAt = now + POLICY[kind].ttl;
   await getDb(env.DB)
@@ -65,35 +70,38 @@ export async function destroySession(c: Context<AppEnv>) {
 }
 
 /**
- * Resolves the signed-in user, if any: from the app's bearer token when the
- * request has an Authorization header, otherwise from the website's cookie.
+ * Resolves the signed-in user, if any: from the app's session token when the
+ * request carries one, otherwise from the website's cookie.
  */
 export const loadSession = createMiddleware<AppEnv>(async (c, next) => {
   c.set("user", null);
   c.set("sessionId", null);
 
-  const authorization = c.req.header("authorization");
-  const bearer = authorization?.match(BEARER)?.[1];
-  const kind: SessionKind = authorization ? "app" : "web";
-  const token = authorization ? bearer : getCookie(c, SESSION_COOKIE);
+  const bearer = c.req.header("authorization")?.match(BEARER)?.[1];
+  const kind: SessionKind = bearer ? "app" : "web";
+  const token = bearer ?? getCookie(c, SESSION_COOKIE);
 
   if (token) {
     const id = await sha256Hex(token);
     const db = getDb(c.env.DB);
     const row = await db
-      .select({ user: users, expiresAt: sessions.expiresAt })
+      .select({ user: users, createdAt: sessions.createdAt, expiresAt: sessions.expiresAt })
       .from(sessions)
       .innerJoin(users, eq(users.id, sessions.userId))
       .where(and(eq(sessions.id, id), eq(sessions.kind, kind)))
       .get();
     const now = Date.now();
-    if (row && row.expiresAt > now) {
+    const policy = POLICY[kind];
+    const endOfLife = row ? row.createdAt + policy.maxAge : 0;
+    if (row && row.expiresAt > now && endOfLife > now) {
       c.set("user", row.user);
       c.set("sessionId", id);
-      if (row.expiresAt - now < POLICY[kind].renewWithin) {
-        const expiresAt = now + POLICY[kind].ttl;
-        await db.update(sessions).set({ expiresAt }).where(eq(sessions.id, id));
-        if (kind === "web") writeCookie(c, token, expiresAt);
+      if (row.expiresAt - now < policy.renewWithin) {
+        const expiresAt = Math.min(now + policy.ttl, endOfLife);
+        if (expiresAt > row.expiresAt) {
+          await db.update(sessions).set({ expiresAt }).where(eq(sessions.id, id));
+          if (kind === "web") writeCookie(c, token, expiresAt);
+        }
       }
     } else if (kind === "web") {
       deleteCookie(c, SESSION_COOKIE, { path: "/" });
