@@ -14,6 +14,11 @@ struct WelcomeView: View {
     @State private var opened: CGFloat = 0
     /// Whether letting go now would open the bubble.
     @State private var armed = false
+    /// Bumped by each tap hint and each drag, so a hint that is still
+    /// running can tell it has been overtaken and leave the bubble alone.
+    @State private var hintID = 0
+    /// How far the sign-in screen is scrolled, so Bobble scrolls with it.
+    @State private var signInScroll: CGFloat = 0
     @State private var haptics = BubbleHaptics()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -37,13 +42,16 @@ struct WelcomeView: View {
         ZStack {
             BubbleScene(
                 layout: layout, drag: drag, stretch: stretch, opened: opened,
-                reduceMotion: reduceMotion
+                scroll: signInScroll, reduceMotion: reduceMotion
             )
             if phase == .resting {
                 startButton(layout)
             }
             if phase == .open {
-                SignInPanel(layout: layout, onContinue: onContinue, onClose: close)
+                SignInPanel(
+                    layout: layout, onContinue: onContinue, onClose: close,
+                    onScroll: { signInScroll = $0 }
+                )
                     .transition(.opacity.combined(with: .offset(y: 20)))
             }
         }
@@ -74,6 +82,7 @@ struct WelcomeView: View {
                     guard layout.acceptsTouch(at: value.startLocation) else { return }
                     phase = .dragging
                     armed = false
+                    hintID += 1
                     haptics.begin()
                 }
                 guard phase == .dragging else { return }
@@ -124,7 +133,10 @@ struct WelcomeView: View {
     }
 
     private func close() {
-        withAnimation(.smooth(duration: 0.2)) { phase = .opening }
+        withAnimation(.smooth(duration: 0.2)) {
+            phase = .opening
+            signInScroll = 0
+        }
         let animation: Animation = reduceMotion
             ? .easeInOut(duration: 0.35)
             : .spring(duration: 0.75, bounce: 0.1)
@@ -138,10 +150,14 @@ struct WelcomeView: View {
 
     /// A tap makes the bubble hop, to show that it wants to be swiped.
     private func hint() {
+        hintID += 1
+        let id = hintID
         haptics.tap()
         withAnimation(.spring(duration: 0.25, bounce: 0)) {
             drag = CGSize(width: 0, height: -52)
         } completion: {
+            // A drag that started meanwhile owns the bubble now.
+            guard id == hintID, phase == .resting else { return }
             withAnimation(.spring(duration: 0.7, bounce: 0.5)) { drag = .zero }
         }
     }
@@ -154,6 +170,8 @@ struct BubbleScene: View, Animatable {
     var drag: CGSize
     var stretch: CGFloat
     var opened: CGFloat
+    /// The sign-in screen's scroll offset; Bobble moves with its content.
+    let scroll: CGFloat
     let reduceMotion: Bool
 
     nonisolated var animatableData: AnimatablePair<
@@ -221,7 +239,9 @@ struct BubbleScene: View, Animatable {
                 }
             }
             .frame(width: frame.bobbleSize, height: frame.bobbleSize)
+            .opacity(frame.bobbleOpacity)
             .position(frame.bobbleCenter)
+            .offset(y: -scroll)
             .accessibilityHidden(true)
         }
         .mask {

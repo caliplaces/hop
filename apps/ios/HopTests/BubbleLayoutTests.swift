@@ -91,6 +91,7 @@ struct BubbleLayoutTests {
         #expect(frame.radius == layout.openRadius)
         #expect(frame.scale == CGSize(width: 1, height: 1))
         #expect(frame.bobbleCenter == layout.heroCenter)
+        #expect(frame.bobbleOpacity == 1)
         #expect(frame.portalFill == 1)
         #expect(frame.cheer == 1)
         #expect(frame.lensStrength == 0)
@@ -102,6 +103,7 @@ struct BubbleLayoutTests {
         let frame = layout.frame(drag: .zero, stretch: 0, opened: 0.5, time: 0, reduceMotion: true)
         #expect(frame.radius == layout.openRadius)
         #expect(frame.portalFill == 0.5)
+        #expect(frame.bobbleOpacity == 0.5)
         #expect(frame.rimOpacity == 0)
     }
 

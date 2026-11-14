@@ -57,8 +57,9 @@ const EMAIL_POSES = {
 const EMAIL_SIZE = 400;
 const only = process.argv[2]; // "email" to skip the logo images, "ios" for the iOS app only
 /**
- * iOS app images, written straight into apps/ios's asset catalog. Bobble shows
- * at up to ~220 pt there, so poses render at 3x of that.
+ * iOS app images, written straight into apps/ios's asset catalog: two poses,
+ * the face and the app icons. Bobble shows at up to ~220 pt there, so poses
+ * render at 3x of that.
  */
 const iosAssets = path.resolve(webDir, "..", "ios", "Hop", "Assets.xcassets");
 const IOS_POSES = {
@@ -151,6 +152,11 @@ if (only === "ios") {
   fs.writeFileSync(
     path.join(iconDir, "app-icon-dark.png"),
     await snapshot(page, IOS_ICON_SIZE, { padding: 0.12 }),
+  );
+  // The face beside the wordmark on the welcome screen.
+  fs.writeFileSync(
+    path.join(iosAssets, "BobbleFace.imageset", "bobble-face.png"),
+    await snapshot(page, 128),
   );
   await page.close();
   await browser.close();

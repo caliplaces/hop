@@ -123,6 +123,8 @@ nonisolated struct BubbleLayout: Equatable, Sendable {
         var portalFill: CGFloat
         var bobbleCenter: CGPoint
         var bobbleSize: CGFloat
+        /// Bobble only fades when Reduce Motion turns the opening into a crossfade.
+        var bobbleOpacity: CGFloat
         /// Crossfade from Bobble idling to cheering, 0…1.
         var cheer: CGFloat
         /// How strongly the bubble magnifies what's behind it.
@@ -162,7 +164,7 @@ nonisolated struct BubbleLayout: Equatable, Sendable {
             return Frame(
                 center: openCenter, radius: openRadius, scale: CGSize(width: 1, height: 1),
                 progress: progress, portalFill: opened,
-                bobbleCenter: heroCenter, bobbleSize: heroSize, cheer: 1,
+                bobbleCenter: heroCenter, bobbleSize: heroSize, bobbleOpacity: opened, cheer: 1,
                 lensStrength: 0, rimOpacity: 0, hintOpacity: 0
             )
         }
@@ -185,6 +187,7 @@ nonisolated struct BubbleLayout: Equatable, Sendable {
             portalFill: Self.mix(fill, 1, min(max(open * 1.6, 0), 1)),
             bobbleCenter: bobbleCenter,
             bobbleSize: bobbleSize,
+            bobbleOpacity: 1,
             cheer: smoothstep(0.35, 0.6, open),
             lensStrength: 0.32 * pow(max(1 - open, 0), 2),
             rimOpacity: max(1 - open * 1.25, 0),
