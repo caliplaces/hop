@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { Button } from "../components/ui/Button";
 import { StatusScreen } from "../features/upload/StatusScreen";
-import { api } from "../lib/api";
+import { ApiError, api } from "../lib/api";
 
 const route = getRouteApi("/unsubscribe");
 
@@ -20,10 +20,31 @@ export function Unsubscribe() {
       }),
   });
 
-  if (!token || update.isError) {
+  const expired = update.error instanceof ApiError && update.error.code === "invalid_token";
+  if (!token || expired) {
     return (
       <StatusScreen mascot="broken" title="This link has expired">
         You can turn new-clip emails on or off any time from your account settings.
+      </StatusScreen>
+    );
+  }
+
+  // A dropped connection or a server hiccup: the link is fine, so offer a retry.
+  if (update.isError) {
+    return (
+      <StatusScreen
+        mascot="broken"
+        title="That didn’t go through"
+        action={
+          <Button
+            onClick={() => update.mutate(update.variables ?? false)}
+            disabled={update.isPending}
+          >
+            Try again
+          </Button>
+        }
+      >
+        We couldn’t update your email settings. Check your connection and try again.
       </StatusScreen>
     );
   }
