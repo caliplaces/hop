@@ -207,9 +207,12 @@ export class Uploader {
       let session = loadSession(key);
       if (!session) {
         const pass = await abortable(this.getPass(), controller.signal);
-        const created = await api<CreateUploadResult>(`/hops/${this.hopId}/uploads`, {
+        // The create request itself is never aborted: once it reaches the
+        // server, its response is the only way to learn the upload's id and
+        // clean it up. Cancelling only stops waiting for it, and whenever the
+        // response arrives, an upload that was cancelled meanwhile is deleted.
+        const creating = api<CreateUploadResult>(`/hops/${this.hopId}/uploads`, {
           method: "POST",
-          signal: controller.signal,
           headers: { "x-hop-pass": pass },
           json: {
             name: item.file.name,
@@ -218,11 +221,14 @@ export class Uploader {
             contributorName: this.getContributorName(),
           },
         });
-        if (controller.signal.aborted) {
-          // Cancelled while the server was creating it: don't leave it behind.
-          void this.discard(created);
-          return;
-        }
+        creating.then(
+          (created) => {
+            if (controller.signal.aborted) void this.discard(created);
+          },
+          () => {}, // failures are handled by the awaited copy below
+        );
+        const created = await abortable(creating, controller.signal);
+        if (controller.signal.aborted) return; // cancelled just as it resolved; handled above
         session = { ...created, etags: {} };
         saveSession(key, session);
         void this.uploadThumbnail(item.file, session);
