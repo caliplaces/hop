@@ -19,6 +19,8 @@ export type OutgoingEmail = RenderedEmail & {
   idempotencyKey: string;
   /** Shows up in Resend's logs and analytics; letters, digits, _ and - only. */
   category: string;
+  /** Extra headers, e.g. List-Unsubscribe. */
+  headers?: Record<string, string>;
 };
 
 /**
@@ -48,6 +50,7 @@ export async function sendEmail(env: Env, email: OutgoingEmail): Promise<void> {
       html: email.html,
       text: email.text,
       tags: [{ name: "category", value: email.category }],
+      headers: email.headers,
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });

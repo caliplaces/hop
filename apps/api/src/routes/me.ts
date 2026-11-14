@@ -92,15 +92,15 @@ export const meRoutes = new Hono<AppEnv>()
     return c.json({ me: toMe(claimed) });
   })
 
-  /** Profile settings; for now just the page colour. */
+  /** Profile settings: page colour and email preferences. */
   .patch("/me", requireUser, validate("json", updateProfileSchema), async (c) => {
     const user = currentUser(c);
-    const { color } = c.req.valid("json");
+    const changes = c.req.valid("json");
     await getDb(c.env.DB)
       .update(users)
-      .set({ color, updatedAt: Date.now() })
+      .set({ ...changes, updatedAt: Date.now() })
       .where(eq(users.id, user.id));
-    return c.json({ me: toMe({ ...user, color }) });
+    return c.json({ me: toMe({ ...user, ...changes }) });
   })
 
   .get("/me/hops", async (c) => {

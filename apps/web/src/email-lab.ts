@@ -69,6 +69,15 @@ const scheme = select("Mode", [
 ]);
 const name = input("Name", "Matej Matiasko");
 const handle = input("Handle", "matej");
+// Sample shape for the new-clips digest.
+const count = input("Clips", "5");
+count.type = "number";
+count.min = "1";
+count.max = "50";
+const hops = select("Hops", [
+  ["1", "One event"],
+  ["2", "Two Hops"],
+]);
 
 let pending: AbortController | null = null;
 
@@ -77,7 +86,13 @@ async function refresh() {
   pending?.abort();
   const controller = new AbortController();
   pending = controller;
-  const query = new URLSearchParams({ color: color.value, name: name.value, handle: handle.value });
+  const query = new URLSearchParams({
+    color: color.value,
+    name: name.value,
+    handle: handle.value,
+    count: count.value,
+    hops: hops.value,
+  });
   let email: Rendered;
   try {
     const response = await fetch(`/api/dev/emails/${template.value}?${query}`, {
@@ -97,7 +112,7 @@ async function refresh() {
   frame.srcdoc = email.html;
 }
 
-for (const element of [template, color, width, scheme, name, handle]) {
+for (const element of [template, color, width, scheme, name, handle, count, hops]) {
   element.addEventListener("input", refresh);
 }
 await refresh();

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
@@ -12,6 +13,8 @@ export const users = sqliteTable("users", {
   color: text("color"),
   /** The hop that onmyhop.com/<handle> uploads into. */
   activeHopId: text("active_hop_id"),
+  /** Email the athlete when new clips arrive. On by default; unsubscribe links turn it off. */
+  emailNewClips: integer("email_new_clips", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -84,6 +87,11 @@ export const files = sqliteTable(
     /** Bumped on create, part signing and completion; drives quota reservation and cleanup. */
     lastActivityAt: integer("last_activity_at").notNull(),
     completedAt: integer("completed_at"),
+    /**
+     * When the athlete was told about this clip (the new-clips digest). Null on
+     * complete files means not yet; see notify.ts.
+     */
+    notifiedAt: integer("notified_at"),
   },
   (t) => [
     index("files_owner_status_activity_idx").on(t.ownerId, t.status, t.lastActivityAt),
@@ -91,6 +99,10 @@ export const files = sqliteTable(
     index("files_hop_status_created_idx").on(t.hopId, t.status, t.createdAt),
     index("files_status_activity_idx").on(t.status, t.lastActivityAt),
     index("files_pass_status_idx").on(t.passId, t.status),
+    // Only clips waiting to be announced: tiny, since almost every row is notified.
+    index("files_unnotified_idx")
+      .on(t.ownerId, t.completedAt)
+      .where(sql`${t.status} = 'complete' and ${t.notifiedAt} is null`),
   ],
 );
 
