@@ -50,8 +50,28 @@ async function authorizeUpload(c: Context<AppEnv>, db: Db): Promise<FileRow | nu
   return file;
 }
 
-async function touch(db: Db, fileId: string) {
-  await db.update(files).set({ lastActivityAt: Date.now() }).where(eq(files.id, fileId));
+/**
+ * Keep (or re-take) a pending upload's quota reservation, atomically. A live
+ * reservation is just refreshed. One that lapsed after an hour of inactivity
+ * only comes back if the owner's quota still has room, so an old upload token
+ * can't be used to slip past the quota later. False means the Hop is full or
+ * the upload is no longer pending.
+ */
+async function holdReservation(db: Db, file: FileRow): Promise<boolean> {
+  const now = Date.now();
+  const activeSince = now - PENDING_RESERVATION_MS;
+  const result = await db.run(sql`
+    update ${files} set last_activity_at = ${now}
+    where id = ${file.id} and status = 'pending' and (
+      last_activity_at > ${activeSince}
+      or (
+        select coalesce(sum(size), 0) from ${files}
+        where owner_id = ${file.ownerId} and id != ${file.id}
+          and (status = 'complete' or last_activity_at > ${activeSince})
+      ) + ${file.size} <= ${DEFAULT_STORAGE_QUOTA_BYTES}
+    )
+  `);
+  return result.meta.changes === 1;
 }
 
 async function discardUpload(env: Env, db: Db, file: FileRow) {
@@ -199,6 +219,9 @@ export const uploadRoutes = new Hono<AppEnv>()
     if (file?.status !== "pending" || !file.multipartUploadId) return fail(c, 404, "not_found");
     const { partNumbers } = c.req.valid("json");
     if (partNumbers.some((n) => n > file.partCount)) return fail(c, 400, "invalid_part");
+    if (!(await holdReservation(db, file))) {
+      return fail(c, 507, "hop_full", "This Hop is full right now.");
+    }
 
     // Uploads already in flight may finish after a Hop is closed; closing only
     // stops new uploads from starting.
@@ -215,7 +238,6 @@ export const uploadRoutes = new Hono<AppEnv>()
         ),
       })),
     );
-    await touch(db, file.id);
     return c.json({ parts });
   })
 
@@ -231,6 +253,10 @@ export const uploadRoutes = new Hono<AppEnv>()
     const expected =
       parts.length === file.partCount && parts.every((p, i) => p.partNumber === i + 1);
     if (!expected) return fail(c, 400, "missing_parts", "Some parts of the file are missing.");
+
+    if (!(await holdReservation(db, file))) {
+      return fail(c, 507, "hop_full", "This Hop is full right now.");
+    }
 
     const multipart = c.env.BUCKET.resumeMultipartUpload(file.r2Key, file.multipartUploadId);
     const object = await multipart.complete(
@@ -251,7 +277,7 @@ export const uploadRoutes = new Hono<AppEnv>()
 
     // The stored type and extension come from the bytes, never from the client.
     const now = Date.now();
-    await db
+    const finished = await db
       .update(files)
       .set({
         status: "complete",
@@ -261,7 +287,14 @@ export const uploadRoutes = new Hono<AppEnv>()
         lastActivityAt: now,
         multipartUploadId: null,
       })
-      .where(and(eq(files.id, file.id), eq(files.status, "pending")));
+      .where(and(eq(files.id, file.id), eq(files.status, "pending")))
+      .returning({ id: files.id })
+      .get();
+    if (!finished) {
+      // Cleanup claimed this upload while it was completing; don't leave the object behind.
+      await c.env.BUCKET.delete(file.r2Key);
+      return fail(c, 410, "upload_expired", "This upload expired. Please upload the file again.");
+    }
     return c.json({ ok: true });
   })
 

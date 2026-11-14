@@ -22,18 +22,32 @@ export async function cleanup(env: Env) {
       .limit(BATCH);
     if (stale.length === 0) break;
 
-    await Promise.all(
-      stale.map(async (file) => {
+    const claimed = await Promise.all(
+      stale.map(async (candidate) => {
+        // Claim the row first, atomically: if the upload completed since it was
+        // read, the conditions no longer match and its files are left alone.
+        const file = await db
+          .delete(files)
+          .where(
+            and(
+              eq(files.id, candidate.id),
+              eq(files.status, "pending"),
+              lt(files.lastActivityAt, cutoff),
+            ),
+          )
+          .returning()
+          .get();
+        if (!file) return 0;
         if (file.multipartUploadId) {
           await env.BUCKET.resumeMultipartUpload(file.r2Key, file.multipartUploadId)
             .abort()
             .catch(() => {});
         }
         await env.BUCKET.delete([file.r2Key, ...(file.thumbKey ? [file.thumbKey] : [])]);
-        await db.delete(files).where(eq(files.id, file.id));
+        return 1;
       }),
     );
-    removed += stale.length;
+    removed += claimed.reduce<number>((sum, n) => sum + n, 0);
   }
 
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
