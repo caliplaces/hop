@@ -1,19 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Header } from "../components/Header";
-import { fetchMe, signInUrl } from "../lib/api";
-
-const STEPS = [
-  { title: "Claim your Hop", body: "Pick a handle. You get onmyhop.com/you, plus a QR code." },
-  {
-    title: "Say the line",
-    body: "“Upload it on my Hop.” Friends, coaches and filmers send their clips from any phone. No app, no account.",
-  },
-  {
-    title: "Everything in one place",
-    body: "Every video of you lands in one private inbox. Watch, download all, done.",
-  },
-];
+import { ArrowRight, CircleAlert } from "lucide-react";
+import { Logo } from "../components/Logo";
+import { buttonClass } from "../components/ui/Button";
+import { HowItWorks } from "../features/landing/HowItWorks";
+import { PhoneMock } from "../features/landing/PhoneMock";
+import { signInUrl } from "../lib/api";
+import { queries } from "../lib/queries";
 
 const AUTH_ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled.",
@@ -22,58 +15,73 @@ const AUTH_ERRORS: Record<string, string> = {
 };
 
 export function Landing() {
-  const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe });
+  const { data: me } = useQuery(queries.me());
   const authError = new URLSearchParams(window.location.search).get("authError");
+  const signedIn = Boolean(me?.handle);
 
   return (
-    <>
-      <Header me={me} />
-      <main className="mx-auto max-w-6xl px-4 sm:px-6">
-        {authError && (
-          <p className="mx-auto mt-4 max-w-xl rounded-2xl bg-red-500/10 px-4 py-3 text-center text-sm text-red-700 dark:text-red-300">
-            {AUTH_ERRORS[authError] ?? AUTH_ERRORS.failed}
-          </p>
+    <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <header className="flex h-16 items-center justify-between">
+        <Logo />
+        {signedIn ? (
+          <Link to="/app" className={buttonClass({ variant: "soft", size: "sm" })}>
+            Open inbox
+          </Link>
+        ) : (
+          <a
+            href={signInUrl("/app")}
+            className="text-sm font-medium text-muted transition hover:text-fg"
+          >
+            Sign in
+          </a>
         )}
-        <section className="py-16 text-center sm:py-24">
-          <p className="text-sm font-semibold uppercase tracking-widest text-black/50 dark:text-white/50">
-            For athletes at events
-          </p>
-          <h1 className="mx-auto mt-4 max-w-3xl text-5xl font-black leading-[0.95] tracking-tighter sm:text-7xl">
-            “Upload it on <span className="rounded-2xl bg-hop px-3 text-ink">my Hop</span>”
-          </h1>
-          <p className="mx-auto mt-6 max-w-xl text-lg text-black/60 dark:text-white/60">
-            Everyone filmed your run. Hop collects every one of those videos into a single private
-            inbox. No chasing DMs, no AirDrop roulette.
-          </p>
-          <div className="mt-10 flex justify-center">
-            {me?.handle ? (
-              <Link to="/app" className="btn-primary px-8 py-4 text-base">
-                Open your Hop
-              </Link>
-            ) : (
-              <a href={signInUrl("/app")} className="btn-primary px-8 py-4 text-base">
-                Continue with Caliplaces
-              </a>
-            )}
+      </header>
+
+      {authError && (
+        <p
+          role="alert"
+          className="mx-auto mt-4 flex max-w-md items-center justify-center gap-2 rounded-full bg-danger/10 px-4 py-2.5 text-sm text-danger"
+        >
+          <CircleAlert className="size-4" /> {AUTH_ERRORS[authError] ?? AUTH_ERRORS.failed}
+        </p>
+      )}
+
+      <main>
+        <section className="grid items-center gap-14 pt-12 pb-8 sm:pt-20 lg:grid-cols-[1.1fr_1fr] lg:gap-8">
+          <div className="animate-fade-up text-center lg:text-left">
+            <span className="badge bg-hop-soft text-fg">For athletes at events</span>
+            <h1 className="mt-5 text-[44px] leading-[1.02] font-bold tracking-tighter text-balance sm:text-6xl lg:text-7xl">
+              Every clip of you. <span className="text-muted">One link.</span>
+            </h1>
+            <p className="mx-auto mt-6 max-w-lg text-lg text-muted text-balance lg:mx-0">
+              At the comp, say “upload it on my Hop”. Everyone who filmed you sends their videos to
+              onmyhop.com/you. No app, no account, no chasing DMs.
+            </p>
+            <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start">
+              {signedIn ? (
+                <Link to="/app" className={buttonClass({ size: "lg" })}>
+                  Open your Hop <ArrowRight className="size-4" />
+                </Link>
+              ) : (
+                <a href={signInUrl("/app")} className={buttonClass({ size: "lg" })}>
+                  Get your Hop <ArrowRight className="size-4" />
+                </a>
+              )}
+              <span className="text-sm text-muted">Free · Continue with Caliplaces</span>
+            </div>
           </div>
+          <PhoneMock />
         </section>
 
-        <section className="grid gap-4 pb-24 sm:grid-cols-3">
-          {STEPS.map((step, i) => (
-            <div key={step.title} className="card">
-              <p className="text-sm font-bold text-black/40 dark:text-white/40">0{i + 1}</p>
-              <h2 className="mt-2 text-xl font-black tracking-tight">{step.title}</h2>
-              <p className="mt-2 text-black/60 dark:text-white/60">{step.body}</p>
-            </div>
-          ))}
-        </section>
+        <HowItWorks />
       </main>
-      <footer className="mx-auto max-w-6xl px-4 pb-10 text-sm text-black/50 sm:px-6 dark:text-white/50">
-        Hop by Caliplaces ·{" "}
-        <a className="underline" href="https://github.com/caliplaces/hop">
-          Open source
+
+      <footer className="flex flex-col items-center justify-between gap-2 border-t border-line py-8 text-sm text-muted sm:flex-row">
+        <span>Hop by Caliplaces</span>
+        <a className="transition hover:text-fg" href="https://github.com/caliplaces/hop">
+          Open source on GitHub
         </a>
       </footer>
-    </>
+    </div>
   );
 }
