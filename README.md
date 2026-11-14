@@ -32,4 +32,10 @@ pnpm install
 pnpm dev
 ```
 
-See `apps/api/README.md` for local secrets and Cloudflare setup.
+See [`apps/api/README.md`](apps/api/README.md) for local secrets, how uploads work, and Cloudflare setup.
+
+## License
+
+Copyright © Caliplaces.
+
+Hop is free software, released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can use, study, modify and self-host it. If you run a modified version as a network service, the AGPL requires you to offer its source code to that service's users under the same license.

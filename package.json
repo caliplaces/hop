@@ -1,6 +1,7 @@
 {
   "name": "hop",
   "private": true,
+  "license": "AGPL-3.0-only",
   "description": "Upload it on my Hop. Collect every video of you from an event in one place.",
   "packageManager": "pnpm@10.33.0",
   "engines": {

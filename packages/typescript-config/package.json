@@ -2,5 +2,10 @@
   "name": "@hop/typescript-config",
   "version": "0.0.0",
   "private": true,
-  "files": ["base.json", "react.json", "worker.json"]
+  "license": "AGPL-3.0-only",
+  "files": [
+    "base.json",
+    "react.json",
+    "worker.json"
+  ]
 }

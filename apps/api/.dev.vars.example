@@ -1,0 +1,21 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+
+# Your own Caliplaces developer app for local dev (type "web"), created at
+# https://developer.caliplaces.com/apps with the redirect URI
+#   http://localhost:5173/api/auth/callback
+# Don't use the production app's credentials locally.
+OIDC_CLIENT_ID=
+OIDC_CLIENT_SECRET=
+
+# Any long random string (openssl rand -base64 32)
+SESSION_SECRET=
+
+# Cloudflare's always-pass Turnstile test secret
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+
+# Optional: R2 S3 API credentials for a dev bucket. Without them, local dev
+# routes upload parts and downloads through the Worker against the local R2
+# simulator.
+# R2_ACCOUNT_ID=
+# R2_ACCESS_KEY_ID=
+# R2_SECRET_ACCESS_KEY=
