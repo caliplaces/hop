@@ -50,7 +50,7 @@
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "REPLACE_WITH_STAGING_CLIENT_ID",
         "R2_BUCKET_NAME": "hop-staging",
-        "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzxw0pDT6tjGB4"
       },
       "d1_databases": [
         {
@@ -77,7 +77,7 @@
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "399569698213068806",
         "R2_BUCKET_NAME": "hop-production",
-        "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzsqAA1kSjsSnQ"
       },
       "d1_databases": [
         {
