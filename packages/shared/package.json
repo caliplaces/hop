@@ -1,0 +1,20 @@
+{
+  "name": "@hop/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@hop/typescript-config": "workspace:*",
+    "vitest": "5.1.0"
+  }
+}

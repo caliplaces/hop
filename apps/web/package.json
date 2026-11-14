@@ -1,0 +1,35 @@
+{
+  "name": "@hop/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@hop/shared": "workspace:*",
+    "@marsidev/react-turnstile": "1.6.3",
+    "@tanstack/react-query": "5.107.1",
+    "@tanstack/react-router": "1.170.46",
+    "client-zip": "2.5.1",
+    "lucide-react": "1.73.0",
+    "qrcode": "1.5.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@hop/typescript-config": "workspace:*",
+    "@tailwindcss/vite": "4.3.5",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "tailwindcss": "4.3.5",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  }
+}

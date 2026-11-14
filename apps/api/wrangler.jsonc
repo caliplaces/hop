@@ -1,0 +1,98 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hop",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "observability": { "enabled": true },
+  // One Worker serves both the API (/api/*) and the web app's static build.
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Hourly clean-up of abandoned uploads and expired sessions.
+  "triggers": { "crons": ["17 * * * *"] },
+
+  // ---- Local development (wrangler dev) ----
+  // Secrets and per-developer overrides live in .dev.vars (see .dev.vars.example).
+  "vars": {
+    "ENVIRONMENT": "development",
+    "APP_URL": "http://localhost:5173",
+    "OIDC_ISSUER": "https://auth.caliplaces.com",
+    "OIDC_CLIENT_ID": "",
+    "R2_BUCKET_NAME": "hop-dev",
+    // Cloudflare's always-pass Turnstile test key.
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hop-dev",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "hop-dev" }],
+  // Per IP. Generous on purpose: a whole venue can share one Wi-Fi IP.
+  "ratelimits": [
+    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } }
+  ],
+
+  "env": {
+    "staging": {
+      "routes": [{ "pattern": "staging.onmyhop.com", "custom_domain": true }],
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "APP_URL": "https://staging.onmyhop.com",
+        "OIDC_ISSUER": "https://auth.caliplaces.com",
+        "OIDC_CLIENT_ID": "REPLACE_WITH_STAGING_CLIENT_ID",
+        "R2_BUCKET_NAME": "hop-staging",
+        "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "hop-staging",
+          "database_id": "REPLACE_WITH_STAGING_D1_ID",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "hop-staging" }],
+      "ratelimits": [
+        {
+          "name": "UPLOAD_LIMITER",
+          "namespace_id": "1002",
+          "simple": { "limit": 300, "period": 60 }
+        }
+      ]
+    },
+    "production": {
+      "routes": [{ "pattern": "onmyhop.com", "custom_domain": true }],
+      "vars": {
+        "ENVIRONMENT": "production",
+        "APP_URL": "https://onmyhop.com",
+        "OIDC_ISSUER": "https://auth.caliplaces.com",
+        "OIDC_CLIENT_ID": "REPLACE_WITH_PRODUCTION_CLIENT_ID",
+        "R2_BUCKET_NAME": "hop-production",
+        "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "hop-production",
+          "database_id": "REPLACE_WITH_PRODUCTION_D1_ID",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "hop-production" }],
+      "ratelimits": [
+        {
+          "name": "UPLOAD_LIMITER",
+          "namespace_id": "1003",
+          "simple": { "limit": 300, "period": 60 }
+        }
+      ]
+    }
+  }
+}

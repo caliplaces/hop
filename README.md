@@ -32,4 +32,4 @@ pnpm install
 pnpm dev
 ```
 
-See `apps/api/README.md` for local secrets and Cloudflare setup.
+See [`apps/api/README.md`](apps/api/README.md) for local secrets, how uploads work, and Cloudflare setup.

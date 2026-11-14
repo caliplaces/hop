@@ -1,0 +1,4 @@
+{
+  "extends": "@hop/typescript-config/worker.json",
+  "include": ["src", "drizzle.config.ts"]
+}
