@@ -1,20 +1,24 @@
 /**
- * Renders Bobble's logo and favicon images from the real 3D mascot.
+ * Renders Bobble's logo, favicon and email images from the real 3D mascot.
  *
- *   pnpm --filter @hop/web mascot:assets
+ *   pnpm --filter @hop/web mascot:assets          # everything
+ *   pnpm --filter @hop/web mascot:assets email    # only the email images
  *
  * Starts Vite in-process, opens the mascot lab in headless Chrome, freezes
- * Bobble looking straight ahead, and writes PNGs to public/bobble/. Set
- * CHROME_PATH if Chrome isn't in the default macOS location.
+ * Bobble at an exact moment, and writes PNGs to public/bobble/ (logo) and
+ * public/email/ (email heroes). Set CHROME_PATH if Chrome isn't in the
+ * default macOS location.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
+import sharp from "sharp";
 import { createServer } from "vite";
 
 const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(webDir, "public", "bobble");
+const emailDir = path.join(webDir, "public", "email");
 const chrome =
   process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
@@ -37,6 +41,20 @@ const BRAND = "grape";
 const RENDER = 512;
 /** A moment in the idle loop where Bobble looks straight ahead, eyes open, feet down. */
 const STILL_AT = 6.62;
+/**
+ * Full-body poses for email heroes, shown at 200 px and rendered at 2x. Email
+ * clients can't run WebGL, so each colour gets a still. `at` is the moment in
+ * that state's loop; `crop` trims the stage framing's spare room (a square of
+ * `size` of the frame, centred, starting `top` from the top).
+ */
+const EMAIL_POSES = {
+  // Happy eyes in a burst of confetti (welcome email).
+  cheer: { state: "cheer", at: 1.3, crop: { size: 0.84, top: 0.02 } },
+  // Balancing a clip card on the antenna (new-clips digest).
+  busy: { state: "busy", at: 0.33, crop: { size: 0.84, top: 0.02 } },
+};
+const EMAIL_SIZE = 400;
+const only = process.argv[2]; // "email" to skip the logo images
 
 const server = await createServer({ root: webDir, logLevel: "error", server: { port: 0 } });
 await server.listen();
@@ -47,24 +65,24 @@ const browser = await puppeteer.launch({
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
 
-async function render(hex) {
+async function render(hex, { state = "idle", at = STILL_AT, framing = "portrait" } = {}) {
   const page = await browser.newPage();
   await page.setViewport({ width: RENDER, height: RENDER });
-  const url = `${base}mascot-lab.html?capture=1&framing=portrait&state=idle&shells=32&size=${RENDER}&color=${encodeURIComponent(hex)}`;
+  const url = `${base}mascot-lab.html?capture=1&framing=${framing}&state=${state}&shells=32&size=${RENDER}&color=${encodeURIComponent(hex)}`;
   await page.goto(url, { waitUntil: "networkidle0" });
   await page.waitForFunction(() => window.__mascot);
   await page.evaluate((until) => {
     // Simulate up to the still moment without drawing, then draw once.
     for (let t = 0; t < until; t += 1 / 60) window.__mascot.advance(t);
     window.__mascot.render(until);
-  }, STILL_AT);
+  }, at);
   return page;
 }
 
-/** Downscale the WebGL canvas (optionally onto a background) and return PNG bytes. */
-async function snapshot(page, size, { background = null, padding = 0 } = {}) {
+/** Downscale the WebGL canvas (optionally cropped, or onto a background) and return PNG bytes. */
+async function snapshot(page, size, { background = null, padding = 0, crop = null } = {}) {
   const dataUrl = await page.evaluate(
-    (size, background, padding) => {
+    (size, background, padding, crop) => {
       const source = document.querySelector("canvas");
       const out = document.createElement("canvas");
       out.width = out.height = size;
@@ -74,19 +92,38 @@ async function snapshot(page, size, { background = null, padding = 0 } = {}) {
         ctx.fillStyle = background;
         ctx.fillRect(0, 0, size, size);
       }
+      const side = source.width * (crop?.size ?? 1);
+      const sx = (source.width - side) / 2;
+      const sy = source.height * (crop?.top ?? 0);
       const inset = size * padding;
-      ctx.drawImage(source, inset, inset, size - inset * 2, size - inset * 2);
+      ctx.drawImage(source, sx, sy, side, side, inset, inset, size - inset * 2, size - inset * 2);
       return out.toDataURL("image/png");
     },
     size,
     background,
     padding,
+    crop,
   );
   return Buffer.from(dataUrl.split(",")[1], "base64");
 }
 
 fs.mkdirSync(outDir, { recursive: true });
+fs.mkdirSync(emailDir, { recursive: true });
 for (const [id, hex] of Object.entries(PALETTE)) {
+  for (const [name, pose] of Object.entries(EMAIL_POSES)) {
+    const page = await render(hex, { ...pose, framing: "stage" });
+    // A 256-colour palette keeps each image around 20 KB for people on mobile
+    // data, and looks the same as the full-colour PNG at this size.
+    const png = await sharp(await snapshot(page, EMAIL_SIZE, { crop: pose.crop }))
+      .png({ palette: true, quality: 90, effort: 10, compressionLevel: 9 })
+      .toBuffer();
+    fs.writeFileSync(path.join(emailDir, `${name}-${id}.png`), png);
+    await page.close();
+  }
+  if (only === "email") {
+    console.log("rendered", id);
+    continue;
+  }
   const page = await render(hex);
   fs.writeFileSync(path.join(outDir, `face-${id}.png`), await snapshot(page, 128));
   if (id === BRAND) {

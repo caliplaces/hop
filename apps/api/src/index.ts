@@ -3,19 +3,30 @@ import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import { cleanup } from "./cron";
+import { ONE_CLICK_UNSUBSCRIBE_PATH } from "./email/unsubscribe";
 import type { AppEnv, Env } from "./env";
 import { fail } from "./lib/http";
 import { loadSession } from "./lib/session";
+import { announceNewClips } from "./notify";
 import { authRoutes } from "./routes/auth";
 import { devRoutes } from "./routes/dev";
+import { emailRoutes } from "./routes/email";
 import { meRoutes } from "./routes/me";
 import { publicRoutes } from "./routes/public";
 import { uploadRoutes } from "./routes/uploads";
 
+/** Keep in sync with "triggers" in wrangler.jsonc; every other schedule runs the digest. */
+const CLEANUP_CRON = "17 * * * *";
+
 const app = new Hono<AppEnv>().basePath("/api");
 
 // Reject cross-site form posts; JSON requests already need a CORS preflight we never grant.
-app.use(csrf({ origin: (origin, c) => origin === c.env.APP_URL }));
+// One-click unsubscribe is the exception: mail providers POST it from their own
+// servers, and it's authorised by the signed token in its URL, not by a cookie.
+const csrfProtection = csrf({ origin: (origin, c) => origin === c.env.APP_URL });
+app.use((c, next) =>
+  c.req.path === ONE_CLICK_UNSUBSCRIBE_PATH ? next() : csrfProtection(c, next),
+);
 app.use(
   secureHeaders({
     // API responses are JSON (or thumbnails); nothing here should ever render as a page.
@@ -29,6 +40,7 @@ app.use(loadSession);
 
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/auth", authRoutes);
+app.route("/email", emailRoutes);
 app.route("/", publicRoutes);
 app.route("/", meRoutes);
 app.route("/", uploadRoutes);
@@ -50,8 +62,8 @@ app.onError((error, c) => {
 
 export default {
   fetch: app.fetch,
-  async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(cleanup(env));
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(controller.cron === CLEANUP_CRON ? cleanup(env) : announceNewClips(env));
   },
 } satisfies ExportedHandler<Env>;
 

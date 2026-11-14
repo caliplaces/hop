@@ -3,17 +3,19 @@ import type { ReactNode } from "react";
 import { BRAND_COLOR, Logo } from "../../components/Logo";
 import { Mascot, type MascotState } from "../mascot/Mascot";
 
-/** Full-page message for a missing or closed Hop, told by Bobble. */
+/** Full-page message told by Bobble: a missing or closed Hop, an unsubscribe… */
 export function StatusScreen({
   mascot,
   color = BRAND_COLOR,
   title,
   children,
+  action,
 }: {
   mascot: MascotState;
   color?: string | null;
   title: string;
   children: ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-5">
@@ -22,6 +24,7 @@ export function StatusScreen({
         <Mascot state={mascot} color={colorFor(color, "").hex} size={200} />
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 max-w-xs text-[15px] text-muted text-balance">{children}</p>
+        {action && <div className="mt-6">{action}</div>}
       </div>
     </main>
   );

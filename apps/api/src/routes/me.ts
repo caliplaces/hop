@@ -19,6 +19,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { getDb } from "../db";
 import { files, hops, users } from "../db/schema";
+import { sendWelcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
 import { newId } from "../lib/crypto";
 import { removeFile } from "../lib/files";
@@ -81,20 +82,25 @@ export const meRoutes = new Hono<AppEnv>()
       if (isUniqueViolation(error)) return fail(c, 409, "handle_taken", "That handle is taken.");
       throw error;
     }
-    return c.json({
-      me: toMe({ ...user, handle, activeHopId: hopId, color: input.color ?? user.color }),
-    });
+    const claimed = { ...user, handle, activeHopId: hopId, color: input.color ?? user.color };
+    // After the response: a slow or failing email never holds up claiming a handle.
+    c.executionCtx.waitUntil(
+      sendWelcomeEmail(c.env, claimed).catch((error) =>
+        console.error("Welcome email failed", error),
+      ),
+    );
+    return c.json({ me: toMe(claimed) });
   })
 
-  /** Profile settings; for now just the page colour. */
+  /** Profile settings: page colour and email preferences. */
   .patch("/me", requireUser, validate("json", updateProfileSchema), async (c) => {
     const user = currentUser(c);
-    const { color } = c.req.valid("json");
+    const changes = c.req.valid("json");
     await getDb(c.env.DB)
       .update(users)
-      .set({ color, updatedAt: Date.now() })
+      .set({ ...changes, updatedAt: Date.now() })
       .where(eq(users.id, user.id));
-    return c.json({ me: toMe({ ...user, color }) });
+    return c.json({ me: toMe({ ...user, ...changes }) });
   })
 
   .get("/me/hops", async (c) => {

@@ -1,15 +1,61 @@
+import { colorFor } from "@hop/shared";
 import { Hono } from "hono";
+import { newClipsEmail } from "../email/new-clips";
+import type { RenderedEmail } from "../email/send";
+import { welcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
 import { verifyPayload } from "../lib/crypto";
 import { BodyTooLargeError, fail, readBodyCapped } from "../lib/http";
 import { contentDisposition, type DevObjectToken, type DevPartToken } from "../lib/storage";
 
+type Query = (key: string) => string | undefined;
+
+/** Every email with sample data, for the email lab (apps/web/email-lab.html). */
+const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<RenderedEmail>> = {
+  welcome: (appUrl, query) =>
+    welcomeEmail({
+      appUrl,
+      handle: query("handle") || "matej",
+      name: query("name") ?? "Matej Matiasko",
+      color: colorFor(query("color"), "preview"),
+    }),
+  "new-clips": (appUrl, query) => {
+    const hops = [
+      { id: "hop_1", slug: "street-kings-prague", title: "Street Kings Prague" },
+      { id: "hop_2", slug: "inbox", title: "Main" },
+    ];
+    const names = ["Coach Peter", "Lea from the crew", "SmokyMonkey441", "@nina", null];
+    // ?count=5&hops=2 shapes the sample.
+    const count = Math.min(Math.max(Number(query("count")) || 5, 1), 50);
+    const spread = query("hops") === "2" ? 2 : 1;
+    return newClipsEmail({
+      appUrl,
+      color: colorFor(query("color"), "preview"),
+      clips: Array.from({ length: count }, (_, i) => ({
+        hopId: hops[i % spread]?.id ?? "hop_1",
+        contributor: names[i % names.length] ?? null,
+      })),
+      hops,
+      unsubscribeUrl: `${appUrl}/unsubscribe?token=preview`,
+    });
+  },
+};
+
 /**
- * Stand-ins for R2's presigned S3 URLs during local development, where the R2
- * simulator has no S3 endpoint. Mounted only for ENVIRONMENT=development on a
- * localhost hostname (see index.ts).
+ * Local development helpers, mounted only for ENVIRONMENT=development on a
+ * localhost hostname (see index.ts): stand-ins for R2's presigned S3 URLs,
+ * since the R2 simulator has no S3 endpoint, and email previews.
  */
 export const devRoutes = new Hono<AppEnv>()
+  .get("/emails", (c) => c.json({ emails: Object.keys(EMAIL_PREVIEWS) }))
+
+  .get("/emails/:name", async (c) => {
+    const name = c.req.param("name");
+    const preview = Object.hasOwn(EMAIL_PREVIEWS, name) ? EMAIL_PREVIEWS[name] : undefined;
+    if (!preview) return fail(c, 404, "not_found");
+    return c.json(await preview(c.env.APP_URL, (key) => c.req.query(key)));
+  })
+
   .put("/part", async (c) => {
     const token = await verifyPayload<DevPartToken>(
       c.env.SESSION_SECRET,

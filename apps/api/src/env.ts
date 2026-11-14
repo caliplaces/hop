@@ -18,6 +18,10 @@ export type Env = {
   R2_ACCOUNT_ID?: string;
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
+  /** Sender for Hop's emails, e.g. "Hop <hello@onmyhop.com>". */
+  EMAIL_FROM: string;
+  /** Resend API key. Optional locally, where emails are logged instead of sent. */
+  RESEND_API_KEY?: string;
 };
 
 export type AppEnv = {

@@ -40,6 +40,15 @@ const hopsRoute = createRoute({
   component: lazyRouteComponent(() => import("./routes/Hops"), "Hops"),
 });
 
+const unsubscribeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/unsubscribe",
+  validateSearch: (search: Record<string, unknown>): { token?: string } => ({
+    token: typeof search.token === "string" && search.token ? search.token : undefined,
+  }),
+  component: lazyRouteComponent(() => import("./routes/Unsubscribe"), "Unsubscribe"),
+});
+
 // Static routes above win over these dynamic ones; reserved handles keep them apart.
 const ContributePage = lazyRouteComponent(() => import("./routes/Contribute"), "Contribute");
 const handleRoute = createRoute({
@@ -64,6 +73,7 @@ const routeTree = rootRoute.addChildren([
   inboxRoute,
   onboardingRoute,
   hopsRoute,
+  unsubscribeRoute,
   handleRoute,
   hopRoute,
 ]);

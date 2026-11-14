@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
@@ -12,6 +13,8 @@ export const users = sqliteTable("users", {
   color: text("color"),
   /** The hop that onmyhop.com/<handle> uploads into. */
   activeHopId: text("active_hop_id"),
+  /** Email the athlete when new clips arrive. On by default; unsubscribe links turn it off. */
+  emailNewClips: integer("email_new_clips", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -84,6 +87,15 @@ export const files = sqliteTable(
     /** Bumped on create, part signing and completion; drives quota reservation and cleanup. */
     lastActivityAt: integer("last_activity_at").notNull(),
     completedAt: integer("completed_at"),
+    /**
+     * The new-clips digest (see notify.ts). A complete clip waits with these
+     * null, is claimed into a batch (notifyBatch, the claim time), and is
+     * announced (notifiedAt) once that batch's email has gone out.
+     * notifyAttemptedAt is the batch's latest send attempt, so retries rotate.
+     */
+    notifyBatch: integer("notify_batch"),
+    notifyAttemptedAt: integer("notify_attempted_at"),
+    notifiedAt: integer("notified_at"),
   },
   (t) => [
     index("files_owner_status_activity_idx").on(t.ownerId, t.status, t.lastActivityAt),
@@ -91,6 +103,12 @@ export const files = sqliteTable(
     index("files_hop_status_created_idx").on(t.hopId, t.status, t.createdAt),
     index("files_status_activity_idx").on(t.status, t.lastActivityAt),
     index("files_pass_status_idx").on(t.passId, t.status),
+    // Only finished uploads not yet announced: tiny, since almost every row is.
+    // Keyed on completed_at rather than status, so SQLite can't prefer the
+    // status indexes (and read every clip) for the digest's queries.
+    index("files_unannounced_idx")
+      .on(t.ownerId, t.notifyBatch, t.completedAt)
+      .where(sql`${t.completedAt} is not null and ${t.notifiedAt} is null`),
   ],
 );
 
