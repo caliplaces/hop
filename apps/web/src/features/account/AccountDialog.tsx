@@ -6,6 +6,7 @@ import { Avatar } from "../../components/ui/Avatar";
 import { Button, buttonClass } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
 import { useFeedback } from "../../components/ui/feedback";
+import { Switch } from "../../components/ui/Switch";
 import { api, signOut } from "../../lib/api";
 import { hopUrl } from "../../lib/format";
 import { queries } from "../../lib/queries";
@@ -29,14 +30,43 @@ function useSetColor(me: AthleteMe) {
       queryClient.setQueryData<Me | null>(key, next);
     },
     // Only the response for the most recent pick may touch the cache; older
-    // ones would flash an earlier colour back.
+    // ones would flash an earlier colour back. Merge just the colour: the rest
+    // of the response may predate another setting saved meanwhile.
     onSuccess: ({ me: updated }, color) => {
-      if (latest.current === color) queryClient.setQueryData(key, updated);
+      if (latest.current !== color) return;
+      queryClient.setQueryData(key, (current) =>
+        current ? { ...current, color: updated.color } : updated,
+      );
     },
     onError: (_error, color) => {
       if (latest.current !== color) return; // a later pick is still on its way
       toast("Couldn’t save your colour.", "error");
       queryClient.invalidateQueries({ queryKey: key }); // fall back to what the server has
+    },
+  });
+}
+
+function useSetEmailNewClips() {
+  const queryClient = useQueryClient();
+  const { toast } = useFeedback();
+  const key = queries.me().queryKey;
+  return useMutation({
+    scope: { id: "profile-email" },
+    mutationFn: (emailNewClips: boolean) =>
+      api<{ me: Me }>("/me", { method: "PATCH", json: { emailNewClips } }),
+    onMutate: (emailNewClips: boolean) => {
+      queryClient.setQueryData(key, (current) =>
+        current ? { ...current, emailNewClips } : current,
+      );
+    },
+    // Merge just this setting, for the same reason as the colour above.
+    onSuccess: ({ me: updated }) =>
+      queryClient.setQueryData(key, (current) =>
+        current ? { ...current, emailNewClips: updated.emailNewClips } : updated,
+      ),
+    onError: () => {
+      toast("Couldn’t save your email settings.", "error");
+      queryClient.invalidateQueries({ queryKey: key });
     },
   });
 }
@@ -51,6 +81,7 @@ export function AccountDialog({
   onClose: () => void;
 }) {
   const setColor = useSetColor(me);
+  const setEmailNewClips = useSetEmailNewClips();
 
   return (
     <Dialog open={open} onClose={onClose} size="sm">
@@ -65,6 +96,20 @@ export function AccountDialog({
       <div className="mt-6">
         <p className="mb-3 text-sm font-medium text-muted">Your page colour</p>
         <ColorPicker value={me.color} onChange={(color) => setColor.mutate(color)} />
+      </div>
+
+      <div className="mt-6">
+        <p className="mb-3 text-sm font-medium text-muted">Email</p>
+        <Switch
+          label="New clips"
+          description={
+            me.email
+              ? `One email to ${me.email} when a burst of clips arrives.`
+              : "When a burst of clips arrives."
+          }
+          checked={me.emailNewClips}
+          onChange={(checked) => setEmailNewClips.mutate(checked)}
+        />
       </div>
 
       <div className="mt-6 flex flex-col gap-2">

@@ -22,6 +22,13 @@
       "when": 1794670822161,
       "tag": "0002_user_color",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794686166098,
+      "tag": "0003_new_clip_notifications",
+      "breakpoints": true
     }
   ]
 }

@@ -58,7 +58,16 @@ export const colorSchema = z.enum(COLOR_IDS);
 
 export const claimHandleSchema = z.object({ handle: z.string(), color: colorSchema.optional() });
 
-export const updateProfileSchema = z.object({ color: colorSchema });
+export const updateProfileSchema = z
+  .object({ color: colorSchema, emailNewClips: z.boolean() })
+  .partial()
+  .refine((changes) => Object.keys(changes).length > 0, "Nothing to update.");
+
+/** Unsubscribe links carry a signed token; `subscribe: true` undoes it. */
+export const emailPreferenceSchema = z.object({
+  token: z.string().min(1).max(1000),
+  subscribe: z.boolean().optional(),
+});
 
 export const createHopSchema = z.object({
   title: z.string().trim().min(1).max(80),
@@ -88,6 +97,8 @@ export type Me = {
   activeHopId: string | null;
   /** Always set: the chosen colour, or a stable default until they choose. */
   color: ColorId;
+  /** Whether new clips are announced by email (on unless they opted out). */
+  emailNewClips: boolean;
 };
 
 export type HopSummary = {

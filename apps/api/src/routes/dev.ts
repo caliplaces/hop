@@ -1,5 +1,6 @@
 import { colorFor } from "@hop/shared";
 import { Hono } from "hono";
+import { newClipsEmail } from "../email/new-clips";
 import type { RenderedEmail } from "../email/send";
 import { welcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
@@ -18,6 +19,26 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
       name: query("name") ?? "Matej Matiasko",
       color: colorFor(query("color"), "preview"),
     }),
+  "new-clips": (appUrl, query) => {
+    const hops = [
+      { id: "hop_1", slug: "street-kings-prague", title: "Street Kings Prague" },
+      { id: "hop_2", slug: "inbox", title: "Main" },
+    ];
+    const names = ["Coach Peter", "Lea from the crew", "SmokyMonkey441", "@nina", null];
+    // ?count=5&hops=2 shapes the sample.
+    const count = Math.min(Math.max(Number(query("count")) || 5, 1), 50);
+    const spread = query("hops") === "2" ? 2 : 1;
+    return newClipsEmail({
+      appUrl,
+      color: colorFor(query("color"), "preview"),
+      clips: Array.from({ length: count }, (_, i) => ({
+        hopId: hops[i % spread]?.id ?? "hop_1",
+        contributor: names[i % names.length] ?? null,
+      })),
+      hops,
+      unsubscribeUrl: `${appUrl}/unsubscribe?token=preview`,
+    });
+  },
 };
 
 /**

@@ -32,6 +32,7 @@ export function toMe(user: AppEnv["Variables"]["user"]): Me | null {
     handle: user.handle,
     activeHopId: user.activeHopId,
     color: colorFor(user.color, user.id).id,
+    emailNewClips: user.emailNewClips,
   };
 }
 

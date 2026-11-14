@@ -57,9 +57,12 @@ You also need to:
 
 Hop sends its own emails through [Resend](https://resend.com) from `EMAIL_FROM` (see `wrangler.jsonc`); sign-in emails come from Caliplaces auth. Templates live in `src/email/` as JSX components that hono/jsx renders to table-based HTML with inline styles, with a plain-text version alongside. Each email goes only to verified addresses, and carries an idempotency key so retries never send it twice.
 
-| Email   | When                           |
-| ------- | ------------------------------ |
-| Welcome | An athlete claims their handle |
+| Email     | When                                                                                                       |
+| --------- | ---------------------------------------------------------------------------------------------------------- |
+| Welcome   | An athlete claims their handle                                                                             |
+| New clips | Clips arrived and uploads have been quiet for 10 minutes, or an hour after the first one (`src/notify.ts`) |
+
+The new-clips digest runs every 5 minutes. A clip counts as announced once `files.notified_at` is set; each run claims an athlete's unannounced clips in one statement before sending, and hands them back if the send fails. Athletes turn it off in account settings, from the unsubscribe link in each email (a page that asks first), or with their mail app's one-click unsubscribe (`List-Unsubscribe`, RFC 8058).
 
 While `pnpm dev` runs, open [localhost:5173/email-lab.html](http://localhost:5173/email-lab.html) to see every email with sample data, in each colour, at phone and desktop width, and in dark mode. Without `RESEND_API_KEY` in `.dev.vars`, emails are printed to the wrangler console instead of sent.
 

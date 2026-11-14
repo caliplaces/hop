@@ -48,8 +48,10 @@ const STILL_AT = 6.62;
  * `size` of the frame, centred, starting `top` from the top).
  */
 const EMAIL_POSES = {
-  // Happy eyes in a burst of confetti.
+  // Happy eyes in a burst of confetti (welcome email).
   cheer: { state: "cheer", at: 1.3, crop: { size: 0.84, top: 0.02 } },
+  // Balancing a clip card on the antenna (new-clips digest).
+  busy: { state: "busy", at: 0.33, crop: { size: 0.84, top: 0.02 } },
 };
 const EMAIL_SIZE = 400;
 const only = process.argv[2]; // "email" to skip the logo images

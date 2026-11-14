@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contributorNameSchema } from "./api";
+import { contributorNameSchema, updateProfileSchema } from "./api";
 import { checkHandle, normalizeHandle, slugify } from "./handles";
 import {
   isAcceptableDeclaredType,
@@ -30,6 +30,10 @@ describe("handles", () => {
     expect(checkHandle("-matej")).toBe("invalid");
     expect(checkHandle("ma..tej")).toBe("invalid");
     expect(checkHandle("api")).toBe("reserved");
+    // Routed pages and static asset folders at the root.
+    expect(checkHandle("unsubscribe")).toBe("reserved");
+    expect(checkHandle("email")).toBe("reserved");
+    expect(checkHandle("bobble")).toBe("reserved");
   });
   it("slugifies", () => {
     expect(slugify("Worlds 2026 — Bratislava!")).toBe("worlds-2026-bratislava");
@@ -83,5 +87,14 @@ describe("contributorNameSchema", () => {
     expect(contributorNameSchema.parse("  @@matej ")).toBe("matej");
     expect(contributorNameSchema.parse("Coach\u0000 Peter")).toBe("Coach Peter");
     expect(contributorNameSchema.safeParse("@").success).toBe(false);
+  });
+});
+
+describe("updateProfileSchema", () => {
+  it("accepts any one setting and rejects an empty update", () => {
+    expect(updateProfileSchema.safeParse({ emailNewClips: false }).success).toBe(true);
+    expect(updateProfileSchema.safeParse({ color: "mint" }).success).toBe(true);
+    expect(updateProfileSchema.safeParse({}).success).toBe(false);
+    expect(updateProfileSchema.safeParse({ emailNewClips: "no" }).success).toBe(false);
   });
 });
