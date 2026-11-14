@@ -25,6 +25,9 @@
     // Each environment has its own Caliplaces developer app. For local dev, set
     // OIDC_CLIENT_ID and OIDC_CLIENT_SECRET in .dev.vars from your own dev app.
     "OIDC_CLIENT_ID": "",
+    // The iPhone app's Caliplaces developer app (Native, no secret). Its redirect
+    // URI is a custom scheme, so one app serves every environment.
+    "OIDC_APP_CLIENT_ID": "399623629245054982",
     "R2_BUCKET_NAME": "hop-dev",
     // Cloudflare's always-pass Turnstile test key.
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
@@ -55,6 +58,7 @@
         "EMAIL_FROM": "Hop (staging) <hello@onmyhop.com>",
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "399581759521488902",
+        "OIDC_APP_CLIENT_ID": "399623629245054982",
         "R2_BUCKET_NAME": "hop-staging",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzxw0pDT6tjGB4"
       },
@@ -86,6 +90,7 @@
         "EMAIL_FROM": "Hop <hello@onmyhop.com>",
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "399569698213068806",
+        "OIDC_APP_CLIENT_ID": "399623629245054982",
         "R2_BUCKET_NAME": "hop-production",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzsqAA1kSjsSnQ"
       },

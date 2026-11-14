@@ -11,6 +11,8 @@ export type Env = {
   OIDC_ISSUER: string;
   OIDC_CLIENT_ID: string;
   OIDC_CLIENT_SECRET: string;
+  /** The iPhone app's own (Native, public) Caliplaces developer app. Empty disables app sign-in. */
+  OIDC_APP_CLIENT_ID: string;
   SESSION_SECRET: string;
   TURNSTILE_SITE_KEY: string;
   TURNSTILE_SECRET_KEY: string;

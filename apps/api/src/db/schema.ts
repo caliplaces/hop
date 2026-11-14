@@ -22,11 +22,18 @@ export const users = sqliteTable("users", {
 export const sessions = sqliteTable(
   "sessions",
   {
-    /** SHA-256 of the session token; the token itself only lives in the cookie. */
+    /** SHA-256 of the session token; the token itself only lives with the client. */
     id: text("id").primaryKey(),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * "web" sessions live in the website's cookie, "app" sessions are bearer
+     * tokens held by the iPhone app. Each is only accepted the way it was issued.
+     */
+    kind: text("kind", { enum: ["web", "app"] })
+      .notNull()
+      .default("web"),
     createdAt: integer("created_at").notNull(),
     expiresAt: integer("expires_at").notNull(),
   },

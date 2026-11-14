@@ -3,13 +3,22 @@ import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import * as oauth from "oauth4webapi";
+import { z } from "zod";
 import { getDb } from "../db";
-import { users } from "../db/schema";
-import type { AppEnv } from "../env";
+import { type UserRow, users } from "../db/schema";
+import type { AppEnv, Env } from "../env";
 import { newId, signPayload, verifyPayload } from "../lib/crypto";
-import { isSecureUrl, safeReturnTo } from "../lib/http";
-import { authorizationServer, OIDC_SCOPES, oidcClient, redirectUri } from "../lib/oidc";
-import { createSession, destroySession } from "../lib/session";
+import { fail, isSecureUrl, safeReturnTo } from "../lib/http";
+import {
+  APP_REDIRECT_URI,
+  appOidcClient,
+  authorizationServer,
+  OIDC_SCOPES,
+  oidcClient,
+  redirectUri,
+} from "../lib/oidc";
+import { createAppSession, createSession, destroySession } from "../lib/session";
+import { validate } from "../lib/validate";
 
 const FLOW_COOKIE = "hop_oidc";
 const FLOW_TTL_MS = 10 * 60 * 1000;
@@ -22,6 +31,114 @@ type FlowState = {
   codeVerifier: string;
   returnTo: string;
 };
+
+/**
+ * The iPhone app's sign-in, handed to the app between /app/start and
+ * /app/session. Signed, not encrypted: the app is the client it belongs to.
+ * Someone who intercepts the redirect gets a code but not this, and the code
+ * is useless without its PKCE verifier.
+ */
+type AppFlowState = {
+  purpose: "app-oidc-flow";
+  exp: number;
+  state: string;
+  nonce: string;
+  codeVerifier: string;
+};
+
+const appSessionSchema = z.object({
+  flow: z.string().min(1).max(2048),
+  callbackUrl: z.string().min(1).max(4096),
+});
+
+/** A fresh state, nonce and PKCE verifier, and the authorization URL that uses them. */
+async function startFlow(env: Env, clientId: string, redirect: string) {
+  const as = await authorizationServer(env);
+  if (!as.authorization_endpoint) throw new Error("OIDC issuer has no authorization_endpoint");
+  const flow = {
+    exp: Date.now() + FLOW_TTL_MS,
+    state: oauth.generateRandomState(),
+    nonce: oauth.generateRandomNonce(),
+    codeVerifier: oauth.generateRandomCodeVerifier(),
+  };
+  const url = new URL(as.authorization_endpoint);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirect);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", OIDC_SCOPES);
+  url.searchParams.set("state", flow.state);
+  url.searchParams.set("nonce", flow.nonce);
+  url.searchParams.set("code_challenge", await oauth.calculatePKCECodeChallenge(flow.codeVerifier));
+  url.searchParams.set("code_challenge_method", "S256");
+  return { flow, url };
+}
+
+/**
+ * Trades an authorization code for tokens, reads the profile and creates or
+ * updates the Hop user. Shared by the website's and the app's sign-in.
+ */
+async function signInWithCode(
+  env: Env,
+  options: {
+    client: oauth.Client;
+    clientAuth: oauth.ClientAuth;
+    params: URLSearchParams;
+    redirectUri: string;
+    codeVerifier: string;
+    nonce: string;
+  },
+): Promise<UserRow> {
+  const as = await authorizationServer(env);
+  const { client } = options;
+  const tokenResponse = await oauth.authorizationCodeGrantRequest(
+    as,
+    client,
+    options.clientAuth,
+    options.params,
+    options.redirectUri,
+    options.codeVerifier,
+  );
+  const tokens = await oauth.processAuthorizationCodeResponse(as, client, tokenResponse, {
+    expectedNonce: options.nonce,
+    requireIdToken: true,
+  });
+  const idClaims = oauth.getValidatedIdTokenClaims(tokens);
+  if (!idClaims) throw new Error("OIDC token response had no ID token");
+
+  // Profile claims aren't guaranteed in the ID token, so ask userinfo too.
+  const info = await oauth.processUserInfoResponse(
+    as,
+    client,
+    idClaims.sub,
+    await oauth.userInfoRequest(as, client, tokens.access_token),
+  );
+
+  const email = typeof info.email === "string" ? info.email : null;
+  const emailVerified = info.email_verified === true;
+  const name =
+    (typeof info.name === "string" && info.name.trim()) ||
+    (typeof info.preferred_username === "string" && info.preferred_username.trim()) ||
+    null;
+
+  const now = Date.now();
+  return getDb(env.DB)
+    .insert(users)
+    .values({
+      id: newId("usr"),
+      oidcSub: idClaims.sub,
+      email,
+      emailVerified,
+      name,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: users.oidcSub,
+      set: { email, emailVerified, name, updatedAt: now },
+    })
+    .returning()
+    .get();
+}
 
 export function toMe(user: AppEnv["Variables"]["user"]): Me | null {
   if (!user) return null;
@@ -42,37 +159,19 @@ export const authRoutes = new Hono<AppEnv>()
       console.error("OIDC_CLIENT_ID / OIDC_CLIENT_SECRET are not configured");
       return c.redirect("/?authError=failed");
     }
-    const as = await authorizationServer(c.env);
-    if (!as.authorization_endpoint) throw new Error("OIDC issuer has no authorization_endpoint");
-
-    const flow: FlowState = {
+    const { flow, url } = await startFlow(c.env, c.env.OIDC_CLIENT_ID, redirectUri(c.env));
+    const state: FlowState = {
       purpose: "oidc-flow",
-      exp: Date.now() + FLOW_TTL_MS,
-      state: oauth.generateRandomState(),
-      nonce: oauth.generateRandomNonce(),
-      codeVerifier: oauth.generateRandomCodeVerifier(),
+      ...flow,
       returnTo: safeReturnTo(c.req.query("returnTo"), c.env.APP_URL),
     };
-    setCookie(c, FLOW_COOKIE, await signPayload(c.env.SESSION_SECRET, flow), {
+    setCookie(c, FLOW_COOKIE, await signPayload(c.env.SESSION_SECRET, state), {
       httpOnly: true,
       secure: isSecureUrl(c.env.APP_URL),
       sameSite: "Lax",
       path: "/api/auth",
       maxAge: FLOW_TTL_MS / 1000,
     });
-
-    const url = new URL(as.authorization_endpoint);
-    url.searchParams.set("client_id", c.env.OIDC_CLIENT_ID);
-    url.searchParams.set("redirect_uri", redirectUri(c.env));
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", OIDC_SCOPES);
-    url.searchParams.set("state", flow.state);
-    url.searchParams.set("nonce", flow.nonce);
-    url.searchParams.set(
-      "code_challenge",
-      await oauth.calculatePKCECodeChallenge(flow.codeVerifier),
-    );
-    url.searchParams.set("code_challenge_method", "S256");
     return c.redirect(url.toString());
   })
 
@@ -100,55 +199,14 @@ export const authRoutes = new Hono<AppEnv>()
     // user back to the landing page with a message instead of a raw error page.
     let userId: string;
     try {
-      const tokenResponse = await oauth.authorizationCodeGrantRequest(
-        as,
+      const user = await signInWithCode(c.env, {
         client,
-        oauth.ClientSecretBasic(c.env.OIDC_CLIENT_SECRET),
+        clientAuth: oauth.ClientSecretBasic(c.env.OIDC_CLIENT_SECRET),
         params,
-        redirectUri(c.env),
-        flow.codeVerifier,
-      );
-      const tokens = await oauth.processAuthorizationCodeResponse(as, client, tokenResponse, {
-        expectedNonce: flow.nonce,
-        requireIdToken: true,
+        redirectUri: redirectUri(c.env),
+        codeVerifier: flow.codeVerifier,
+        nonce: flow.nonce,
       });
-      const idClaims = oauth.getValidatedIdTokenClaims(tokens);
-      if (!idClaims) throw new Error("OIDC token response had no ID token");
-
-      // Profile claims aren't guaranteed in the ID token, so ask userinfo too.
-      const info = await oauth.processUserInfoResponse(
-        as,
-        client,
-        idClaims.sub,
-        await oauth.userInfoRequest(as, client, tokens.access_token),
-      );
-
-      const email = typeof info.email === "string" ? info.email : null;
-      const emailVerified = info.email_verified === true;
-      const name =
-        (typeof info.name === "string" && info.name.trim()) ||
-        (typeof info.preferred_username === "string" && info.preferred_username.trim()) ||
-        null;
-
-      const db = getDb(c.env.DB);
-      const now = Date.now();
-      const user = await db
-        .insert(users)
-        .values({
-          id: newId("usr"),
-          oidcSub: idClaims.sub,
-          email,
-          emailVerified,
-          name,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: users.oidcSub,
-          set: { email, emailVerified, name, updatedAt: now },
-        })
-        .returning()
-        .get();
       userId = user.id;
     } catch (error) {
       console.error("OIDC sign-in failed", error);
@@ -158,6 +216,77 @@ export const authRoutes = new Hono<AppEnv>()
     await createSession(c, userId);
     // Re-validate: the flow cookie is signed, but this keeps the guarantee local.
     return c.redirect(safeReturnTo(flow.returnTo, c.env.APP_URL));
+  })
+
+  /**
+   * The iPhone app's sign-in, step 1: a fresh flow and the URL to open in a
+   * web authentication session.
+   */
+  .post("/app/start", async (c) => {
+    if (!c.env.OIDC_APP_CLIENT_ID) {
+      return fail(c, 503, "unavailable", "Signing in from the app isn't set up here.");
+    }
+    const { flow, url } = await startFlow(c.env, c.env.OIDC_APP_CLIENT_ID, APP_REDIRECT_URI);
+    const state: AppFlowState = { purpose: "app-oidc-flow", ...flow };
+    return c.json({
+      authorizeUrl: url.toString(),
+      flow: await signPayload(c.env.SESSION_SECRET, state),
+    });
+  })
+
+  /**
+   * Step 2: the app hands back its flow and the URL Caliplaces redirected it
+   * to. The code is exchanged here, so the app only ever holds a Hop session.
+   */
+  .post("/app/session", validate("json", appSessionSchema), async (c) => {
+    if (!c.env.OIDC_APP_CLIENT_ID) {
+      return fail(c, 503, "unavailable", "Signing in from the app isn't set up here.");
+    }
+    const input = c.req.valid("json");
+    const flow = await verifyPayload<AppFlowState>(
+      c.env.SESSION_SECRET,
+      input.flow,
+      "app-oidc-flow",
+    );
+    if (!flow) return fail(c, 400, "expired", "Signing in took too long. Please try again.");
+
+    let callback: URL;
+    try {
+      callback = new URL(input.callbackUrl);
+    } catch {
+      return fail(c, 400, "invalid_callback");
+    }
+    if (`${callback.protocol}${callback.pathname}` !== APP_REDIRECT_URI) {
+      return fail(c, 400, "invalid_callback");
+    }
+
+    const as = await authorizationServer(c.env);
+    const client = appOidcClient(c.env);
+    let params: URLSearchParams;
+    try {
+      params = oauth.validateAuthResponse(as, client, callback, flow.state);
+    } catch (error) {
+      console.warn("OIDC authorization response rejected (app)", error);
+      return fail(c, 400, "denied", "Sign-in was cancelled or refused.");
+    }
+
+    let user: UserRow;
+    try {
+      user = await signInWithCode(c.env, {
+        client,
+        clientAuth: oauth.None(),
+        params,
+        redirectUri: APP_REDIRECT_URI,
+        codeVerifier: flow.codeVerifier,
+        nonce: flow.nonce,
+      });
+    } catch (error) {
+      console.error("OIDC sign-in failed (app)", error);
+      return fail(c, 502, "failed", "Couldn't sign in with Caliplaces. Please try again.");
+    }
+
+    const session = await createAppSession(c.env, user.id);
+    return c.json({ token: session.token, expiresAt: session.expiresAt, me: toMe(user) });
   })
 
   .post("/logout", async (c) => {
