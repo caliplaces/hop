@@ -1,0 +1,22 @@
+{
+  "name": "hop",
+  "private": true,
+  "description": "Upload it on my Hop. Collect every video of you from an event in one place.",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "test": "turbo run test",
+    "lint": "biome check .",
+    "format": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.7",
+    "turbo": "2.11.11",
+    "typescript": "7.0.2"
+  }
+}
