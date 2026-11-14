@@ -8,6 +8,8 @@ export const users = sqliteTable("users", {
   name: text("name"),
   /** Public handle (onmyhop.com/<handle>). One per account, claimed once. */
   handle: text("handle").unique(),
+  /** Palette colour id for the athlete's page; null until chosen (a stable default is derived). */
+  color: text("color"),
   /** The hop that onmyhop.com/<handle> uploads into. */
   activeHopId: text("active_hop_id"),
   createdAt: integer("created_at").notNull(),

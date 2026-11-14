@@ -3,8 +3,8 @@ import { cx } from "./cx";
 
 /** Tones are named for meaning, not colour, so usage reads as intent. */
 const tones = {
-  live: "bg-hop text-ink",
-  event: "bg-hop-soft text-fg",
+  live: "bg-accent text-on-accent",
+  event: "bg-accent-soft text-fg",
   muted: "bg-surface-2 text-muted",
 } as const;
 

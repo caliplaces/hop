@@ -27,7 +27,7 @@ export function ShareBar({ url, title }: { url: string; title: string }) {
       {canShare && (
         <IconButton
           label="Share link"
-          className="bg-hop text-ink hover:bg-hop-strong"
+          className="bg-accent text-on-accent hover:brightness-95"
           onClick={() => shareHop(url)}
         >
           <Share className="size-[18px]" />

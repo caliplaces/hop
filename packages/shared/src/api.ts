@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { COLOR_IDS, type ColorId } from "./colors";
 import { MAX_FILE_BYTES, MAX_PARTS_PER_SIGN_REQUEST, MIN_FILE_BYTES } from "./limits";
 
 /**
@@ -53,7 +54,11 @@ export type CompletedPart = z.infer<typeof completeUploadSchema>["parts"][number
 
 export const hopPassSchema = z.object({ turnstileToken: z.string().min(1) });
 
-export const claimHandleSchema = z.object({ handle: z.string() });
+export const colorSchema = z.enum(COLOR_IDS);
+
+export const claimHandleSchema = z.object({ handle: z.string(), color: colorSchema.optional() });
+
+export const updateProfileSchema = z.object({ color: colorSchema });
 
 export const createHopSchema = z.object({
   title: z.string().trim().min(1).max(80),
@@ -72,7 +77,7 @@ export type PublicHop = {
   slug: string;
   title: string;
   status: HopStatus;
-  owner: { handle: string; name: string | null };
+  owner: { handle: string; name: string | null; color: ColorId };
 };
 
 export type Me = {
@@ -81,6 +86,8 @@ export type Me = {
   email: string | null;
   handle: string | null;
   activeHopId: string | null;
+  /** Always set: the chosen colour, or a stable default until they choose. */
+  color: ColorId;
 };
 
 export type HopSummary = {

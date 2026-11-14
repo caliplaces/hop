@@ -12,7 +12,7 @@ export function PrefixedInput({ prefix, className, ...props }: InputProps & { pr
   return (
     <div
       className={cx(
-        "flex h-12 items-center rounded-2xl border border-line-strong bg-surface transition focus-within:border-fg focus-within:ring-4 focus-within:ring-hop-soft",
+        "flex h-12 items-center rounded-2xl border border-line-strong bg-surface transition focus-within:border-fg focus-within:ring-4 focus-within:ring-accent-soft",
         className,
       )}
     >

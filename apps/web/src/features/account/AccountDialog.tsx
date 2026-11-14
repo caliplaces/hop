@@ -1,12 +1,45 @@
-import type { Me } from "@hop/shared";
+import type { ColorId, Me } from "@hop/shared";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, LogOut } from "lucide-react";
+import { useRef } from "react";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button, buttonClass } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
-import { signOut } from "../../lib/api";
+import { useFeedback } from "../../components/ui/feedback";
+import { api, signOut } from "../../lib/api";
 import { hopUrl } from "../../lib/format";
+import { queries } from "../../lib/queries";
+import { ColorPicker } from "./ColorPicker";
 
 export type AthleteMe = Me & { handle: string };
+
+function useSetColor(me: AthleteMe) {
+  const queryClient = useQueryClient();
+  const { toast } = useFeedback();
+  const key = queries.me().queryKey;
+  const latest = useRef<ColorId | null>(null);
+  return useMutation({
+    // Saves run one after another (same scope), so the server ends on the last pick.
+    scope: { id: "profile-colour" },
+    mutationFn: (color: ColorId) => api<{ me: Me }>("/me", { method: "PATCH", json: { color } }),
+    // Optimistic: the whole app recolours instantly.
+    onMutate: (color: ColorId) => {
+      latest.current = color;
+      const next: Me = { ...me, color };
+      queryClient.setQueryData<Me | null>(key, next);
+    },
+    // Only the response for the most recent pick may touch the cache; older
+    // ones would flash an earlier colour back.
+    onSuccess: ({ me: updated }, color) => {
+      if (latest.current === color) queryClient.setQueryData(key, updated);
+    },
+    onError: (_error, color) => {
+      if (latest.current !== color) return; // a later pick is still on its way
+      toast("Couldn’t save your colour.", "error");
+      queryClient.invalidateQueries({ queryKey: key }); // fall back to what the server has
+    },
+  });
+}
 
 export function AccountDialog({
   me,
@@ -17,6 +50,8 @@ export function AccountDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const setColor = useSetColor(me);
+
   return (
     <Dialog open={open} onClose={onClose} size="sm">
       <div className="flex items-center gap-3">
@@ -26,6 +61,12 @@ export function AccountDialog({
           <p className="truncate text-sm text-muted">@{me.handle}</p>
         </div>
       </div>
+
+      <div className="mt-6">
+        <p className="mb-3 text-sm font-medium text-muted">Your page colour</p>
+        <ColorPicker value={me.color} onChange={(color) => setColor.mutate(color)} />
+      </div>
+
       <div className="mt-6 flex flex-col gap-2">
         <a
           className={buttonClass({ variant: "soft", className: "justify-start" })}

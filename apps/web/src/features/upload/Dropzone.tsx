@@ -33,10 +33,10 @@ export function Dropzone({
   return (
     <label
       className={cx(
-        "group flex cursor-pointer flex-col items-center rounded-[2rem] border-2 border-dashed px-6 text-center transition has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-hop-soft",
+        "group flex cursor-pointer flex-col items-center rounded-[2rem] border-2 border-dashed px-6 text-center transition has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-accent-soft",
         compact ? "py-5" : "py-10",
         dragging
-          ? "border-hop-strong bg-hop-soft"
+          ? "border-accent bg-accent-soft"
           : "border-line-strong bg-surface hover:border-fg/30",
       )}
       onDragOver={(e) => {
@@ -52,7 +52,7 @@ export function Dropzone({
     >
       <span
         className={cx(
-          "grid place-items-center rounded-full bg-hop text-ink shadow-soft transition group-active:scale-95",
+          "grid place-items-center rounded-full bg-accent text-on-accent shadow-soft transition group-active:scale-95",
           compact ? "size-11" : "size-16",
         )}
       >

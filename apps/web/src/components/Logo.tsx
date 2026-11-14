@@ -1,20 +1,38 @@
+import { type ColorId, isColorId } from "@hop/shared";
 import { Link } from "@tanstack/react-router";
+import { cx } from "./ui/cx";
 
-/** Placeholder mark until the final logo lands; swap the SVG here only. */
-export function LogoMark({ className = "size-8" }: { className?: string }) {
+/** Hop's own colour for Bobble on pages that don't belong to an athlete. */
+export const BRAND_COLOR: ColorId = "grape";
+
+/** Bobble's face, pre-rendered per palette colour (see scripts/render-mascot-assets.mjs). */
+export function LogoMark({
+  color = BRAND_COLOR,
+  className = "size-9",
+}: {
+  color?: string;
+  className?: string;
+}) {
+  const id = isColorId(color) ? color : BRAND_COLOR;
   return (
-    <span className={`grid place-items-center rounded-[30%] bg-hop text-ink ${className}`}>
-      <svg viewBox="0 0 64 64" className="size-[62%]" aria-hidden="true">
-        <path d="M18 50V14h9v14h10V14h9v36h-9V36H27v14z" fill="currentColor" />
-      </svg>
-    </span>
+    <img
+      src={`/bobble/face-${id}.png`}
+      alt=""
+      width={128}
+      height={128}
+      className={cx("shrink-0", className)}
+    />
   );
 }
 
-export function Logo({ className = "" }: { className?: string }) {
+export function Logo({ color, className }: { color?: string; className?: string }) {
   return (
-    <Link to="/" className={`inline-flex items-center gap-2 ${className}`} aria-label="Hop home">
-      <LogoMark />
+    <Link
+      to="/"
+      className={cx("inline-flex items-center gap-1.5", className)}
+      aria-label="Hop home"
+    >
+      <LogoMark color={color} />
       <span className="text-xl font-bold tracking-tight">hop</span>
     </Link>
   );

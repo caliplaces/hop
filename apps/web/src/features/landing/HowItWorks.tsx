@@ -34,7 +34,7 @@ export function HowItWorks() {
             <span className="absolute top-5 right-6 text-sm font-semibold text-subtle tabular-nums">
               0{i + 1}
             </span>
-            <span className="grid size-11 place-items-center rounded-2xl bg-hop text-ink">
+            <span className="grid size-11 place-items-center rounded-2xl bg-accent text-on-accent">
               <Icon className="size-5" strokeWidth={2.2} />
             </span>
             <h3 className="mt-5 text-lg font-semibold tracking-tight">{title}</h3>

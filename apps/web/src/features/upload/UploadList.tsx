@@ -32,7 +32,7 @@ function UploadRow({ item, uploader }: { item: UploadItem; uploader: Uploader })
           <Film className="size-5" />
         )}
         {item.status === "done" && (
-          <span className="animate-pop absolute inset-0 grid place-items-center bg-hop text-ink">
+          <span className="animate-pop absolute inset-0 grid place-items-center bg-accent text-on-accent">
             <Check className="size-5" strokeWidth={3} />
           </span>
         )}
@@ -64,7 +64,7 @@ function UploadRow({ item, uploader }: { item: UploadItem; uploader: Uploader })
             aria-valuenow={item.status === "done" ? 100 : Math.floor(progress * 100)}
           >
             <div
-              className={`h-full rounded-full transition-[width] duration-300 ${item.status === "done" ? "bg-hop-strong" : "bg-fg"}`}
+              className={`h-full rounded-full transition-[width] duration-300 ${item.status === "done" ? "bg-accent" : "bg-fg"}`}
               style={{ width: `${item.status === "done" ? 100 : Math.max(3, progress * 100)}%` }}
             />
           </div>

@@ -6,7 +6,7 @@ export function Avatar({ name, size = "md" }: { name: string; size?: keyof typeo
   return (
     <span
       aria-hidden="true"
-      className={`grid shrink-0 place-items-center rounded-full bg-hop font-semibold text-ink ${sizes[size]}`}
+      className={`grid shrink-0 place-items-center rounded-full bg-accent font-semibold text-on-accent ${sizes[size]}`}
     >
       {initial}
     </span>

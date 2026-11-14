@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "check-types": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "mascot:assets": "node scripts/render-mascot-assets.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",
@@ -21,7 +22,8 @@
     "lucide-react": "1.73.0",
     "qrcode": "1.5.4",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "three": "0.187.0"
   },
   "devDependencies": {
     "@hop/typescript-config": "workspace:*",
@@ -29,7 +31,9 @@
     "@types/qrcode": "1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "6.3.0",
+    "puppeteer-core": "25.17.0",
     "tailwindcss": "4.3.5",
     "vite": "8.3.8",
     "vitest": "5.1.0"

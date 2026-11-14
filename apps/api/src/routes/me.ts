@@ -12,6 +12,7 @@ import {
   normalizeHandle,
   slugify,
   updateHopSchema,
+  updateProfileSchema,
 } from "@hop/shared";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -54,7 +55,8 @@ export const meRoutes = new Hono<AppEnv>()
   .put("/me/handle", validate("json", claimHandleSchema), async (c) => {
     const user = currentUser(c);
     if (user.handle) return fail(c, 409, "handle_already_set", "Your handle is already set.");
-    const handle = normalizeHandle(c.req.valid("json").handle);
+    const input = c.req.valid("json");
+    const handle = normalizeHandle(input.handle);
     const problem = checkHandle(handle);
     if (problem) return fail(c, 400, `handle_${problem}`, "That handle can't be used.");
 
@@ -72,14 +74,27 @@ export const meRoutes = new Hono<AppEnv>()
         }),
         db
           .update(users)
-          .set({ handle, activeHopId: hopId, updatedAt: now })
+          .set({ handle, activeHopId: hopId, color: input.color ?? user.color, updatedAt: now })
           .where(eq(users.id, user.id)),
       ]);
     } catch (error) {
       if (isUniqueViolation(error)) return fail(c, 409, "handle_taken", "That handle is taken.");
       throw error;
     }
-    return c.json({ me: toMe({ ...user, handle, activeHopId: hopId }) });
+    return c.json({
+      me: toMe({ ...user, handle, activeHopId: hopId, color: input.color ?? user.color }),
+    });
+  })
+
+  /** Profile settings; for now just the page colour. */
+  .patch("/me", requireUser, validate("json", updateProfileSchema), async (c) => {
+    const user = currentUser(c);
+    const { color } = c.req.valid("json");
+    await getDb(c.env.DB)
+      .update(users)
+      .set({ color, updatedAt: Date.now() })
+      .where(eq(users.id, user.id));
+    return c.json({ me: toMe({ ...user, color }) });
   })
 
   .get("/me/hops", async (c) => {

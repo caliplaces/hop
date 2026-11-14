@@ -53,7 +53,7 @@ export const FileTile = memo(function FileTile({
         className={cx(
           "group relative block aspect-[4/5] w-full overflow-hidden rounded-2xl bg-surface-2 transition active:scale-[0.98] sm:rounded-3xl",
           // Inset so the ring never bleeds into the page gutter.
-          selected && "ring-4 ring-hop ring-inset",
+          selected && "ring-4 ring-accent ring-inset",
         )}
       >
         <Thumbnail file={file} />
@@ -69,7 +69,7 @@ export const FileTile = memo(function FileTile({
           <span
             className={cx(
               "absolute top-2 right-2 grid size-6 place-items-center rounded-full border-2 transition",
-              selected ? "border-hop bg-hop text-ink" : "border-white/90 bg-black/20",
+              selected ? "border-accent bg-accent text-on-accent" : "border-white/90 bg-black/20",
             )}
           >
             {selected && <Check className="size-3.5" strokeWidth={3} />}
