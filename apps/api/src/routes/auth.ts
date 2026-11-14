@@ -1,4 +1,4 @@
-import type { Me } from "@hop/shared";
+import { colorFor, type Me } from "@hop/shared";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -31,6 +31,7 @@ export function toMe(user: AppEnv["Variables"]["user"]): Me | null {
     email: user.email,
     handle: user.handle,
     activeHopId: user.activeHopId,
+    color: colorFor(user.color, user.id).id,
   };
 }
 

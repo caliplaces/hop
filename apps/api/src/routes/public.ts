@@ -1,4 +1,4 @@
-import { normalizeHandle, type PublicConfig, type PublicHop } from "@hop/shared";
+import { colorFor, normalizeHandle, type PublicConfig, type PublicHop } from "@hop/shared";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { getDb } from "../db";
@@ -13,7 +13,11 @@ function toPublicHop(hop: HopRow, owner: UserRow): PublicHop {
     slug: hop.slug,
     title: hop.title,
     status: hop.status,
-    owner: { handle: owner.handle ?? "", name: owner.name },
+    owner: {
+      handle: owner.handle ?? "",
+      name: owner.name,
+      color: colorFor(owner.color, owner.id).id,
+    },
   };
 }
 
