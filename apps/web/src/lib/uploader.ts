@@ -52,12 +52,33 @@ function sameFile(a: File, b: File) {
 /** Thrown by getPass when the human check failed; the message is shown to the user. */
 export class PassError extends Error {}
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function abortError() {
+  return new DOMException("Aborted", "AbortError");
+}
 
-function waitForOnline(): Promise<void> {
+function isAbort(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+/** Settles with `promise`, or rejects as soon as `signal` aborts. */
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return abortable(new Promise((resolve) => setTimeout(resolve, ms)), signal);
+}
+
+function waitForOnline(signal: AbortSignal): Promise<void> {
   if (navigator.onLine) return Promise.resolve();
-  return new Promise((resolve) =>
-    window.addEventListener("online", () => resolve(), { once: true }),
+  return abortable(
+    new Promise((resolve) => window.addEventListener("online", () => resolve(), { once: true })),
+    signal,
   );
 }
 
@@ -74,6 +95,7 @@ function putPart(
   onProgress: (loaded: number) => void,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(abortError());
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
     xhr.upload.onprogress = (e) => onProgress(e.loaded);
@@ -184,7 +206,7 @@ export class Uploader {
     try {
       let session = loadSession(key);
       if (!session) {
-        const pass = await this.getPass();
+        const pass = await abortable(this.getPass(), controller.signal);
         const created = await api<CreateUploadResult>(`/hops/${this.hopId}/uploads`, {
           method: "POST",
           signal: controller.signal,
@@ -262,10 +284,19 @@ export class Uploader {
     };
     report();
 
+    // One controller per attempt: the first fatal error stops every sibling
+    // worker, and all of them settle before this returns, so a retry never
+    // overlaps workers (and saved progress) from an earlier attempt.
+    const attempt = new AbortController();
+    const stopAttempt = () => attempt.abort();
+    signal.addEventListener("abort", stopAttempt, { once: true });
+    const partSignal = attempt.signal;
+
     const urls = new Map<number, string>();
     const sign = async (numbers: number[]) => {
       const { parts } = await api<{ parts: SignedPart[] }>(`/uploads/${session.fileId}/parts`, {
         method: "POST",
+        signal: partSignal,
         headers: { authorization: `Bearer ${session.uploadToken}` },
         json: { partNumbers: numbers },
       });
@@ -273,11 +304,11 @@ export class Uploader {
     };
 
     const queue = [...pending];
-    const worker = async () => {
+    const work = async () => {
       while (queue.length > 0) {
         const n = queue.shift() as number;
-        for (let attempt = 1; ; attempt++) {
-          if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+        for (let tries = 1; ; tries++) {
+          if (partSignal.aborted) throw abortError();
           if (!urls.has(n)) {
             const batch = queue
               .filter((m) => !urls.has(m))
@@ -289,7 +320,7 @@ export class Uploader {
             const etag = await putPart(
               urls.get(n) as string,
               file.slice(start, start + partSize(n)),
-              signal,
+              partSignal,
               (loaded) => {
                 inFlight.set(n, loaded);
                 report();
@@ -303,17 +334,30 @@ export class Uploader {
           } catch (error) {
             inFlight.delete(n);
             report();
-            if (signal.aborted || attempt >= MAX_PART_ATTEMPTS) throw error;
+            if (partSignal.aborted || tries >= MAX_PART_ATTEMPTS) throw error;
             // Expired or rejected signature: get a fresh URL next time round.
             if (error instanceof PartError && (error.status === 403 || error.status === 400))
               urls.delete(n);
-            await waitForOnline();
-            await sleep(Math.min(16_000, 1000 * 2 ** (attempt - 1)));
+            await waitForOnline(partSignal);
+            await sleep(Math.min(16_000, 1000 * 2 ** (tries - 1)), partSignal);
           }
         }
       }
     };
-    await Promise.all(Array.from({ length: PARTS_IN_PARALLEL }, worker));
+    const worker = async () => {
+      try {
+        await work();
+      } catch (error) {
+        attempt.abort();
+        throw error;
+      }
+    };
+    const results = await Promise.allSettled(Array.from({ length: PARTS_IN_PARALLEL }, worker));
+    signal.removeEventListener("abort", stopAttempt);
+    const errors = results.flatMap((r) => (r.status === "rejected" ? [r.reason as unknown] : []));
+    // Report the error that caused the stop, not the aborts it triggered.
+    const cause = errors.find((e) => !isAbort(e)) ?? errors[0];
+    if (cause !== undefined) throw cause;
   }
 
   private async discard(upload: Pick<CreateUploadResult, "fileId" | "uploadToken">) {

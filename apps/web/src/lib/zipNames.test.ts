@@ -13,6 +13,16 @@ describe("zipEntryNames", () => {
     ).toEqual(["@matej/a.mp4", "@matej/a (1).mp4", "@matej/A (2).MP4", "Unknown/b"]);
   });
 
+  it("never reuses a generated name", () => {
+    const names = zipEntryNames([
+      { name: "clip.mp4", contributorName: "a" },
+      { name: "clip.mp4", contributorName: "a" },
+      { name: "clip (1).mp4", contributorName: "a" },
+    ]);
+    expect(names).toEqual(["a/clip.mp4", "a/clip (1).mp4", "a/clip (1) (1).mp4"]);
+    expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(names.length);
+  });
+
   it("can't escape the archive", () => {
     const names = zipEntryNames([
       { name: "x.mp4", contributorName: ".." },

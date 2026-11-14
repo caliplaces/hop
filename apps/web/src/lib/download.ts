@@ -53,15 +53,18 @@ export async function listAllFiles(hopId: string | null): Promise<InboxFile[]> {
 
 /**
  * Zips files on the fly straight into a file the user picks, so gigabytes of
- * video never sit in memory. Only call when canStreamZip() is true.
+ * video never sit in memory. The save dialog opens first, while the click
+ * still counts as a user gesture; only then is the file list loaded.
+ * Only call when canStreamZip() is true.
  */
-export async function zipToDisk(files: InboxFile[], zipName: string) {
+export async function zipToDisk(loadFiles: () => Promise<InboxFile[]>, zipName: string) {
   const picker = savePicker();
   if (!picker) throw new Error("Streaming downloads aren't supported in this browser");
   const handle = await picker({
     suggestedName: zipName,
     types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }],
   });
+  const files = await loadFiles();
   const writable = await handle.createWritable();
   const { downloadZip } = await import("client-zip");
   const names = zipEntryNames(files);

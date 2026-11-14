@@ -246,14 +246,20 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
   const download = async (which: "all" | "selected") => {
     setBusy(true);
     try {
-      const list =
-        which === "all"
-          ? filesQuery.hasNextPage
+      const load = async () =>
+        which === "selected"
+          ? files.filter((f) => selected.has(f.id))
+          : filesQuery.hasNextPage
             ? await listAllFiles(hopFilter)
-            : files
-          : files.filter((f) => selected.has(f.id));
-      if (list.length > 1 && canStreamZip()) await zipToDisk(list, `${handle}-hop.zip`);
-      else setSheet(list);
+            : files;
+      const count = which === "selected" ? selected.size : files.length;
+      // The save dialog must open straight from the click, before any slow
+      // loading, or the browser no longer treats it as user-initiated.
+      if (canStreamZip() && (count > 1 || filesQuery.hasNextPage)) {
+        await zipToDisk(load, `${handle}-hop.zip`);
+      } else {
+        setSheet(await load());
+      }
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError"))
         alert("Download failed. Please try again.");
