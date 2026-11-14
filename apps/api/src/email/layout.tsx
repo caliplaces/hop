@@ -69,7 +69,14 @@ export function EmailDocument({
             <td
               class="bg"
               align="center"
-              style={{ padding: "32px 12px 40px", backgroundColor: light.bg, fontFamily: FONT }}
+              style={{
+                padding: "32px 12px 40px",
+                backgroundColor: light.bg,
+                fontFamily: FONT,
+                // Long unbroken words (a 30-character handle) wrap instead of widening the email.
+                overflowWrap: "anywhere",
+                wordBreak: "break-word",
+              }}
             >
               <table
                 role="presentation"
@@ -235,14 +242,20 @@ export function Text({ children, muted = false }: { children: Child; muted?: boo
   );
 }
 
-/** The athlete's link, big, in their colour. */
+/**
+ * The athlete's link, big, in their colour. Handles can be 30 characters, so
+ * the link may wrap: first at the slash, then anywhere, never widening the
+ * email past a phone screen.
+ */
 export function LinkPill({
   href,
-  label,
+  host,
+  handle,
   color,
 }: {
   href: string;
-  label: string;
+  host: string;
+  handle: string;
   color: PaletteColor;
 }) {
   return (
@@ -250,9 +263,15 @@ export function LinkPill({
       <tr>
         <td
           align="center"
-          style={{ backgroundColor: color.hex, borderRadius: "999px", padding: "16px 20px" }}
+          style={{
+            backgroundColor: color.hex,
+            borderRadius: "28px",
+            padding: "16px 20px",
+            wordBreak: "break-word",
+          }}
         >
           <a
+            class="pill"
             href={href}
             style={{
               color: textOn(color.hex),
@@ -261,9 +280,12 @@ export function LinkPill({
               fontWeight: "700",
               letterSpacing: "-0.01em",
               textDecoration: "none",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
             }}
           >
-            {label}
+            {host}/<wbr />
+            {handle}
           </a>
         </td>
       </tr>

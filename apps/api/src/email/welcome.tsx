@@ -51,7 +51,8 @@ export async function welcomeEmail({
   color,
 }: WelcomeInput): Promise<RenderedEmail> {
   const pageUrl = `${appUrl}/${handle}`;
-  const pageLabel = `${new URL(appUrl).host}/${handle}`;
+  const host = new URL(appUrl).host;
+  const pageLabel = `${host}/${handle}`;
   const inboxUrl = `${appUrl}/app`;
   const first = firstName(name);
   const intro = `${first ? `Hi ${first}! ` : ""}Your page is live. Anyone who films you can send their clips straight to your inbox, without an app or an account.`;
@@ -68,7 +69,7 @@ export async function welcomeEmail({
       <Title>You’re on Hop!</Title>
       <Text>{intro}</Text>
       <div style={{ height: "24px", lineHeight: "24px" }}>&nbsp;</div>
-      <LinkPill href={pageUrl} label={pageLabel} color={color} />
+      <LinkPill href={pageUrl} host={host} handle={handle} color={color} />
       <Subtitle>At your next event</Subtitle>
       <Steps items={STEPS} color={color} />
       <div style={{ height: "8px", lineHeight: "8px" }}>&nbsp;</div>

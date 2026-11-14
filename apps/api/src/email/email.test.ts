@@ -76,6 +76,20 @@ describe("welcome email", () => {
     expect(nameless.html).not.toContain("Hi ");
   });
 
+  it("lets a maximum-length handle wrap instead of widening the email", async () => {
+    const handle = "m".repeat(30);
+    const email = await welcomeEmail({
+      appUrl: "https://staging.onmyhop.com",
+      handle,
+      name: null,
+      color: ocean,
+    });
+    // Break at the slash first, then anywhere inside the handle.
+    expect(email.html).toContain(`staging.onmyhop.com/<wbr/>${handle}`);
+    expect(email.html).toContain("overflow-wrap:anywhere");
+    expect(email.html).toContain("word-break:break-word");
+  });
+
   it("is sent once per account, only to verified addresses", async () => {
     const fetch = mockFetch();
     await sendWelcomeEmail(env(), { ...athlete, emailVerified: false });

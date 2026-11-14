@@ -70,10 +70,25 @@ const scheme = select("Mode", [
 const name = input("Name", "Matej Matiasko");
 const handle = input("Handle", "matej");
 
+let pending: AbortController | null = null;
+
 async function refresh() {
+  // Only the latest request may update the preview; a slower older one is cancelled.
+  pending?.abort();
+  const controller = new AbortController();
+  pending = controller;
   const query = new URLSearchParams({ color: color.value, name: name.value, handle: handle.value });
-  const response = await fetch(`/api/dev/emails/${template.value}?${query}`);
-  const email = (await response.json()) as Rendered;
+  let email: Rendered;
+  try {
+    const response = await fetch(`/api/dev/emails/${template.value}?${query}`, {
+      signal: controller.signal,
+    });
+    email = (await response.json()) as Rendered;
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    throw error;
+  }
+  if (controller !== pending) return;
   subject.textContent = `Subject: ${email.subject}`;
   text.textContent = email.text;
   frame.style.width = `${width.value}px`;

@@ -58,5 +58,6 @@ export const DARK_MODE_CSS = `
 @media (max-width: 600px) {
   .card { padding: 24px 20px !important; }
   .title { font-size: 26px !important; line-height: 32px !important; }
+  .pill { font-size: 17px !important; line-height: 22px !important; }
 }
 `;
