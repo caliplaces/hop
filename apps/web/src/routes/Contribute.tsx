@@ -4,9 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, CircleAlert, Film, ImageIcon, RotateCcw, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Logo } from "../components/Logo";
-import { api, fetchMe, signInUrl } from "../lib/api";
+import { ApiError, api, fetchMe, signInUrl } from "../lib/api";
 import { formatBytes } from "../lib/format";
-import { Uploader, type UploadItem } from "../lib/uploader";
+import { PassError, Uploader, type UploadItem } from "../lib/uploader";
 
 const NAME_KEY = "hop:contributorName";
 
@@ -22,39 +22,71 @@ function storedName(): string {
   }
 }
 
-/** Resolves once Turnstile has issued a pass for this hop; re-verifies when it expires. */
+type Waiter = { resolve: (pass: string) => void; reject: (error: Error) => void };
+
+/**
+ * Hands the uploader a valid hop pass, running Turnstile when there isn't one.
+ * Turnstile tokens are single-use: a failure fails the waiting uploads (they
+ * can be retried) instead of leaving them hanging, and the next getPass() or
+ * the retry button starts a fresh check. There's deliberately no automatic
+ * reset on failure, which would loop on persistent errors like rate limiting.
+ */
 function usePass(hopId: string | undefined) {
   const pass = useRef<{ value: string; expiresAt: number } | null>(null);
-  const waiters = useRef<Array<(value: string) => void>>([]);
+  const waiters = useRef<Waiter[]>([]);
+  const verifying = useRef(true); // the widget starts a check as soon as it renders
   const turnstile = useRef<TurnstileInstance | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const onToken = async (token: string) => {
-    if (!hopId) return;
-    try {
-      const res = await api<{ pass: string; expiresAt: number }>(`/hops/${hopId}/pass`, {
-        method: "POST",
-        json: { turnstileToken: token },
-      });
-      pass.current = { value: res.pass, expiresAt: res.expiresAt };
-      setError(null);
-      for (const resolve of waiters.current.splice(0)) resolve(res.pass);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Verification failed.");
-    }
-  };
+  const fail = useCallback((message: string) => {
+    verifying.current = false;
+    setError(message);
+    for (const waiter of waiters.current.splice(0)) waiter.reject(new PassError(message));
+  }, []);
+
+  const onToken = useCallback(
+    async (token: string) => {
+      if (!hopId) return;
+      verifying.current = true;
+      try {
+        const res = await api<{ pass: string; expiresAt: number }>(`/hops/${hopId}/pass`, {
+          method: "POST",
+          json: { turnstileToken: token },
+        });
+        pass.current = { value: res.pass, expiresAt: res.expiresAt };
+        verifying.current = false;
+        setError(null);
+        for (const waiter of waiters.current.splice(0)) waiter.resolve(res.pass);
+      } catch (e) {
+        fail(e instanceof ApiError ? e.message : "We couldn't verify you're human. Tap retry.");
+      }
+    },
+    [hopId, fail],
+  );
+
+  const onWidgetError = useCallback(
+    () => fail("We couldn't verify you're human. Tap retry."),
+    [fail],
+  );
+
+  const retry = useCallback(() => {
+    verifying.current = true;
+    setError(null);
+    turnstile.current?.reset();
+  }, []);
 
   const getPass = useCallback(() => {
     const current = pass.current;
     if (current && current.expiresAt - Date.now() > 60_000) return Promise.resolve(current.value);
-    if (current) {
-      pass.current = null;
-      turnstile.current?.reset();
-    }
-    return new Promise<string>((resolve) => waiters.current.push(resolve));
-  }, []);
+    pass.current = null;
+    const promise = new Promise<string>((resolve, reject) =>
+      waiters.current.push({ resolve, reject }),
+    );
+    if (!verifying.current) retry();
+    return promise;
+  }, [retry]);
 
-  return { getPass, onToken, turnstile, error };
+  return { getPass, onToken, onWidgetError, retry, turnstile, error };
 }
 
 function ItemRow({ item, uploader }: { item: UploadItem; uploader: Uploader }) {
@@ -126,7 +158,14 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
   const nameRef = useRef(name);
   nameRef.current = name;
 
-  const { getPass, onToken, turnstile, error: passError } = usePass(hop?.id);
+  const {
+    getPass,
+    onToken,
+    onWidgetError,
+    retry: retryPass,
+    turnstile,
+    error: passError,
+  } = usePass(hop?.id);
   const getName = useCallback(() => nameRef.current.trim() || undefined, []);
   const hopId = hop?.id;
   const uploader = useMemo(
@@ -249,15 +288,21 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
               <Turnstile
                 ref={turnstile}
                 siteKey={config.data.turnstileSiteKey}
-                options={{ size: "flexible", appearance: "interaction-only" }}
+                options={{ size: "flexible", appearance: "interaction-only", action: "upload" }}
                 onSuccess={onToken}
+                onError={onWidgetError}
+                onExpire={retryPass}
               />
             </div>
           )}
           {passError && (
-            <p className="mt-3 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-              <CircleAlert className="size-4" /> {passError}
-            </p>
+            <div className="mt-3 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+              <CircleAlert className="size-4 shrink-0" />
+              <span className="flex-1">{passError}</span>
+              <button type="button" className="font-semibold underline" onClick={retryPass}>
+                Retry
+              </button>
+            </div>
           )}
 
           {items.length > 0 && (

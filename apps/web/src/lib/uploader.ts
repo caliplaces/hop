@@ -45,6 +45,13 @@ function saveSession(key: string, session: Session | null) {
   }
 }
 
+function sameFile(a: File, b: File) {
+  return a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+}
+
+/** Thrown by getPass when the human check failed; the message is shown to the user. */
+export class PassError extends Error {}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function waitForOnline(): Promise<void> {
@@ -113,7 +120,12 @@ export class Uploader {
 
   add(files: File[]) {
     for (const file of files) {
-      this.items.push({ id: crypto.randomUUID(), file, status: "queued", uploadedBytes: 0 });
+      // Picking the same file again while it's still in the queue would start a
+      // second upload sharing the first one's resume state.
+      const duplicate = this.items.some((i) => i.status !== "cancelled" && sameFile(i.file, file));
+      if (!duplicate) {
+        this.items.push({ id: crypto.randomUUID(), file, status: "queued", uploadedBytes: 0 });
+      }
     }
     this.emit();
     this.pump();
@@ -132,12 +144,7 @@ export class Uploader {
     const key = sessionKey(this.hopId, item.file);
     const session = loadSession(key);
     saveSession(key, null);
-    if (session) {
-      api(`/uploads/${session.fileId}`, {
-        method: "DELETE",
-        headers: { authorization: `Bearer ${session.uploadToken}` },
-      }).catch(() => {});
-    }
+    if (session) void this.discard(session);
   }
 
   clearFinished() {
@@ -177,9 +184,11 @@ export class Uploader {
     try {
       let session = loadSession(key);
       if (!session) {
+        const pass = await this.getPass();
         const created = await api<CreateUploadResult>(`/hops/${this.hopId}/uploads`, {
           method: "POST",
-          headers: { "x-hop-pass": await this.getPass() },
+          signal: controller.signal,
+          headers: { "x-hop-pass": pass },
           json: {
             name: item.file.name,
             size: item.file.size,
@@ -187,6 +196,11 @@ export class Uploader {
             contributorName: this.getContributorName(),
           },
         });
+        if (controller.signal.aborted) {
+          // Cancelled while the server was creating it: don't leave it behind.
+          void this.discard(created);
+          return;
+        }
         session = { ...created, etags: {} };
         saveSession(key, session);
         void this.uploadThumbnail(item.file, session);
@@ -218,7 +232,10 @@ export class Uploader {
       this.update(item.id, { status: "done", uploadedBytes: item.file.size });
     } catch (error) {
       if (controller.signal.aborted) return;
-      const message = error instanceof ApiError ? error.message : "Upload interrupted. Tap retry.";
+      const message =
+        error instanceof ApiError || error instanceof PassError
+          ? error.message
+          : "Upload interrupted. Tap retry.";
       if (error instanceof ApiError && error.status < 500 && error.status !== 429) {
         saveSession(key, null);
       }
@@ -297,6 +314,13 @@ export class Uploader {
       }
     };
     await Promise.all(Array.from({ length: PARTS_IN_PARALLEL }, worker));
+  }
+
+  private async discard(upload: Pick<CreateUploadResult, "fileId" | "uploadToken">) {
+    await api(`/uploads/${upload.fileId}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${upload.uploadToken}` },
+    }).catch(() => {});
   }
 
   private async uploadThumbnail(file: File, session: Session) {

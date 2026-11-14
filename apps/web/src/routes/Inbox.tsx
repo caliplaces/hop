@@ -1,12 +1,32 @@
 import type { HopSummary, InboxFile, InboxPage } from "@hop/shared";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckSquare, Download, Film, ImageIcon, Square, Trash2, X } from "lucide-react";
+import {
+  BadgeCheck,
+  CheckSquare,
+  Download,
+  Film,
+  ImageIcon,
+  Square,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { RequireHandle } from "../components/RequireHandle";
 import { ShareCard } from "../components/ShareCard";
 import { api } from "../lib/api";
-import { downloadFiles, fileUrl } from "../lib/download";
+import { canStreamZip, downloadUrls, fileUrl, listAllFiles, zipToDisk } from "../lib/download";
 import { formatBytes, formatDate, hopUrl } from "../lib/format";
+
+function Contributor({ file, className = "" }: { file: InboxFile; className?: string }) {
+  return (
+    <span className={`inline-flex min-w-0 items-center gap-1 ${className}`}>
+      <span className="truncate">{file.contributorName ?? "Unknown"}</span>
+      {file.contributorVerified && (
+        <BadgeCheck className="size-3.5 shrink-0" aria-label="Signed in with Caliplaces" />
+      )}
+    </span>
+  );
+}
 
 function Thumb({ file }: { file: InboxFile }) {
   const [failed, setFailed] = useState(false);
@@ -29,6 +49,14 @@ function Thumb({ file }: { file: InboxFile }) {
   );
 }
 
+function useEscape(onClose: () => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+}
+
 function Viewer({
   file,
   onClose,
@@ -38,16 +66,19 @@ function Viewer({
   onClose: () => void;
   onDelete: () => void;
 }) {
-  const { data: url } = useQuery({
+  const staleTime = 10 * 60_000;
+  const view = useQuery({
     queryKey: ["file-url", file.id],
     queryFn: () => fileUrl(file.id, false),
-    staleTime: 10 * 60_000,
+    staleTime,
   });
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // Fetched up front so the download is a plain link click, which every browser allows.
+  const download = useQuery({
+    queryKey: ["file-download", file.id],
+    queryFn: () => fileUrl(file.id, true),
+    staleTime,
+  });
+  useEscape(onClose);
 
   return (
     <div
@@ -58,23 +89,25 @@ function Viewer({
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <p className="truncate font-semibold">{file.name}</p>
-          <p className="text-xs text-white/60">
-            {file.contributorName ?? "Unknown"} · {formatBytes(file.size)} ·{" "}
-            {formatDate(file.createdAt)}
+          <p className="flex min-w-0 gap-1 text-xs text-white/60">
+            <Contributor file={file} /> · {formatBytes(file.size)} · {formatDate(file.createdAt)}
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            className="btn bg-white/10 px-3 py-2 hover:bg-white/20"
-            onClick={() => downloadFiles([file])}
-          >
-            <Download className="size-4" />
-          </button>
+          {download.data && (
+            <a
+              className="btn bg-white/10 px-3 py-2 hover:bg-white/20"
+              href={download.data}
+              title="Download"
+            >
+              <Download className="size-4" />
+            </a>
+          )}
           <button
             type="button"
             className="btn bg-white/10 px-3 py-2 hover:bg-white/20"
             onClick={onDelete}
+            title="Delete"
           >
             <Trash2 className="size-4" />
           </button>
@@ -82,21 +115,84 @@ function Viewer({
             type="button"
             className="btn bg-white/10 px-3 py-2 hover:bg-white/20"
             onClick={onClose}
+            title="Close"
           >
             <X className="size-4" />
           </button>
         </div>
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center p-4">
-        {url &&
+        {view.data &&
           (file.mime.startsWith("image/") ? (
-            <img src={url} alt={file.name} className="max-h-full max-w-full object-contain" />
+            <img src={view.data} alt={file.name} className="max-h-full max-w-full object-contain" />
           ) : (
             // biome-ignore lint/a11y/useMediaCaption: user-generated clips have no captions
-            <video src={url} controls autoPlay playsInline className="max-h-full max-w-full" />
+            <video
+              src={view.data}
+              controls
+              autoPlay
+              playsInline
+              className="max-h-full max-w-full"
+            />
           ))}
       </div>
       {file.note && <p className="px-4 pb-4 text-center text-sm text-white/80">“{file.note}”</p>}
+    </div>
+  );
+}
+
+/**
+ * Where a zip can't be streamed to disk (Safari, Firefox, iOS), list each file
+ * as its own download link: browsers block scripted multi-file downloads.
+ */
+function DownloadSheet({ files, onClose }: { files: InboxFile[]; onClose: () => void }) {
+  const urls = useQuery({
+    queryKey: ["download-urls", files.map((f) => f.id)],
+    queryFn: () => downloadUrls(files.map((f) => f.id)),
+    staleTime: 10 * 60_000,
+  });
+  useEscape(onClose);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="card max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-b-none sm:rounded-3xl">
+        <div className="flex items-center justify-between">
+          <p className="text-lg font-black tracking-tight">Download {files.length} files</p>
+          <button type="button" className="btn-ghost size-9 p-0" onClick={onClose} title="Close">
+            <X className="size-4" />
+          </button>
+        </div>
+        <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+          This browser saves files one at a time. On a computer, Chrome or Edge can download
+          everything as one zip.
+        </p>
+        <ul className="mt-4 divide-y divide-black/5 dark:divide-white/10">
+          {files.map((file) => {
+            const url = urls.data?.get(file.id);
+            return (
+              <li key={file.id} className="flex items-center gap-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{file.name}</p>
+                  <p className="flex min-w-0 gap-1 text-xs text-black/50 dark:text-white/50">
+                    <Contributor file={file} /> · {formatBytes(file.size)}
+                  </p>
+                </div>
+                {url ? (
+                  <a className="btn-ghost px-3 py-2" href={url}>
+                    <Download className="size-4" />
+                  </a>
+                ) : (
+                  <span className="px-3 text-xs text-black/40 dark:text-white/40">…</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -106,6 +202,7 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
   const [hopFilter, setHopFilter] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<InboxFile | null>(null);
+  const [sheet, setSheet] = useState<InboxFile[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const hops = useQuery({
@@ -146,10 +243,17 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
       return next;
     });
 
-  const download = async (list: InboxFile[]) => {
+  const download = async (which: "all" | "selected") => {
     setBusy(true);
     try {
-      await downloadFiles(list, `${handle}-hop.zip`);
+      const list =
+        which === "all"
+          ? filesQuery.hasNextPage
+            ? await listAllFiles(hopFilter)
+            : files
+          : files.filter((f) => selected.has(f.id));
+      if (list.length > 1 && canStreamZip()) await zipToDisk(list, `${handle}-hop.zip`);
+      else setSheet(list);
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError"))
         alert("Download failed. Please try again.");
@@ -158,20 +262,19 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
     }
   };
 
-  const selectedFiles = files.filter((f) => selected.has(f.id));
   const selecting = selected.size > 0;
+  const pill = (active: boolean) =>
+    `btn px-4 py-2 ${active ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "bg-black/5 dark:bg-white/10"}`;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
-      {activeHop && (
-        // onmyhop.com/<handle> always uploads into the active hop.
-        <ShareCard url={hopUrl(handle)} title={activeHop.title} />
-      )}
+      {/* onmyhop.com/<handle> always uploads into the live hop. */}
+      {activeHop && <ShareCard url={hopUrl(handle)} title={activeHop.title} />}
 
       <div className="mt-8 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          className={`btn px-4 py-2 ${hopFilter === null ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "bg-black/5 dark:bg-white/10"}`}
+          className={pill(hopFilter === null)}
           onClick={() => setHopFilter(null)}
         >
           All
@@ -180,7 +283,7 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
           <button
             key={hop.id}
             type="button"
-            className={`btn px-4 py-2 ${hopFilter === hop.id ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "bg-black/5 dark:bg-white/10"}`}
+            className={pill(hopFilter === hop.id)}
             onClick={() => setHopFilter(hop.id)}
           >
             {hop.title}
@@ -201,7 +304,7 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
                 type="button"
                 className="btn-ghost px-4 py-2"
                 disabled={busy}
-                onClick={() => download(selectedFiles)}
+                onClick={() => download("selected")}
               >
                 <Download className="size-4" /> {selected.size}
               </button>
@@ -223,9 +326,9 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
                 type="button"
                 className="btn-dark px-4 py-2"
                 disabled={busy}
-                onClick={() => download(files)}
+                onClick={() => download("all")}
               >
-                <Download className="size-4" /> {busy ? "Downloading…" : "Download all"}
+                <Download className="size-4" /> {busy ? "Preparing…" : "Download all"}
               </button>
             )
           )}
@@ -255,8 +358,8 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
                 title={`${file.name} from ${file.contributorName ?? "Unknown"}`}
               >
                 <Thumb file={file} />
-                <span className="absolute inset-x-0 bottom-0 truncate bg-linear-to-t from-black/70 to-transparent px-2 pt-6 pb-1.5 text-left text-xs font-medium text-white">
-                  {file.contributorName ?? "Unknown"}
+                <span className="absolute inset-x-0 bottom-0 flex bg-linear-to-t from-black/70 to-transparent px-2 pt-6 pb-1.5 text-left text-xs font-medium text-white">
+                  <Contributor file={file} />
                 </span>
               </button>
               <button
@@ -298,6 +401,7 @@ function InboxView({ handle, activeHopId }: { handle: string; activeHopId: strin
           }
         />
       )}
+      {sheet && <DownloadSheet files={sheet} onClose={() => setSheet(null)} />}
     </main>
   );
 }

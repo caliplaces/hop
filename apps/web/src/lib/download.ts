@@ -1,10 +1,20 @@
-import type { InboxFile } from "@hop/shared";
+import type { InboxFile, InboxPage } from "@hop/shared";
 import { api } from "./api";
+import { zipEntryNames } from "./zipNames";
 
 type SaveFilePicker = (options: {
   suggestedName: string;
   types: { description: string; accept: Record<string, string[]> }[];
 }) => Promise<{ createWritable(): Promise<WritableStream> }>;
+
+function savePicker(): SaveFilePicker | undefined {
+  return (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+}
+
+/** Whether this browser can stream a zip straight to disk (Chromium desktop). */
+export function canStreamZip(): boolean {
+  return typeof savePicker() === "function";
+}
 
 export async function fileUrl(fileId: string, download: boolean) {
   const { url } = await api<{ url: string }>(
@@ -13,61 +23,56 @@ export async function fileUrl(fileId: string, download: boolean) {
   return url;
 }
 
-function triggerDownload(url: string) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.rel = "noopener";
-  document.body.append(a);
-  a.click();
-  a.remove();
+/** Signed download URLs for many files, fetched in batches. */
+export async function downloadUrls(ids: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { urls } = await api<{ urls: { id: string; url: string }[] }>("/me/files/urls", {
+      method: "POST",
+      json: { ids: ids.slice(i, i + 100), download: true },
+    });
+    for (const { id, url } of urls) result.set(id, url);
+  }
+  return result;
 }
 
-/** Zip entry names grouped by contributor, de-duplicated. */
-function zipNames(files: InboxFile[]): string[] {
-  const seen = new Map<string, number>();
-  return files.map((f) => {
-    const folder = (f.contributorName ?? "Unknown").replace(/[\\/:*?"<>|]/g, "_");
-    const base = `${folder}/${f.name.replace(/[\\/]/g, "_")}`;
-    const count = seen.get(base) ?? 0;
-    seen.set(base, count + 1);
-    if (count === 0) return base;
-    const dot = base.lastIndexOf(".");
-    return dot > folder.length
-      ? `${base.slice(0, dot)} (${count})${base.slice(dot)}`
-      : `${base} (${count})`;
-  });
+/** Every file in the inbox (or one hop), not just the pages loaded on screen. */
+export async function listAllFiles(hopId: string | null): Promise<InboxFile[]> {
+  const all: InboxFile[] = [];
+  let cursor: string | null = null;
+  do {
+    const params = new URLSearchParams();
+    if (hopId) params.set("hopId", hopId);
+    if (cursor) params.set("cursor", cursor);
+    const page: InboxPage = await api<InboxPage>(`/me/files?${params}`);
+    all.push(...page.files);
+    cursor = page.nextCursor;
+  } while (cursor);
+  return all;
 }
 
 /**
- * Downloads several files. Where the browser can stream to disk (File System
- * Access API) they're zipped on the fly without holding gigabytes in memory;
- * elsewhere each file downloads separately.
+ * Zips files on the fly straight into a file the user picks, so gigabytes of
+ * video never sit in memory. Only call when canStreamZip() is true.
  */
-export async function downloadFiles(files: InboxFile[], zipName = "hop.zip") {
-  if (files.length === 0) return;
-  const picker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
-  if (files.length > 1 && picker) {
-    const handle = await picker({
-      suggestedName: zipName,
-      types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }],
-    });
-    const writable = await handle.createWritable();
-    const { downloadZip } = await import("client-zip");
-    const names = zipNames(files);
-    async function* entries() {
-      for (const [i, file] of files.entries()) {
-        const res = await fetch(await fileUrl(file.id, true));
-        if (!res.ok) throw new Error(`Couldn't fetch ${file.name}`);
-        yield { name: names[i] as string, input: res, lastModified: new Date(file.createdAt) };
-      }
+export async function zipToDisk(files: InboxFile[], zipName: string) {
+  const picker = savePicker();
+  if (!picker) throw new Error("Streaming downloads aren't supported in this browser");
+  const handle = await picker({
+    suggestedName: zipName,
+    types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }],
+  });
+  const writable = await handle.createWritable();
+  const { downloadZip } = await import("client-zip");
+  const names = zipEntryNames(files);
+  async function* entries() {
+    for (const [i, file] of files.entries()) {
+      const res = await fetch(await fileUrl(file.id, true));
+      if (!res.ok) throw new Error(`Couldn't fetch ${file.name}`);
+      yield { name: names[i] as string, input: res, lastModified: new Date(file.createdAt) };
     }
-    const zip = downloadZip(entries()).body;
-    if (!zip) throw new Error("Zip stream unavailable");
-    await zip.pipeTo(writable);
-    return;
   }
-  for (const file of files) {
-    triggerDownload(await fileUrl(file.id, true));
-    await new Promise((r) => setTimeout(r, 400));
-  }
+  const zip = downloadZip(entries()).body;
+  if (!zip) throw new Error("Zip stream unavailable");
+  await zip.pipeTo(writable);
 }

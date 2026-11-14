@@ -15,6 +15,12 @@ const STEPS = [
   },
 ];
 
+const AUTH_ERRORS: Record<string, string> = {
+  denied: "Sign-in was cancelled.",
+  expired: "Sign-in took too long. Please try again.",
+  failed: "Sign-in didn't work. Please try again.",
+};
+
 export function Landing() {
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe });
   const authError = new URLSearchParams(window.location.search).get("authError");
@@ -25,9 +31,7 @@ export function Landing() {
       <main className="mx-auto max-w-6xl px-4 sm:px-6">
         {authError && (
           <p className="mx-auto mt-4 max-w-xl rounded-2xl bg-red-500/10 px-4 py-3 text-center text-sm text-red-700 dark:text-red-300">
-            {authError === "denied"
-              ? "Sign-in was cancelled."
-              : "Sign-in took too long. Please try again."}
+            {AUTH_ERRORS[authError] ?? AUTH_ERRORS.failed}
           </p>
         )}
         <section className="py-16 text-center sm:py-24">
