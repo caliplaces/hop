@@ -20,7 +20,9 @@
     "ENVIRONMENT": "development",
     "APP_URL": "http://localhost:5173",
     "OIDC_ISSUER": "https://auth.caliplaces.com",
-    "OIDC_CLIENT_ID": "399569698213068806",
+    // Each environment has its own Caliplaces developer app. For local dev, set
+    // OIDC_CLIENT_ID and OIDC_CLIENT_SECRET in .dev.vars from your own dev app.
+    "OIDC_CLIENT_ID": "",
     "R2_BUCKET_NAME": "hop-dev",
     // Cloudflare's always-pass Turnstile test key.
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
@@ -46,7 +48,7 @@
         "ENVIRONMENT": "staging",
         "APP_URL": "https://staging.onmyhop.com",
         "OIDC_ISSUER": "https://auth.caliplaces.com",
-        "OIDC_CLIENT_ID": "399569698213068806",
+        "OIDC_CLIENT_ID": "REPLACE_WITH_STAGING_CLIENT_ID",
         "R2_BUCKET_NAME": "hop-staging",
         "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
       },

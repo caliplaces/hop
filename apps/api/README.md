@@ -14,17 +14,17 @@ Open http://localhost:5173. Vite proxies `/api` to `wrangler dev`.
 
 Without R2 S3 credentials in `.dev.vars`, upload parts and downloads go through dev-only Worker routes (`/api/dev/*`) against the local R2 simulator. Those routes are disabled outside `ENVIRONMENT=development`. Staging and production always use presigned R2 URLs, so file bytes never pass through the Worker.
 
-To sign in locally, register a **web** app at [developer.caliplaces.com/apps](https://developer.caliplaces.com/apps) with redirect URI `http://localhost:5173/api/auth/callback`.
+To sign in locally, register your own **web** app at [developer.caliplaces.com/apps](https://developer.caliplaces.com/apps) with the redirect URI `http://localhost:5173/api/auth/callback`, and put its client ID and secret in `.dev.vars`. Each environment (local, staging, production) uses a separate developer app, so production credentials never reach dev machines.
 
 ## How uploads work
 
-1. The contributor page solves Turnstile once. `POST /api/hops/:hopId/pass` returns a signed pass that's valid for 2 hours.
-2. `POST /api/hops/:hopId/uploads` checks the Hop, quota and type, starts an R2 multipart upload, and returns a `fileId` plus a per-file upload token.
-3. `POST /api/uploads/:fileId/parts` returns presigned `UploadPart` URLs. The browser PUTs 10 MiB parts straight to R2.
-4. `POST /api/uploads/:fileId/complete` completes the upload, checks the final size, and sniffs the first bytes to make sure it's really a video or photo.
-5. The browser grabs a frame and uploads a small JPEG thumbnail with `PUT /api/uploads/:fileId/thumbnail`.
+1. The contributor page solves Turnstile once. `POST /api/hops/:hopId/pass` returns a signed pass that's valid for 2 hours. One pass can have at most 6 active and 300 total uploads.
+2. `POST /api/hops/:hopId/uploads` checks the Hop and the declared type, and reserves quota atomically. Only completed files and uploads active in the last hour count against the quota, so abandoned uploads can't make a Hop look full. It then starts an R2 multipart upload and returns a `fileId` plus a per-file upload token.
+3. `POST /api/uploads/:fileId/parts` returns presigned `UploadPart` URLs, with `Content-Length` signed into each one. The browser PUTs 10 MiB parts straight to R2, and a URL won't accept more bytes than its part should have.
+4. `POST /api/uploads/:fileId/complete` completes the upload and checks the final size. It then reads the first bytes to work out the real media type, which decides the stored MIME type and file extension. Anything else is deleted. Retrying it is safe.
+5. The browser grabs a frame and uploads a small JPEG thumbnail with `PUT /api/uploads/:fileId/thumbnail`. The body is read with a hard 512 KiB cap.
 
-An hourly cron aborts uploads still pending after 3 days and deletes expired sessions.
+An hourly cron aborts uploads with no activity for 24 hours and deletes expired sessions. The bucket's lifecycle rule is a second safety net.
 
 ## Cloudflare setup (one time per environment)
 
@@ -34,7 +34,7 @@ Replace `staging` with `production` for production.
 # Storage and database
 wrangler r2 bucket create hop-staging
 wrangler r2 bucket cors set hop-staging --file apps/api/infra/r2-cors.staging.json
-wrangler r2 bucket lifecycle add hop-staging abort-multipart --abort-multipart-days 3
+wrangler r2 bucket lifecycle add hop-staging abort-multipart --abort-multipart-days 2
 wrangler d1 create hop-staging        # put the database_id into wrangler.jsonc
 
 # Secrets
