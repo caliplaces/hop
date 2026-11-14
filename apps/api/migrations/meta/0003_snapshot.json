@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "436ecadd-aedc-4e18-ab13-45639465eda4",
+  "id": "072da220-c700-46a4-9b4a-d9f776fbfe54",
   "prevId": "b1c0a6c2-3f5e-47b7-9ecb-7fed5a5c91c8",
   "tables": {
     "files": {
@@ -150,6 +150,13 @@
         },
         "completed_at": {
           "name": "completed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "notify_batch": {
+          "name": "notify_batch",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

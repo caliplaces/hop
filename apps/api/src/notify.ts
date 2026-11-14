@@ -3,32 +3,50 @@ import { and, eq, isNull, lte, max, min, or } from "drizzle-orm";
 import { type Db, getDb } from "./db";
 import { files, hops, users } from "./db/schema";
 import { newClipsEmail } from "./email/new-clips";
-import { sendEmail } from "./email/send";
+import { ResendError, sendEmail } from "./email/send";
 import { listUnsubscribeHeaders, unsubscribeLinks } from "./email/unsubscribe";
 import type { Env } from "./env";
-import { sha256Hex } from "./lib/crypto";
 
 /**
  * The new-clips digest. At an event clips arrive in bursts, so instead of one
  * email per clip, an athlete hears about a burst once uploads have been quiet
  * for QUIET_MS, or at the latest MAX_DELAY_MS after its first clip.
  *
- * A clip is "announced" once files.notified_at is set. That marker is the
- * pipeline's state, so other channels (push) can hang off the same claim.
+ * Each complete clip moves through three states (columns on files):
+ *   waiting   notify_batch and notified_at both null
+ *   batched   notify_batch = when it was claimed; its email isn't confirmed yet
+ *   announced notified_at set
+ * A batch is a fixed set of clips with a fixed idempotency key, so a retry
+ * after a failed or interrupted send can never mix in newer clips and email
+ * the old ones twice. Other channels (push) can hang off the same batches.
  */
 export const QUIET_MS = 10 * 60 * 1000;
 export const MAX_DELAY_MS = 60 * 60 * 1000;
+/** A batch still unconfirmed this long after its claim failed or was interrupted; send it again. */
+const RETRY_AFTER_MS = 5 * 60 * 1000;
+/** Resend remembers idempotency keys for 24 hours. Past that a retry could email twice, so stop. */
+const GIVE_UP_AFTER_MS = 23 * 60 * 60 * 1000;
 /** Athletes handled per run (every 5 minutes); anyone left over goes next run. */
-const ATHLETES_PER_RUN = 25;
+const PER_RUN = 25;
 
-const unannounced = and(eq(files.status, "complete"), isNull(files.notifiedAt));
+const complete = eq(files.status, "complete");
+const waiting = and(complete, isNull(files.notifiedAt), isNull(files.notifyBatch));
 
 export async function announceNewClips(env: Env, now = Date.now()): Promise<void> {
   const db = getDb(env.DB);
+
+  // Batches whose send failed or whose run died: resend exactly those clips.
+  const stalled = await db
+    .selectDistinct({ ownerId: files.ownerId, batch: files.notifyBatch })
+    .from(files)
+    .where(and(complete, isNull(files.notifiedAt), lte(files.notifyBatch, now - RETRY_AFTER_MS)))
+    .limit(PER_RUN);
+
+  // Athletes with waiting clips whose burst has gone quiet (or waited long enough).
   const due = await db
     .select({ ownerId: files.ownerId })
     .from(files)
-    .where(unannounced)
+    .where(waiting)
     .groupBy(files.ownerId)
     .having(
       or(
@@ -36,71 +54,108 @@ export async function announceNewClips(env: Env, now = Date.now()): Promise<void
         lte(min(files.completedAt), now - MAX_DELAY_MS),
       ),
     )
-    .limit(ATHLETES_PER_RUN);
+    .limit(PER_RUN);
 
-  let sent = 0;
-  let failed = 0;
-  // One athlete at a time keeps each run light; a failure only affects that athlete.
-  for (const { ownerId } of due) {
+  const outcomes = { sent: 0, skipped: 0, failed: 0 };
+  const attempt = async (ownerId: string, batch: number) => {
     try {
-      if (await announceTo(env, db, ownerId, now)) sent++;
+      outcomes[await sendBatch(env, db, ownerId, batch, now)]++;
     } catch (error) {
-      failed++;
-      console.error("new clips: announcing failed, will retry", ownerId, error);
+      outcomes.failed++;
+      // The batch stays claimed but unconfirmed, so a later run sends it again.
+      console.error("new clips: send failed, will retry", ownerId, batch, error);
     }
+  };
+
+  // One athlete at a time keeps each run light; a failure only affects that athlete.
+  for (const { ownerId, batch } of stalled) {
+    if (batch !== null) await attempt(ownerId, batch);
   }
-  if (due.length > 0) {
-    console.log(`new clips: ${due.length} athletes due, ${sent} emails sent, ${failed} failed`);
+  for (const { ownerId } of due) {
+    // Claim atomically, so overlapping runs can't put a clip in two batches.
+    const claimed = await db
+      .update(files)
+      .set({ notifyBatch: now })
+      .where(and(eq(files.ownerId, ownerId), waiting))
+      .returning({ id: files.id });
+    if (claimed.length > 0) await attempt(ownerId, now);
+  }
+
+  if (stalled.length + due.length > 0) {
+    console.log(
+      `new clips: ${outcomes.sent} sent, ${outcomes.skipped} skipped, ${outcomes.failed} failed`,
+    );
   }
 }
 
-/** Returns whether an email went out. */
-async function announceTo(env: Env, db: Db, ownerId: string, now: number): Promise<boolean> {
-  // Claim atomically, so overlapping runs can't announce the same clips twice.
-  const claimed = await db
-    .update(files)
-    .set({ notifiedAt: now })
-    .where(and(eq(files.ownerId, ownerId), unannounced))
-    .returning({ id: files.id, hopId: files.hopId, contributor: files.contributorName })
-    .all();
-  if (claimed.length === 0) return false;
+async function sendBatch(
+  env: Env,
+  db: Db,
+  ownerId: string,
+  batch: number,
+  now: number,
+): Promise<"sent" | "skipped"> {
+  const inBatch = and(
+    eq(files.ownerId, ownerId),
+    eq(files.notifyBatch, batch),
+    isNull(files.notifiedAt),
+  );
+  const confirm = () => db.update(files).set({ notifiedAt: now }).where(inBatch);
 
-  // Athletes who opted out (or can't receive email) still have their clips
-  // claimed, so they don't pile up and get re-checked every run.
+  if (now - batch > GIVE_UP_AFTER_MS) {
+    console.error("new clips: giving up on a batch after 23 hours", ownerId, batch);
+    await confirm();
+    return "skipped";
+  }
+
+  const clips = await db
+    .select({ hopId: files.hopId, contributor: files.contributorName })
+    .from(files)
+    .where(and(inBatch, complete));
   const user = await db.select().from(users).where(eq(users.id, ownerId)).get();
-  if (!user?.handle || !user.email || !user.emailVerified || !user.emailNewClips) return false;
+  // Athletes who opted out (or can't receive email) have their clips marked
+  // announced anyway, so they don't pile up and get re-checked every run.
+  if (
+    clips.length === 0 ||
+    !user?.handle ||
+    !user.email ||
+    !user.emailVerified ||
+    !user.emailNewClips
+  ) {
+    await confirm();
+    return "skipped";
+  }
+
+  const athleteHops = await db
+    .select({ id: hops.id, slug: hops.slug, title: hops.title })
+    .from(hops)
+    .where(eq(hops.ownerId, ownerId));
+  const links = await unsubscribeLinks(env, user.id);
+  const email = await newClipsEmail({
+    appUrl: env.APP_URL,
+    color: colorFor(user.color, user.id),
+    clips,
+    hops: athleteHops,
+    unsubscribeUrl: links.page,
+  });
 
   try {
-    const athleteHops = await db
-      .select({ id: hops.id, slug: hops.slug, title: hops.title })
-      .from(hops)
-      .where(eq(hops.ownerId, ownerId));
-    const links = await unsubscribeLinks(env, user.id);
-    const email = await newClipsEmail({
-      appUrl: env.APP_URL,
-      color: colorFor(user.color, user.id),
-      clips: claimed,
-      hops: athleteHops,
-      unsubscribeUrl: links.page,
-    });
-    // Same clips, same key: if a send times out but actually went through,
-    // the retry is dropped by Resend instead of emailing twice.
-    const ids = claimed.map((clip) => clip.id).sort();
-    const digest = (await sha256Hex(ids.join(","))).slice(0, 32);
     await sendEmail(env, {
       ...email,
       to: user.email,
-      idempotencyKey: `new-clips/${ownerId}/${digest}`,
+      // One key per batch: if an earlier attempt went through but timed out,
+      // Resend drops the retry instead of sending it again.
+      idempotencyKey: `new-clips/${ownerId}/${batch}`,
       category: "new-clips",
       headers: listUnsubscribeHeaders(links.oneClick),
     });
-    return true;
   } catch (error) {
-    // Hand the clips back so the next run tries again.
-    await db
-      .update(files)
-      .set({ notifiedAt: null })
-      .where(and(eq(files.ownerId, ownerId), eq(files.notifiedAt, now)));
-    throw error;
+    // This key was already used for a send whose payload differed (a Hop was
+    // renamed or a clip deleted since): that earlier email went out.
+    if (!(error instanceof ResendError && error.code === "invalid_idempotent_request")) {
+      throw error;
+    }
   }
+  await confirm();
+  return "sent";
 }

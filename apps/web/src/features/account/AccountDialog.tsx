@@ -30,9 +30,13 @@ function useSetColor(me: AthleteMe) {
       queryClient.setQueryData<Me | null>(key, next);
     },
     // Only the response for the most recent pick may touch the cache; older
-    // ones would flash an earlier colour back.
+    // ones would flash an earlier colour back. Merge just the colour: the rest
+    // of the response may predate another setting saved meanwhile.
     onSuccess: ({ me: updated }, color) => {
-      if (latest.current === color) queryClient.setQueryData(key, updated);
+      if (latest.current !== color) return;
+      queryClient.setQueryData(key, (current) =>
+        current ? { ...current, color: updated.color } : updated,
+      );
     },
     onError: (_error, color) => {
       if (latest.current !== color) return; // a later pick is still on its way
@@ -55,7 +59,11 @@ function useSetEmailNewClips() {
         current ? { ...current, emailNewClips } : current,
       );
     },
-    onSuccess: ({ me }) => queryClient.setQueryData(key, me),
+    // Merge just this setting, for the same reason as the colour above.
+    onSuccess: ({ me: updated }) =>
+      queryClient.setQueryData(key, (current) =>
+        current ? { ...current, emailNewClips: updated.emailNewClips } : updated,
+      ),
     onError: () => {
       toast("Couldn’t save your email settings.", "error");
       queryClient.invalidateQueries({ queryKey: key });

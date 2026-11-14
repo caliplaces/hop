@@ -88,9 +88,11 @@ export const files = sqliteTable(
     lastActivityAt: integer("last_activity_at").notNull(),
     completedAt: integer("completed_at"),
     /**
-     * When the athlete was told about this clip (the new-clips digest). Null on
-     * complete files means not yet; see notify.ts.
+     * The new-clips digest (see notify.ts). A complete clip waits with both
+     * null, is claimed into a batch (notifyBatch, the claim time), and is
+     * announced (notifiedAt) once that batch's email has gone out.
      */
+    notifyBatch: integer("notify_batch"),
     notifiedAt: integer("notified_at"),
   },
   (t) => [
