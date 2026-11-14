@@ -88,11 +88,13 @@ export const files = sqliteTable(
     lastActivityAt: integer("last_activity_at").notNull(),
     completedAt: integer("completed_at"),
     /**
-     * The new-clips digest (see notify.ts). A complete clip waits with both
+     * The new-clips digest (see notify.ts). A complete clip waits with these
      * null, is claimed into a batch (notifyBatch, the claim time), and is
      * announced (notifiedAt) once that batch's email has gone out.
+     * notifyAttemptedAt is the batch's latest send attempt, so retries rotate.
      */
     notifyBatch: integer("notify_batch"),
+    notifyAttemptedAt: integer("notify_attempted_at"),
     notifiedAt: integer("notified_at"),
   },
   (t) => [
@@ -101,10 +103,12 @@ export const files = sqliteTable(
     index("files_hop_status_created_idx").on(t.hopId, t.status, t.createdAt),
     index("files_status_activity_idx").on(t.status, t.lastActivityAt),
     index("files_pass_status_idx").on(t.passId, t.status),
-    // Only clips waiting to be announced: tiny, since almost every row is notified.
-    index("files_unnotified_idx")
-      .on(t.ownerId, t.completedAt)
-      .where(sql`${t.status} = 'complete' and ${t.notifiedAt} is null`),
+    // Only finished uploads not yet announced: tiny, since almost every row is.
+    // Keyed on completed_at rather than status, so SQLite can't prefer the
+    // status indexes (and read every clip) for the digest's queries.
+    index("files_unannounced_idx")
+      .on(t.ownerId, t.notifyBatch, t.completedAt)
+      .where(sql`${t.completedAt} is not null and ${t.notifiedAt} is null`),
   ],
 );
 

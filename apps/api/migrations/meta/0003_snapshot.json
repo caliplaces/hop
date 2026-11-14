@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "072da220-c700-46a4-9b4a-d9f776fbfe54",
+  "id": "7b340c2a-27f8-4ea0-8f28-4da4abb29000",
   "prevId": "b1c0a6c2-3f5e-47b7-9ecb-7fed5a5c91c8",
   "tables": {
     "files": {
@@ -162,6 +162,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "notify_attempted_at": {
+          "name": "notify_attempted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "notified_at": {
           "name": "notified_at",
           "type": "integer",
@@ -214,14 +221,15 @@
           ],
           "isUnique": false
         },
-        "files_unnotified_idx": {
-          "name": "files_unnotified_idx",
+        "files_unannounced_idx": {
+          "name": "files_unannounced_idx",
           "columns": [
             "owner_id",
+            "notify_batch",
             "completed_at"
           ],
           "isUnique": false,
-          "where": "\"files\".\"status\" = 'complete' and \"files\".\"notified_at\" is null"
+          "where": "\"files\".\"completed_at\" is not null and \"files\".\"notified_at\" is null"
         }
       },
       "foreignKeys": {

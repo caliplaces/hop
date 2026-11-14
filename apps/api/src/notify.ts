@@ -1,5 +1,5 @@
 import { colorFor } from "@hop/shared";
-import { and, eq, isNull, lte, max, min, or } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lte, max, min, or } from "drizzle-orm";
 import { type Db, getDb } from "./db";
 import { files, hops, users } from "./db/schema";
 import { newClipsEmail } from "./email/new-clips";
@@ -12,34 +12,41 @@ import type { Env } from "./env";
  * email per clip, an athlete hears about a burst once uploads have been quiet
  * for QUIET_MS, or at the latest MAX_DELAY_MS after its first clip.
  *
- * Each complete clip moves through three states (columns on files):
+ * Each finished upload (completed_at set) moves through three states:
  *   waiting   notify_batch and notified_at both null
  *   batched   notify_batch = when it was claimed; its email isn't confirmed yet
  *   announced notified_at set
  * A batch is a fixed set of clips with a fixed idempotency key, so a retry
  * after a failed or interrupted send can never mix in newer clips and email
- * the old ones twice. Other channels (push) can hang off the same batches.
+ * the old ones twice. Each attempt is recorded (notify_attempted_at) and the
+ * least recently tried batches go first, so batches that keep failing can't
+ * crowd out the rest. Other channels (push) can hang off the same batches.
  */
 export const QUIET_MS = 10 * 60 * 1000;
 export const MAX_DELAY_MS = 60 * 60 * 1000;
-/** A batch still unconfirmed this long after its claim failed or was interrupted; send it again. */
+/** A batch still unconfirmed this long after its last attempt failed or was interrupted; send it again. */
 const RETRY_AFTER_MS = 5 * 60 * 1000;
 /** Resend remembers idempotency keys for 24 hours. Past that a retry could email twice, so stop. */
 const GIVE_UP_AFTER_MS = 23 * 60 * 60 * 1000;
 /** Athletes handled per run (every 5 minutes); anyone left over goes next run. */
 const PER_RUN = 25;
 
-const complete = eq(files.status, "complete");
-const waiting = and(complete, isNull(files.notifiedAt), isNull(files.notifyBatch));
+// Every query below repeats these terms so it can use files_unannounced_idx,
+// which only holds finished, unannounced uploads (see schema.ts).
+const unannounced = and(isNotNull(files.completedAt), isNull(files.notifiedAt));
+const waiting = and(unannounced, isNull(files.notifyBatch));
 
 export async function announceNewClips(env: Env, now = Date.now()): Promise<void> {
   const db = getDb(env.DB);
 
-  // Batches whose send failed or whose run died: resend exactly those clips.
+  // Batches whose send failed or whose run died: resend exactly those clips,
+  // least recently tried first.
   const stalled = await db
-    .selectDistinct({ ownerId: files.ownerId, batch: files.notifyBatch })
+    .select({ ownerId: files.ownerId, batch: files.notifyBatch })
     .from(files)
-    .where(and(complete, isNull(files.notifiedAt), lte(files.notifyBatch, now - RETRY_AFTER_MS)))
+    .where(and(unannounced, lte(files.notifyAttemptedAt, now - RETRY_AFTER_MS)))
+    .groupBy(files.ownerId, files.notifyBatch)
+    .orderBy(min(files.notifyAttemptedAt))
     .limit(PER_RUN);
 
   // Athletes with waiting clips whose burst has gone quiet (or waited long enough).
@@ -75,7 +82,7 @@ export async function announceNewClips(env: Env, now = Date.now()): Promise<void
     // Claim atomically, so overlapping runs can't put a clip in two batches.
     const claimed = await db
       .update(files)
-      .set({ notifyBatch: now })
+      .set({ notifyBatch: now, notifyAttemptedAt: now })
       .where(and(eq(files.ownerId, ownerId), waiting))
       .returning({ id: files.id });
     if (claimed.length > 0) await attempt(ownerId, now);
@@ -95,12 +102,10 @@ async function sendBatch(
   batch: number,
   now: number,
 ): Promise<"sent" | "skipped"> {
-  const inBatch = and(
-    eq(files.ownerId, ownerId),
-    eq(files.notifyBatch, batch),
-    isNull(files.notifiedAt),
-  );
+  const inBatch = and(eq(files.ownerId, ownerId), eq(files.notifyBatch, batch), unannounced);
   const confirm = () => db.update(files).set({ notifiedAt: now }).where(inBatch);
+  // Record the attempt first: if it fails, this batch goes to the back of the retry queue.
+  await db.update(files).set({ notifyAttemptedAt: now }).where(inBatch);
 
   if (now - batch > GIVE_UP_AFTER_MS) {
     console.error("new clips: giving up on a batch after 23 hours", ownerId, batch);
@@ -108,10 +113,14 @@ async function sendBatch(
     return "skipped";
   }
 
-  const clips = await db
-    .select({ hopId: files.hopId, contributor: files.contributorName })
-    .from(files)
-    .where(and(inBatch, complete));
+  // Clips deleted since the claim drop out here (filtered in code, so the
+  // query stays on the small index).
+  const clips = (
+    await db
+      .select({ hopId: files.hopId, contributor: files.contributorName, status: files.status })
+      .from(files)
+      .where(inBatch)
+  ).filter((clip) => clip.status === "complete");
   const user = await db.select().from(users).where(eq(users.id, ownerId)).get();
   // Athletes who opted out (or can't receive email) have their clips marked
   // announced anyway, so they don't pile up and get re-checked every run.
