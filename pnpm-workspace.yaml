@@ -1,3 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+overrides:
+  # drizzle-kit 0.31 (a dev-only CLI) still pulls in esbuild 0.18 through
+  # @esbuild-kit and its own 0.25, which carry known advisories. Point both at
+  # the esbuild the rest of the toolchain already uses.
+  "@esbuild-kit/core-utils>esbuild": "^0.28.2"
+  "drizzle-kit>esbuild": "^0.28.2"
