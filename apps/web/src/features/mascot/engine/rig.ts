@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { addFur, createFurUniforms, type FurUniforms, furMaterial } from "./fur";
 
 /**
@@ -21,6 +22,7 @@ export type Rig = {
     coat: THREE.MeshStandardMaterial[];
     undercoat: THREE.MeshPhysicalMaterial;
     paws: THREE.MeshPhysicalMaterial;
+    accent: THREE.MeshPhysicalMaterial; // the play icon on the clip card
   };
   fur: FurUniforms;
   eyes: {
@@ -34,6 +36,16 @@ export type Rig = {
   arms: THREE.Group[]; // pivots at the shoulder
   feet: THREE.Mesh[];
   antenna: THREE.Group; // spring-driven
+  clip: THREE.Group; // the clip card balanced on the pompom while busy
+  clipRestY: number;
+  bubble: THREE.Group; // sleep bubble
+  sweat: THREE.Mesh; // sweat drop when broken
+  /** Position + outward normal on the body surface, for props that slide along it. */
+  surface: (
+    angle: number,
+    y: number,
+    lift: number,
+  ) => { position: THREE.Vector3; normal: THREE.Vector3 };
   bandage: THREE.Group;
   headTop: number;
 };
@@ -93,6 +105,13 @@ function onSurface(
   const normal = new THREE.Vector3(Math.sin(angle), -slope, Math.cos(angle)).normalize();
   obj.position.set(Math.sin(angle) * r, y, Math.cos(angle) * r).addScaledVector(normal, lift);
   obj.lookAt(obj.position.clone().add(normal));
+}
+
+function surfacePoint(profile: THREE.Vector2[], angle: number, y: number, lift: number) {
+  const holder = new THREE.Object3D();
+  onSurface(profile, holder, angle, y, lift);
+  const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(holder.quaternion);
+  return { position: holder.position.clone(), normal };
 }
 
 function arc(radius: number, tube: number, material: THREE.Material, up: boolean) {
@@ -270,6 +289,83 @@ export function buildRig({ color, shells }: RigOptions): Rig {
   antenna.add(stem, ball);
   squash.add(antenna);
 
+  // The clip card Bobble balances on its pompom while uploading: a glossy card
+  // with a play icon in the athlete's colour, spinning like a plate on a stick.
+  const accent = new THREE.MeshPhysicalMaterial({ color: base, roughness: 0.35, clearcoat: 0.6 });
+  const clip = new THREE.Group();
+  clip.position.y = 0.47 + 0.13 + fur.uFurLength.value * 1.3 + 0.3;
+  const card = new THREE.Mesh(
+    new RoundedBoxGeometry(0.86, 0.6, 0.07, 4, 0.09),
+    new THREE.MeshPhysicalMaterial({
+      color: "#ffffff",
+      roughness: 0.25,
+      clearcoat: 1,
+      clearcoatRoughness: 0.1,
+    }),
+  );
+  const play = new THREE.Shape();
+  play.moveTo(-0.085, -0.115);
+  play.lineTo(0.13, 0);
+  play.lineTo(-0.085, 0.115);
+  play.closePath();
+  const playGeometry = new THREE.ExtrudeGeometry(play, {
+    depth: 0.012,
+    bevelEnabled: true,
+    bevelSize: 0.012,
+    bevelThickness: 0.008,
+    bevelSegments: 2,
+  });
+  for (const face of [1, -1]) {
+    const icon = new THREE.Mesh(playGeometry, accent);
+    icon.position.z = face * 0.04;
+    if (face < 0) icon.rotation.y = Math.PI;
+    card.add(icon);
+  }
+  clip.add(card);
+  clip.visible = false;
+  antenna.add(clip);
+
+  // Sleep bubble: a glassy sphere at the mouth that breathes in and out.
+  const mouthPoint = surfacePoint(profile, 0.16, eyeY - 0.18, faceLift);
+  const bubble = new THREE.Group();
+  bubble.position.copy(mouthPoint.position).addScaledVector(mouthPoint.normal, 0.12);
+  const bubbleShell = new THREE.Mesh(
+    new THREE.SphereGeometry(0.21, 32, 24),
+    new THREE.MeshPhysicalMaterial({
+      color: "#dff4ff",
+      roughness: 0.04,
+      clearcoat: 1,
+      transparent: true,
+      opacity: 0.38,
+      depthWrite: false,
+    }),
+  );
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 10), whiteMaterial);
+  glint.position.set(-0.08, 0.09, 0.16);
+  bubble.add(bubbleShell, glint);
+  bubble.visible = false;
+  squash.add(bubble);
+
+  // Sweat drop that slides down the side of the head when things go wrong.
+  // Teardrop: a lathe whose radius swells from a point at the top to a round base.
+  const dropProfile = Array.from({ length: 24 }, (_, i) => {
+    const t = (i / 23) * Math.PI;
+    return new THREE.Vector2(0.075 * Math.sin(t) * (1 - Math.cos(t)) * 0.62, -0.16 * Math.cos(t));
+  });
+  const sweat = new THREE.Mesh(
+    new THREE.LatheGeometry(dropProfile, 24),
+    new THREE.MeshPhysicalMaterial({
+      color: "#9ad8ff",
+      roughness: 0.08,
+      clearcoat: 1,
+      transparent: true,
+      opacity: 0.9,
+    }),
+  );
+  sweat.scale.set(1, 1, 0.75);
+  sweat.visible = false;
+  squash.add(sweat);
+
   // Bandage for the "broken" state: a little plaster on the head.
   const bandage = new THREE.Group();
   const plaster = new THREE.Mesh(
@@ -291,13 +387,18 @@ export function buildRig({ color, shells }: RigOptions): Rig {
   return {
     root,
     squash,
-    paint: { coat: coatParts, undercoat, paws },
+    paint: { coat: coatParts, undercoat, paws, accent },
     fur,
     eyes,
     mouths: { smile, open, frown, o },
     arms,
     feet,
     antenna,
+    clip,
+    clipRestY: clip.position.y,
+    bubble,
+    sweat,
+    surface: (angle, y, lift) => surfacePoint(profile, angle, y, fur.uFurLength.value * lift),
     bandage,
     headTop: HEIGHT + fur.uFurLength.value,
   };

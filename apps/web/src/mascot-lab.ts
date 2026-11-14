@@ -2,7 +2,7 @@
  * Mascot lab: a dev-only page for designing and reviewing the mascot.
  * Open http://localhost:5173/mascot-lab.html while `pnpm dev` runs.
  *
- * ?capture=1&state=run&color=%23FF6B5B&size=600&shells=24 renders a single
+ * ?capture=1&state=busy&color=%23FF6B5B&size=600&shells=24 renders a single
  * mascot without a clock; window.__mascot.render(t) draws an exact frame,
  * which is how review videos are recorded.
  */
@@ -14,7 +14,7 @@ import {
 } from "./features/mascot/engine/scene";
 
 const params = new URLSearchParams(location.search);
-const STATES: MascotState[] = ["idle", "run", "cheer", "broken", "sleep"];
+const STATES: MascotState[] = ["idle", "busy", "cheer", "broken", "sleep"];
 const root = document.getElementById("lab") as HTMLElement;
 
 const dark = params.get("dark") === "1";
@@ -59,6 +59,9 @@ if (params.get("capture") === "1") {
     const { canvas, mascot } = mount(size, color, state, shells);
     const card = document.createElement("figure");
     card.style.cssText = "margin:0;text-align:center";
+    canvas.style.cursor = "pointer";
+    canvas.title = "Poke me";
+    canvas.onclick = () => mascot.poke();
     card.append(
       canvas,
       Object.assign(document.createElement("figcaption"), { textContent: label }),
