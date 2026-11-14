@@ -1,5 +1,5 @@
 import type { InboxFile } from "@hop/shared";
-import { Check, Film, ImageIcon } from "lucide-react";
+import { Check, Film, ImageIcon, Play } from "lucide-react";
 import { memo, useState } from "react";
 import { cx } from "../../components/ui/cx";
 import { ContributorLabel } from "./ContributorLabel";
@@ -52,11 +52,17 @@ export const FileTile = memo(function FileTile({
         aria-label={`${isVideo ? "Video" : "Photo"} ${file.name} from ${file.contributorName ?? "unknown"}`}
         className={cx(
           "group relative block aspect-[4/5] w-full overflow-hidden rounded-2xl bg-surface-2 transition active:scale-[0.98] sm:rounded-3xl",
-          selected && "ring-3 ring-hop-strong ring-offset-2 ring-offset-canvas",
+          // Inset so the ring never bleeds into the page gutter.
+          selected && "ring-4 ring-hop ring-inset",
         )}
       >
         <Thumbnail file={file} />
-        <span className="absolute inset-x-0 bottom-0 flex bg-linear-to-t from-black/70 via-black/20 to-transparent px-2.5 pt-8 pb-2 text-left text-xs font-medium text-white sm:text-[13px]">
+        {isVideo && (
+          <span className="absolute top-2 left-2 grid size-6 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+            <Play className="size-3 translate-x-px fill-current" />
+          </span>
+        )}
+        <span className="absolute inset-x-0 bottom-0 flex bg-linear-to-t from-black/80 via-black/40 to-transparent px-2.5 pt-10 pb-2 text-left text-xs font-semibold text-white sm:text-[13px]">
           <ContributorLabel file={file} />
         </span>
         {selecting && (

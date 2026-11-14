@@ -76,7 +76,7 @@ export function Onboarding() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-5">
       <Logo />
-      <div className="animate-fade-up flex flex-1 flex-col justify-center pb-24">
+      <div className="animate-fade-up pt-16 sm:pt-24">
         <h1 className="text-[32px] leading-tight font-bold tracking-tight">Claim your Hop</h1>
         <p className="mt-2 text-[15px] text-muted">
           This is the link everyone uploads your clips to.

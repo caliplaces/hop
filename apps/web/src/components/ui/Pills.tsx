@@ -1,8 +1,11 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 
 export type PillOption<T extends string> = { value: T; label: ReactNode; count?: number };
 
-/** Single-choice filter as a horizontally scrollable row of pills. */
+/**
+ * Single-choice filter as a horizontally scrollable row of pills. Built on
+ * native radio inputs, so arrow keys, focus and screen readers work for free.
+ */
 export function Pills<T extends string>({
   options,
   value,
@@ -14,26 +17,27 @@ export function Pills<T extends string>({
   onChange: (value: T) => void;
   label: string;
 }) {
+  const name = useId();
   return (
-    <div
-      role="toolbar"
-      aria-label={label}
-      className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0"
-    >
+    // min-w-0: a fieldset defaults to min-width: min-content, which would widen the page.
+    <fieldset className="-mx-4 flex min-w-0 gap-2 overflow-x-auto px-4 py-1 [scrollbar-width:none] sm:mx-0 sm:px-0">
+      <legend className="sr-only">{label}</legend>
       {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          className="pill"
-          aria-pressed={option.value === value}
-          onClick={() => onChange(option.value)}
-        >
+        <label key={option.value} className="pill">
+          <input
+            type="radio"
+            className="sr-only"
+            name={name}
+            value={option.value}
+            checked={option.value === value}
+            onChange={() => onChange(option.value)}
+          />
           {option.label}
           {option.count !== undefined && (
             <span className="tabular-nums opacity-60">{option.count}</span>
           )}
-        </button>
+        </label>
       ))}
-    </div>
+    </fieldset>
   );
 }

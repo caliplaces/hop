@@ -68,7 +68,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       </Dialog>
       <div
         aria-live="polite"
-        className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex flex-col items-center gap-2 px-4 sm:bottom-8"
+        className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--tabbar-h)+1.5rem)] z-(--z-toast) flex flex-col items-center gap-2 px-4 sm:bottom-8"
       >
         {toasts.map((t) => (
           <div

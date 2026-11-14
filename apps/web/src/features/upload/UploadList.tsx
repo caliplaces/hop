@@ -32,7 +32,7 @@ function UploadRow({ item, uploader }: { item: UploadItem; uploader: Uploader })
           <Film className="size-5" />
         )}
         {item.status === "done" && (
-          <span className="animate-pop absolute inset-0 grid place-items-center bg-hop/90 text-ink">
+          <span className="animate-pop absolute inset-0 grid place-items-center bg-hop text-ink">
             <Check className="size-5" strokeWidth={3} />
           </span>
         )}
@@ -42,7 +42,7 @@ function UploadRow({ item, uploader }: { item: UploadItem; uploader: Uploader })
           <p className="truncate text-[15px] font-medium">{item.file.name}</p>
           <p className="shrink-0 text-xs font-medium text-muted tabular-nums">
             {item.status === "uploading"
-              ? `${Math.floor(progress * 100)}%`
+              ? `Uploading ${Math.floor(progress * 100)}%`
               : item.status === "finishing"
                 ? "Finishing…"
                 : item.status === "queued"
@@ -55,7 +55,14 @@ function UploadRow({ item, uploader }: { item: UploadItem; uploader: Uploader })
         {item.status === "error" ? (
           <p className="mt-1 text-xs text-danger">{item.error}</p>
         ) : (
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
+          <div
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2"
+            role="progressbar"
+            aria-label={`Uploading ${item.file.name}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={item.status === "done" ? 100 : Math.floor(progress * 100)}
+          >
             <div
               className={`h-full rounded-full transition-[width] duration-300 ${item.status === "done" ? "bg-hop-strong" : "bg-fg"}`}
               style={{ width: `${item.status === "done" ? 100 : Math.max(3, progress * 100)}%` }}
@@ -86,8 +93,12 @@ export function UploadList({
   uploader: Uploader;
   canClear: boolean;
 }) {
+  const sentCount = items.filter((i) => i.status === "done").length;
   return (
     <Card flush className="px-5 py-2 sm:px-6 sm:py-2">
+      <p aria-live="polite" className="sr-only">
+        {sentCount} of {items.length} sent
+      </p>
       <ul className="divide-y divide-line">
         {items.map((item) => (
           <UploadRow key={item.id} item={item} uploader={uploader} />

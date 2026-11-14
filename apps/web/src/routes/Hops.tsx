@@ -7,7 +7,7 @@ import { RequireAthlete } from "../features/account/RequireAthlete";
 import { HopCard } from "../features/hops/HopCard";
 import { NewHopDialog } from "../features/hops/NewHopDialog";
 import { ShareCard } from "../features/share/ShareCard";
-import { displayHopUrl, hopUrl } from "../lib/format";
+import { hopUrl } from "../lib/format";
 import { queries } from "../lib/queries";
 
 function HopsPage({ me }: { me: AthleteMe }) {
@@ -21,11 +21,11 @@ function HopsPage({ me }: { me: AthleteMe }) {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Hops</h1>
           <p className="mt-1 text-[15px] text-muted text-balance">
-            {displayHopUrl(hopUrl(me.handle))} always uploads into your live Hop.
+            One per event. Your link uploads into the live one.
           </p>
         </div>
-        <Button variant="dark" onClick={() => setCreating(true)}>
-          <Plus className="size-4" /> New
+        <Button onClick={() => setCreating(true)}>
+          <Plus className="size-4" /> New Hop
         </Button>
       </div>
 

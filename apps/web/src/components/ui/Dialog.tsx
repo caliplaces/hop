@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useId } from "react";
 import { IconButton } from "./Button";
+import { useModalDialog } from "./useModalDialog";
 
 type Props = {
   open: boolean;
@@ -28,14 +29,9 @@ export function Dialog({
   size = "md",
   hideClose,
 }: Props) {
-  const ref = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+  const ref = useModalDialog(open);
+  const titleId = useId();
+  const descriptionId = useId();
 
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop click is a pointer shortcut; Esc closes natively
@@ -50,7 +46,8 @@ export function Dialog({
         // Click on the backdrop (the dialog element itself, outside the panel).
         if (e.target === e.currentTarget) onClose();
       }}
-      aria-label={title}
+      aria-labelledby={title ? titleId : undefined}
+      aria-describedby={description ? descriptionId : undefined}
       className={`m-0 mt-auto w-full max-w-none bg-transparent p-0 text-fg backdrop:bg-black/40 backdrop:backdrop-blur-sm sm:m-auto ${widths[size]}`}
     >
       {open && (
@@ -59,8 +56,16 @@ export function Dialog({
           {(title || !hideClose) && (
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                {title && <h2 className="text-xl font-semibold tracking-tight">{title}</h2>}
-                {description && <div className="mt-1 text-[15px] text-muted">{description}</div>}
+                {title && (
+                  <h2 id={titleId} className="text-xl font-semibold tracking-tight">
+                    {title}
+                  </h2>
+                )}
+                {description && (
+                  <div id={descriptionId} className="mt-1 text-[15px] text-muted">
+                    {description}
+                  </div>
+                )}
               </div>
               {!hideClose && (
                 <IconButton label="Close" className="-mt-1 -mr-2" onClick={onClose}>

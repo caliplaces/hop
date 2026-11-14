@@ -1,14 +1,15 @@
 import type { ReactNode } from "react";
 import { cx } from "./cx";
 
+/** Tones are named for meaning, not colour, so usage reads as intent. */
 const tones = {
-  lime: "bg-hop text-ink",
-  soft: "bg-hop-soft text-fg",
-  neutral: "bg-surface-2 text-muted",
+  live: "bg-hop text-ink",
+  event: "bg-hop-soft text-fg",
+  muted: "bg-surface-2 text-muted",
 } as const;
 
 export function Badge({
-  tone = "neutral",
+  tone = "muted",
   children,
 }: {
   tone?: keyof typeof tones;

@@ -1,5 +1,6 @@
 import type { InboxFile } from "@hop/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { getRouteApi } from "@tanstack/react-router";
 import { Download, Inbox as InboxIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "../components/ui/Button";
@@ -13,14 +14,19 @@ import { LoadMore } from "../features/inbox/LoadMore";
 import { SelectionBar } from "../features/inbox/SelectionBar";
 import { useInboxActions } from "../features/inbox/useInboxActions";
 import { Viewer } from "../features/inbox/Viewer";
-import { ShareCard } from "../features/share/ShareCard";
+import { ShareBar } from "../features/share/ShareBar";
 import { hopUrl } from "../lib/format";
 import { queries } from "../lib/queries";
 
 const ALL = "all";
+const route = getRouteApi("/app");
 
 function InboxPage({ me }: { me: AthleteMe }) {
-  const [filter, setFilter] = useState<string>(ALL);
+  const search = route.useSearch();
+  const navigate = route.useNavigate();
+  const filter = search.hop ?? ALL;
+  const setFilter = (value: string) =>
+    navigate({ search: value === ALL ? {} : { hop: value }, replace: true });
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -81,7 +87,7 @@ function InboxPage({ me }: { me: AthleteMe }) {
 
   return (
     <>
-      <div className="flex items-end justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Inbox</h1>
           <p className="mt-1 text-[15px] text-muted">
@@ -93,12 +99,7 @@ function InboxPage({ me }: { me: AthleteMe }) {
             <Button variant="soft" onClick={() => setSelecting(true)}>
               Select
             </Button>
-            <Button
-              variant="dark"
-              className="hidden sm:inline-flex"
-              onClick={downloadAll}
-              disabled={actions.downloading}
-            >
+            <Button onClick={downloadAll} disabled={actions.downloading}>
               <Download className="size-4" /> {actions.downloading ? "Preparing…" : "Download all"}
             </Button>
           </div>
@@ -107,7 +108,7 @@ function InboxPage({ me }: { me: AthleteMe }) {
 
       {activeHop && (
         <div className="mt-6">
-          <ShareCard url={hopUrl(me.handle)} title={activeHop.title} />
+          <ShareBar url={hopUrl(me.handle)} title={activeHop.title} />
         </div>
       )}
 
@@ -151,6 +152,9 @@ function InboxPage({ me }: { me: AthleteMe }) {
       {selecting && (
         <SelectionBar
           count={selected.size}
+          total={files.length}
+          onSelectAll={() => setSelected(new Set(files.map((f) => f.id)))}
+          onClear={() => setSelected(new Set())}
           busy={actions.downloading || actions.removing}
           onCancel={stopSelecting}
           onDownload={downloadSelected}

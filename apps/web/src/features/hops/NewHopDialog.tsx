@@ -30,7 +30,7 @@ export function NewHopDialog({
       open={open}
       onClose={close}
       title="New Hop"
-      description="One per event keeps clips apart. Close it when the event's over."
+      description="One per event keeps clips apart. Close it when the event’s over."
     >
       <form
         onSubmit={(e) => {
@@ -55,7 +55,6 @@ export function NewHopDialog({
         )}
         <Button
           type="submit"
-          variant="dark"
           size="lg"
           className="mt-4 w-full"
           disabled={!slug || create.isPending}

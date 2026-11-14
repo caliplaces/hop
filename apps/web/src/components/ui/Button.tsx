@@ -4,8 +4,14 @@ import { cx } from "./cx";
 /**
  * Visual variants map 1:1 to the utilities in styles.css, so links and other
  * elements can share button styling via buttonClass() without a wrapper.
- * Convention: `className` is for layout (width, margins), never for colour or
- * height, which the variant and size own.
+ *
+ * Rules:
+ * - `primary` (lime) is the one main action on a screen: Share, Claim it,
+ *   Create Hop, Download all. Never two lime buttons side by side.
+ * - `soft` / `outline` are secondary actions; `danger` only confirms deletion;
+ *   `dark` is for confirming a non-destructive dialog.
+ * - `className` is for layout (width, margins), never for colour or height,
+ *   which the variant and size own.
  */
 const variants = {
   primary: "btn-primary",

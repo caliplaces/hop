@@ -29,7 +29,10 @@ export function useInboxActions(handle: string) {
   const remove = async (ids: string[]) => {
     const ok = await confirm({
       title: ids.length === 1 ? "Delete this file?" : `Delete ${ids.length} files?`,
-      description: "They’re removed for good. This can’t be undone.",
+      description:
+        ids.length === 1
+          ? "It’s removed for good. This can’t be undone."
+          : "They’re removed for good. This can’t be undone.",
       confirmLabel: "Delete",
       tone: "danger",
     });

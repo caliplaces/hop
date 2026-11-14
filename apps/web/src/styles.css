@@ -13,11 +13,18 @@
   --surface-2: #f2f2ee;
   --fg: #0b0b0c;
   --muted: #6b6b66;
-  --subtle: #9a9a94;
+  --subtle: #71716b; /* 4.7:1 on canvas: still AA for small text */
   --line: rgb(11 11 12 / 0.08);
   --line-strong: rgb(11 11 12 / 0.14);
   --danger: #e5484d;
   --shadow-color: 30 30 20;
+
+  /* Layout and stacking, shared by the tab bar, floating bars and overlays. */
+  --tabbar-h: 4.5rem;
+  --z-bar: 30;
+  --z-float: 40;
+  --z-overlay: 50;
+  --z-toast: 60;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -28,7 +35,7 @@
     --surface-2: #1d1d20;
     --fg: #f4f4ef;
     --muted: #a1a19b;
-    --subtle: #6f6f6a;
+    --subtle: #8c8c86;
     --line: rgb(255 255 255 / 0.08);
     --line-strong: rgb(255 255 255 / 0.16);
     --danger: #ff6369;
@@ -115,6 +122,11 @@ body {
   }
 }
 
+/* A selection bar takes the tab bar's slot instead of stacking on top of it. */
+body:has([data-selection-bar]) [data-tabbar] {
+  display: none;
+}
+
 /* ---------- Buttons ---------- */
 
 @utility btn {
@@ -142,7 +154,7 @@ body {
   @apply btn bg-danger text-white hover:opacity-90;
 }
 @utility btn-icon {
-  @apply inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-fg transition duration-150 hover:bg-surface-2 active:scale-95 disabled:pointer-events-none disabled:opacity-40;
+  @apply inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-fg transition duration-150 hover:bg-surface-2 active:scale-95 disabled:pointer-events-none disabled:opacity-40;
 }
 
 /* ---------- Surfaces ---------- */
@@ -154,7 +166,7 @@ body {
   @apply h-12 w-full rounded-2xl border border-line-strong bg-surface px-4 text-base text-fg outline-none transition placeholder:text-subtle focus:border-fg focus:ring-4 focus:ring-hop-soft;
 }
 @utility pill {
-  @apply inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-line bg-surface px-4 text-sm font-medium text-muted transition hover:text-fg aria-pressed:border-fg aria-pressed:bg-fg aria-pressed:text-canvas;
+  @apply relative inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-line bg-surface px-4 text-sm font-medium text-muted transition hover:text-fg has-checked:border-fg has-checked:bg-fg has-checked:text-canvas has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-hop-soft;
 }
 @utility badge {
   @apply inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-semibold;

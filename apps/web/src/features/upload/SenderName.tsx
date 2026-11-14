@@ -11,10 +11,12 @@ export function SenderName({
   verifiedAs,
   name,
   onChange,
+  signInHref,
 }: {
   verifiedAs: string | null;
   name: string;
   onChange: (name: string) => void;
+  signInHref: string;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -46,7 +48,7 @@ export function SenderName({
           onChange={(e) => onChange(e.target.value)}
           onBlur={finish}
         />
-        <Button type="submit" variant="dark" className="h-11" disabled={!name.trim()}>
+        <Button type="submit" variant="soft" disabled={!name.trim()}>
           Done
         </Button>
       </form>
@@ -54,13 +56,21 @@ export function SenderName({
   }
 
   return (
-    <button
-      type="button"
-      className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-muted transition hover:bg-surface-2"
-      onClick={() => setEditing(true)}
-    >
-      Sending as <span className="font-semibold text-fg">{name || "Anonymous"}</span>
-      <Pencil className="size-3.5" aria-label="Change name" />
-    </button>
+    <div className="flex flex-col items-center gap-0.5">
+      <button
+        type="button"
+        className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-muted transition hover:bg-surface-2"
+        onClick={() => setEditing(true)}
+      >
+        Sending as <span className="font-semibold text-fg">{name || "Anonymous"}</span>
+        <Pencil className="size-3.5" aria-label="Change name" />
+      </button>
+      <a
+        href={signInHref}
+        className="text-xs text-muted underline-offset-2 hover:text-fg hover:underline"
+      >
+        or sign in with Caliplaces to use your profile
+      </a>
+    </div>
   );
 }

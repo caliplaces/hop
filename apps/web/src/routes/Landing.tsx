@@ -47,7 +47,7 @@ export function Landing() {
       )}
 
       <main>
-        <section className="grid items-center gap-14 pt-12 pb-8 sm:pt-20 lg:grid-cols-[1.1fr_1fr] lg:gap-8">
+        <section className="grid items-center gap-12 pt-8 pb-4 sm:pt-20 sm:pb-8 lg:grid-cols-[1.1fr_1fr] lg:gap-8">
           <div className="animate-fade-up text-center lg:text-left">
             <span className="badge bg-hop-soft text-fg">For athletes at events</span>
             <h1 className="mt-5 text-[44px] leading-[1.02] font-bold tracking-tighter text-balance sm:text-6xl lg:text-7xl">

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Lock, SearchX } from "lucide-react";
+import { Lock, SearchX, WifiOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { PageSpinner } from "../components/ui/Spinner";
 import { Dropzone } from "../features/upload/Dropzone";
@@ -9,6 +9,7 @@ import { SenderName } from "../features/upload/SenderName";
 import { StatusScreen } from "../features/upload/StatusScreen";
 import { UploadList } from "../features/upload/UploadList";
 import { useContributorName } from "../features/upload/useContributorName";
+import { useOnline } from "../features/upload/useOnline";
 import { usePass } from "../features/upload/usePass";
 import { useUploadQueue } from "../features/upload/useUploadQueue";
 import { signInUrl } from "../lib/api";
@@ -24,6 +25,7 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
   const contributor = useContributorName();
   const pass = usePass(hop?.id);
   const queue = useUploadQueue(hop?.id, pass.getPass, contributor.getName);
+  const online = useOnline();
 
   if (hopQuery.isPending) return <PageSpinner />;
   if (!hop) {
@@ -43,24 +45,37 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
 
   const verifiedAs = me.data ? (me.data.handle ? `@${me.data.handle}` : me.data.name) : null;
   const { uploader, items, busy, doneCount, allDone } = queue;
+  const phase = busy ? "sending" : allDone ? "done" : "ready";
+  const started = items.length > 0;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-5 pb-8">
-      <header className="flex items-center justify-between">
+      <header>
         <Logo />
-        {!verifiedAs && (
-          <a href={signInUrl()} className="text-sm font-medium text-muted transition hover:text-fg">
-            Sign in
-          </a>
-        )}
       </header>
 
-      <div className="mt-10">
-        <HopHero hop={hop} doneCount={doneCount} allDone={allDone} />
+      <div className={started ? "mt-6" : "mt-10"}>
+        <HopHero hop={hop} phase={phase} doneCount={doneCount} />
       </div>
 
-      <div className="mt-8">
-        <Dropzone compact={items.length > 0} onFiles={(files) => uploader?.add(files)} />
+      {!online && (
+        <p
+          role="status"
+          className="mt-6 flex items-center justify-center gap-2 rounded-full bg-surface-2 px-4 py-2.5 text-sm font-medium"
+        >
+          <WifiOff className="size-4" /> You’re offline. Uploads continue when you’re back.
+        </p>
+      )}
+
+      {/* Once something is uploading, the list is the main thing; adding more is secondary. */}
+      {uploader && started && (
+        <div className="mt-6">
+          <UploadList items={items} uploader={uploader} canClear={!busy && doneCount > 0} />
+        </div>
+      )}
+
+      <div className={started ? "mt-4" : "mt-8"}>
+        <Dropzone compact={started} onFiles={(files) => uploader?.add(files)} />
       </div>
 
       <div className="mt-3 flex min-h-11 items-center justify-center">
@@ -68,6 +83,7 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
           verifiedAs={verifiedAs}
           name={contributor.name}
           onChange={contributor.setName}
+          signInHref={signInUrl()}
         />
       </div>
 
@@ -80,18 +96,7 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
         onRetry={pass.retry}
       />
 
-      {uploader && items.length > 0 && (
-        <div className="mt-4">
-          <UploadList items={items} uploader={uploader} canClear={!busy && doneCount > 0} />
-        </div>
-      )}
-      {busy && (
-        <p className="mt-3 text-center text-xs text-muted">
-          Keep this page open until everything is sent.
-        </p>
-      )}
-
-      <footer className="mt-auto pt-12 text-center text-xs text-subtle">
+      <footer className="mt-auto pt-12 text-center text-xs text-muted">
         Only {ownerNames(hop).full} can see what you send · Hop by Caliplaces
       </footer>
     </main>

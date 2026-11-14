@@ -18,9 +18,15 @@ const landingRoute = createRoute({
   path: "/",
   component: lazyRouteComponent(() => import("./routes/Landing"), "Landing"),
 });
+export type InboxSearch = { hop?: string };
+
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app",
+  // The Hop filter lives in the URL, so a Hop card can link to its files.
+  validateSearch: (search: Record<string, unknown>): InboxSearch => ({
+    hop: typeof search.hop === "string" && search.hop ? search.hop : undefined,
+  }),
   component: lazyRouteComponent(() => import("./routes/Inbox"), "Inbox"),
 });
 const onboardingRoute = createRoute({

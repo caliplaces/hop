@@ -21,7 +21,7 @@ export function Dropzone({
   return (
     <label
       className={cx(
-        "group flex cursor-pointer flex-col items-center rounded-[2rem] border-2 border-dashed px-6 text-center transition",
+        "group flex cursor-pointer flex-col items-center rounded-[2rem] border-2 border-dashed px-6 text-center transition has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-hop-soft",
         compact ? "py-5" : "py-10",
         dragging
           ? "border-hop-strong bg-hop-soft"
