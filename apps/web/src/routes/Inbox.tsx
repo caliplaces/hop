@@ -1,421 +1,183 @@
-import type { HopSummary, InboxFile, InboxPage } from "@hop/shared";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  BadgeCheck,
-  CheckSquare,
-  Download,
-  Film,
-  ImageIcon,
-  Square,
-  Trash2,
-  X,
-} from "lucide-react";
-import { useEffect, useState } from "react";
-import { RequireHandle } from "../components/RequireHandle";
-import { ShareCard } from "../components/ShareCard";
-import { api } from "../lib/api";
-import { canStreamZip, downloadUrls, fileUrl, listAllFiles, zipToDisk } from "../lib/download";
-import { formatBytes, formatDate, hopUrl } from "../lib/format";
+import type { InboxFile } from "@hop/shared";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { getRouteApi } from "@tanstack/react-router";
+import { Download, Inbox as InboxIcon } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { Button } from "../components/ui/Button";
+import { EmptyState } from "../components/ui/EmptyState";
+import { Pills } from "../components/ui/Pills";
+import type { AthleteMe } from "../features/account/AccountDialog";
+import { RequireAthlete } from "../features/account/RequireAthlete";
+import { DownloadSheet } from "../features/inbox/DownloadSheet";
+import { FileGrid, FileGridSkeleton } from "../features/inbox/FileGrid";
+import { LoadMore } from "../features/inbox/LoadMore";
+import { SelectionBar } from "../features/inbox/SelectionBar";
+import { useInboxActions } from "../features/inbox/useInboxActions";
+import { Viewer } from "../features/inbox/Viewer";
+import { ShareBar } from "../features/share/ShareBar";
+import { hopUrl } from "../lib/format";
+import { queries } from "../lib/queries";
 
-function Contributor({ file, className = "" }: { file: InboxFile; className?: string }) {
-  return (
-    <span className={`inline-flex min-w-0 items-center gap-1 ${className}`}>
-      <span className="truncate">{file.contributorName ?? "Unknown"}</span>
-      {file.contributorVerified && (
-        <BadgeCheck className="size-3.5 shrink-0" aria-label="Signed in with Caliplaces" />
-      )}
-    </span>
+const ALL = "all";
+const route = getRouteApi("/app");
+
+function InboxPage({ me }: { me: AthleteMe }) {
+  const search = route.useSearch();
+  const navigate = route.useNavigate();
+  const filter = search.hop ?? ALL;
+  const setFilter = (value: string) =>
+    navigate({ search: value === ALL ? {} : { hop: value }, replace: true });
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [viewingId, setViewingId] = useState<string | null>(null);
+
+  const hopId = filter === ALL ? null : filter;
+  const hops = useQuery(queries.hops());
+  const filesQuery = useInfiniteQuery(queries.files(hopId));
+  const files = useMemo(
+    () => filesQuery.data?.pages.flatMap((p) => p.files) ?? [],
+    [filesQuery.data],
   );
-}
+  const actions = useInboxActions(me.handle);
 
-function Thumb({ file }: { file: InboxFile }) {
-  const [failed, setFailed] = useState(false);
-  const Icon = file.mime.startsWith("image/") ? ImageIcon : Film;
-  if (!file.hasThumbnail || failed) {
-    return (
-      <div className="grid size-full place-items-center bg-black/5 dark:bg-white/10">
-        <Icon className="size-8 opacity-40" />
-      </div>
-    );
-  }
-  return (
-    <img
-      src={`/api/me/files/${file.id}/thumbnail`}
-      alt=""
-      loading="lazy"
-      className="size-full object-cover"
-      onError={() => setFailed(true)}
-    />
+  const activeHop = hops.data?.find((h) => h.id === me.activeHopId);
+  const totalFiles = hops.data?.reduce((sum, h) => sum + h.fileCount, 0) ?? 0;
+
+  const toggle = useCallback(
+    (id: string) =>
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
   );
-}
-
-function useEscape(onClose: () => void) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-}
-
-function Viewer({
-  file,
-  onClose,
-  onDelete,
-}: {
-  file: InboxFile;
-  onClose: () => void;
-  onDelete: () => void;
-}) {
-  const staleTime = 10 * 60_000;
-  const view = useQuery({
-    queryKey: ["file-url", file.id],
-    queryFn: () => fileUrl(file.id, false),
-    staleTime,
-  });
-  // Fetched up front so the download is a plain link click, which every browser allows.
-  const download = useQuery({
-    queryKey: ["file-download", file.id],
-    queryFn: () => fileUrl(file.id, true),
-    staleTime,
-  });
-  useEscape(onClose);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/95 text-white"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div className="flex items-center justify-between gap-3 px-4 py-3">
-        <div className="min-w-0">
-          <p className="truncate font-semibold">{file.name}</p>
-          <p className="flex min-w-0 gap-1 text-xs text-white/60">
-            <Contributor file={file} /> · {formatBytes(file.size)} · {formatDate(file.createdAt)}
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          {download.data && (
-            <a
-              className="btn bg-white/10 px-3 py-2 hover:bg-white/20"
-              href={download.data}
-              title="Download"
-            >
-              <Download className="size-4" />
-            </a>
-          )}
-          <button
-            type="button"
-            className="btn bg-white/10 px-3 py-2 hover:bg-white/20"
-            onClick={onDelete}
-            title="Delete"
-          >
-            <Trash2 className="size-4" />
-          </button>
-          <button
-            type="button"
-            className="btn bg-white/10 px-3 py-2 hover:bg-white/20"
-            onClick={onClose}
-            title="Close"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      </div>
-      <div className="flex min-h-0 flex-1 items-center justify-center p-4">
-        {view.data &&
-          (file.mime.startsWith("image/") ? (
-            <img src={view.data} alt={file.name} className="max-h-full max-w-full object-contain" />
-          ) : (
-            // biome-ignore lint/a11y/useMediaCaption: user-generated clips have no captions
-            <video
-              src={view.data}
-              controls
-              autoPlay
-              playsInline
-              className="max-h-full max-w-full"
-            />
-          ))}
-      </div>
-      {file.note && <p className="px-4 pb-4 text-center text-sm text-white/80">“{file.note}”</p>}
-    </div>
-  );
-}
-
-/**
- * Where a zip can't be streamed to disk (Safari, Firefox, iOS), list each file
- * as its own download link: browsers block scripted multi-file downloads.
- */
-function DownloadSheet({ files, onClose }: { files: InboxFile[]; onClose: () => void }) {
-  const urls = useQuery({
-    queryKey: ["download-urls", files.map((f) => f.id)],
-    queryFn: () => downloadUrls(files.map((f) => f.id)),
-    staleTime: 10 * 60_000,
-  });
-  useEscape(onClose);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div className="card max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-b-none sm:rounded-3xl">
-        <div className="flex items-center justify-between">
-          <p className="text-lg font-black tracking-tight">Download {files.length} files</p>
-          <button type="button" className="btn-ghost size-9 p-0" onClick={onClose} title="Close">
-            <X className="size-4" />
-          </button>
-        </div>
-        <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-          This browser saves files one at a time. On a computer, Chrome or Edge can download
-          everything as one zip.
-        </p>
-        <ul className="mt-4 divide-y divide-black/5 dark:divide-white/10">
-          {files.map((file) => {
-            const url = urls.data?.get(file.id);
-            return (
-              <li key={file.id} className="flex items-center gap-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{file.name}</p>
-                  <p className="flex min-w-0 gap-1 text-xs text-black/50 dark:text-white/50">
-                    <Contributor file={file} /> · {formatBytes(file.size)}
-                  </p>
-                </div>
-                {url ? (
-                  <a className="btn-ghost px-3 py-2" href={url}>
-                    <Download className="size-4" />
-                  </a>
-                ) : (
-                  <span className="px-3 text-xs text-black/40 dark:text-white/40">…</span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-function InboxView({ handle, activeHopId }: { handle: string; activeHopId: string | null }) {
-  const queryClient = useQueryClient();
-  const [hopFilter, setHopFilter] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [viewing, setViewing] = useState<InboxFile | null>(null);
-  const [sheet, setSheet] = useState<InboxFile[] | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const hops = useQuery({
-    queryKey: ["hops"],
-    queryFn: () => api<{ hops: HopSummary[] }>("/me/hops").then((r) => r.hops),
-  });
-  const filesQuery = useInfiniteQuery({
-    queryKey: ["files", hopFilter],
-    initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams();
-      if (hopFilter) params.set("hopId", hopFilter);
-      if (pageParam) params.set("cursor", pageParam);
-      return api<InboxPage>(`/me/files?${params}`);
-    },
-    getNextPageParam: (last) => last.nextCursor,
-  });
-  const files = filesQuery.data?.pages.flatMap((p) => p.files) ?? [];
-  const activeHop = hops.data?.find((h) => h.id === activeHopId);
-
-  const remove = useMutation({
-    mutationFn: async (ids: string[]) => {
-      for (const id of ids) await api(`/me/files/${id}`, { method: "DELETE" });
-    },
-    onSettled: () => {
-      setSelected(new Set());
-      setViewing(null);
-      queryClient.invalidateQueries({ queryKey: ["files"] });
-      queryClient.invalidateQueries({ queryKey: ["hops"] });
-    },
-  });
-
-  const toggle = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const download = async (which: "all" | "selected") => {
-    setBusy(true);
-    try {
-      const load = async () =>
-        which === "selected"
-          ? files.filter((f) => selected.has(f.id))
-          : filesQuery.hasNextPage
-            ? await listAllFiles(hopFilter)
-            : files;
-      const count = which === "selected" ? selected.size : files.length;
-      // The save dialog must open straight from the click, before any slow
-      // loading, or the browser no longer treats it as user-initiated.
-      if (canStreamZip() && (count > 1 || filesQuery.hasNextPage)) {
-        await zipToDisk(load, `${handle}-hop.zip`);
-      } else {
-        setSheet(await load());
-      }
-    } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError"))
-        alert("Download failed. Please try again.");
-    } finally {
-      setBusy(false);
-    }
+  const open = useCallback((file: InboxFile) => setViewingId(file.id), []);
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected(new Set());
   };
 
-  const selecting = selected.size > 0;
-  const pill = (active: boolean) =>
-    `btn px-4 py-2 ${active ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "bg-black/5 dark:bg-white/10"}`;
+  const viewingIndex = viewingId ? files.findIndex((f) => f.id === viewingId) : -1;
+  const viewing = viewingIndex >= 0 ? files[viewingIndex] : undefined;
+  const prev = viewingIndex > 0 ? files[viewingIndex - 1] : undefined;
+  const next = viewingIndex >= 0 ? files[viewingIndex + 1] : undefined;
+
+  const deleteFromViewer = async (file: InboxFile) => {
+    const neighbour = next ?? prev;
+    if (await actions.remove([file.id])) setViewingId(neighbour?.id ?? null);
+  };
+
+  const downloadAll = () =>
+    actions.download(
+      async () => (filesQuery.hasNextPage ? actions.loadAll(hopId) : files),
+      files.length,
+      filesQuery.hasNextPage,
+    );
+  const downloadSelected = () => {
+    const chosen = files.filter((f) => selected.has(f.id));
+    return actions.download(async () => chosen, chosen.length, false);
+  };
+
+  const filterOptions = [
+    { value: ALL, label: "All", count: totalFiles },
+    ...(hops.data ?? []).map((h) => ({ value: h.id, label: h.title, count: h.fileCount })),
+  ];
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
-      {/* onmyhop.com/<handle> always uploads into the live hop. */}
-      {activeHop && <ShareCard url={hopUrl(handle)} title={activeHop.title} />}
-
-      <div className="mt-8 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className={pill(hopFilter === null)}
-          onClick={() => setHopFilter(null)}
-        >
-          All
-        </button>
-        {hops.data?.map((hop) => (
-          <button
-            key={hop.id}
-            type="button"
-            className={pill(hopFilter === hop.id)}
-            onClick={() => setHopFilter(hop.id)}
-          >
-            {hop.title}
-            <span className="opacity-60">{hop.fileCount}</span>
-          </button>
-        ))}
-        <div className="ml-auto flex gap-2">
-          {selecting ? (
-            <>
-              <button
-                type="button"
-                className="btn-ghost px-4 py-2"
-                onClick={() => setSelected(new Set())}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn-ghost px-4 py-2"
-                disabled={busy}
-                onClick={() => download("selected")}
-              >
-                <Download className="size-4" /> {selected.size}
-              </button>
-              <button
-                type="button"
-                className="btn bg-red-600 px-4 py-2 text-white hover:bg-red-700"
-                disabled={remove.isPending}
-                onClick={() =>
-                  confirm(`Delete ${selected.size} file(s)? This can't be undone.`) &&
-                  remove.mutate([...selected])
-                }
-              >
-                <Trash2 className="size-4" /> Delete
-              </button>
-            </>
-          ) : (
-            files.length > 0 && (
-              <button
-                type="button"
-                className="btn-dark px-4 py-2"
-                disabled={busy}
-                onClick={() => download("all")}
-              >
-                <Download className="size-4" /> {busy ? "Preparing…" : "Download all"}
-              </button>
-            )
-          )}
-        </div>
-      </div>
-
-      {filesQuery.isPending ? (
-        <p className="mt-10 text-center text-black/50 dark:text-white/50">Loading…</p>
-      ) : files.length === 0 ? (
-        <div className="mt-16 text-center">
-          <p className="text-2xl font-black tracking-tight">Nothing here yet</p>
-          <p className="mt-2 text-black/60 dark:text-white/60">
-            Share your link or QR code and say “upload it on my Hop”.
+    <>
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Inbox</h1>
+          <p className="mt-1 text-[15px] text-muted">
+            {totalFiles === 1 ? "1 file" : `${totalFiles} files`} from everyone who filmed you
           </p>
         </div>
-      ) : (
-        <ul className="mt-6 grid grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-3 lg:grid-cols-6">
-          {files.map((file) => (
-            <li
-              key={file.id}
-              className="group relative aspect-square overflow-hidden rounded-xl sm:rounded-2xl"
-            >
-              <button
-                type="button"
-                className="size-full"
-                onClick={() => (selecting ? toggle(file.id) : setViewing(file))}
-                title={`${file.name} from ${file.contributorName ?? "Unknown"}`}
-              >
-                <Thumb file={file} />
-                <span className="absolute inset-x-0 bottom-0 flex bg-linear-to-t from-black/70 to-transparent px-2 pt-6 pb-1.5 text-left text-xs font-medium text-white">
-                  <Contributor file={file} />
-                </span>
-              </button>
-              <button
-                type="button"
-                className={`absolute top-1.5 left-1.5 rounded-md bg-black/40 p-1 text-white transition ${selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100 max-sm:opacity-70"}`}
-                onClick={() => toggle(file.id)}
-                aria-label={selected.has(file.id) ? "Deselect" : "Select"}
-              >
-                {selected.has(file.id) ? (
-                  <CheckSquare className="size-4" />
-                ) : (
-                  <Square className="size-4" />
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+        {files.length > 0 && !selecting && (
+          <div className="flex gap-2">
+            <Button variant="soft" onClick={() => setSelecting(true)}>
+              Select
+            </Button>
+            <Button onClick={downloadAll} disabled={actions.downloading}>
+              <Download className="size-4" /> {actions.downloading ? "Preparing…" : "Download all"}
+            </Button>
+          </div>
+        )}
+      </div>
 
-      {filesQuery.hasNextPage && (
-        <div className="mt-6 text-center">
-          <button
-            type="button"
-            className="btn-ghost"
-            disabled={filesQuery.isFetchingNextPage}
-            onClick={() => filesQuery.fetchNextPage()}
-          >
-            {filesQuery.isFetchingNextPage ? "Loading…" : "Load more"}
-          </button>
+      {activeHop && (
+        <div className="mt-6">
+          <ShareBar url={hopUrl(me.handle)} title={activeHop.title} />
         </div>
       )}
 
+      {(hops.data?.length ?? 0) > 1 && (
+        <div className="mt-6">
+          <Pills
+            label="Filter by Hop"
+            options={filterOptions}
+            value={filter}
+            onChange={setFilter}
+          />
+        </div>
+      )}
+
+      <div className="mt-5">
+        {filesQuery.isPending ? (
+          <FileGridSkeleton />
+        ) : files.length === 0 ? (
+          <EmptyState icon={InboxIcon} title="No clips yet">
+            Share your link or QR code and tell people: “upload it on my Hop”.
+          </EmptyState>
+        ) : (
+          <FileGrid
+            files={files}
+            selecting={selecting}
+            selected={selected}
+            onOpen={open}
+            onToggle={toggle}
+            footer={
+              filesQuery.hasNextPage && (
+                <LoadMore
+                  onLoad={() => filesQuery.fetchNextPage()}
+                  loading={filesQuery.isFetchingNextPage}
+                  failed={filesQuery.isFetchNextPageError}
+                />
+              )
+            }
+          />
+        )}
+      </div>
+
+      {selecting && (
+        <SelectionBar
+          count={selected.size}
+          total={files.length}
+          onSelectAll={() => setSelected(new Set(files.map((f) => f.id)))}
+          onClear={() => setSelected(new Set())}
+          busy={actions.downloading || actions.removing}
+          onCancel={stopSelecting}
+          onDownload={downloadSelected}
+          onDelete={async () => {
+            if (await actions.remove([...selected])) stopSelecting();
+          }}
+        />
+      )}
       {viewing && (
         <Viewer
           file={viewing}
-          onClose={() => setViewing(null)}
-          onDelete={() =>
-            confirm("Delete this file? This can't be undone.") && remove.mutate([viewing.id])
-          }
+          onClose={() => setViewingId(null)}
+          onDelete={deleteFromViewer}
+          onPrev={prev ? () => setViewingId(prev.id) : undefined}
+          onNext={next ? () => setViewingId(next.id) : undefined}
         />
       )}
-      {sheet && <DownloadSheet files={sheet} onClose={() => setSheet(null)} />}
-    </main>
+      <DownloadSheet files={actions.sheetFiles} onClose={actions.closeSheet} />
+    </>
   );
 }
 
 export function Inbox() {
-  return (
-    <RequireHandle>
-      {(me) => <InboxView handle={me.handle} activeHopId={me.activeHopId} />}
-    </RequireHandle>
-  );
+  return <RequireAthlete>{(me) => <InboxPage me={me} />}</RequireAthlete>;
 }

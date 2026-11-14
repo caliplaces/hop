@@ -1,0 +1,67 @@
+import { slugify } from "@hop/shared";
+import { useState } from "react";
+import { Button } from "../../components/ui/Button";
+import { Dialog } from "../../components/ui/Dialog";
+import { FieldHint, Input } from "../../components/ui/Input";
+import { ApiError } from "../../lib/api";
+import { displayHopUrl, hopUrl } from "../../lib/format";
+import { useHopMutations } from "./useHopMutations";
+
+export function NewHopDialog({
+  handle,
+  open,
+  onClose,
+}: {
+  handle: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const { create } = useHopMutations();
+  const slug = slugify(title);
+  const close = () => {
+    setTitle("");
+    create.reset();
+    onClose();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={close}
+      title="New Hop"
+      description="One per event keeps clips apart. Close it when the event’s over."
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (title.trim()) create.mutate(title.trim(), { onSuccess: close });
+        }}
+      >
+        <Input
+          aria-label="Event name"
+          placeholder="e.g. Worlds 2026"
+          value={title}
+          maxLength={80}
+          autoFocus
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        {create.error ? (
+          <FieldHint tone="danger">
+            {create.error instanceof ApiError ? create.error.message : "Couldn't create the Hop."}
+          </FieldHint>
+        ) : (
+          <FieldHint>{slug ? displayHopUrl(hopUrl(handle, slug)) : " "}</FieldHint>
+        )}
+        <Button
+          type="submit"
+          size="lg"
+          className="mt-4 w-full"
+          disabled={!slug || create.isPending}
+        >
+          {create.isPending ? "Creating…" : "Create Hop"}
+        </Button>
+      </form>
+    </Dialog>
+  );
+}

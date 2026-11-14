@@ -95,4 +95,45 @@ describe("Uploader cancellation", () => {
     uploader.add([new File([new Uint8Array(10)], "a.mp4", { type: "video/mp4", lastModified: 1 })]);
     expect(count).toBe(1);
   });
+
+  it("resumes network failures on retryFailed, but not rejected uploads", async () => {
+    let failWith: "network" | "rejected" = "network";
+    let creates = 0;
+    vi.stubGlobal("fetch", (url: string, init: RequestInit = {}) => {
+      if (url.endsWith("/uploads") && init.method === "POST") {
+        creates++;
+        if (failWith === "network") return Promise.reject(new TypeError("Failed to fetch"));
+        return Promise.resolve(
+          json({ error: "unsupported_type", message: "Only videos and photos." }, 415),
+        );
+      }
+      return new Promise(() => {});
+    });
+
+    const uploader = new Uploader(
+      "hop_1",
+      async () => "pass",
+      () => undefined,
+    );
+    let items: { status: string; retryable?: boolean }[] = [];
+    uploader.subscribe((next) => {
+      items = next;
+    });
+
+    uploader.add([
+      new File([new Uint8Array(2048)], "a.mp4", { type: "video/mp4", lastModified: 1 }),
+    ]);
+    await flush();
+    expect(items[0]).toMatchObject({ status: "error", retryable: true });
+
+    failWith = "rejected";
+    uploader.retryFailed();
+    await flush();
+    expect(creates).toBe(2);
+    expect(items[0]).toMatchObject({ status: "error", retryable: false });
+
+    uploader.retryFailed(); // a rejection isn't retried automatically
+    await flush();
+    expect(creates).toBe(2);
+  });
 });
