@@ -29,7 +29,10 @@ function useUploadMascot(queue: ReturnType<typeof useUploadQueue>, online: boole
   const { items, busy, doneCount, allDone } = queue;
   const [celebrating, setCelebrating] = useState(false);
   useEffect(() => {
-    if (!allDone || doneCount === 0) return;
+    if (!allDone || doneCount === 0) {
+      setCelebrating(false);
+      return;
+    }
     setCelebrating(true);
     const timer = setTimeout(() => setCelebrating(false), CHEER_MS);
     return () => clearTimeout(timer);

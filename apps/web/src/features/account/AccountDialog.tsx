@@ -1,6 +1,7 @@
 import type { ColorId, Me } from "@hop/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, LogOut } from "lucide-react";
+import { useRef } from "react";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button, buttonClass } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
@@ -16,20 +17,27 @@ function useSetColor(me: AthleteMe) {
   const queryClient = useQueryClient();
   const { toast } = useFeedback();
   const key = queries.me().queryKey;
+  const latest = useRef<ColorId | null>(null);
   return useMutation({
+    // Saves run one after another (same scope), so the server ends on the last pick.
+    scope: { id: "profile-colour" },
     mutationFn: (color: ColorId) => api<{ me: Me }>("/me", { method: "PATCH", json: { color } }),
-    // Optimistic: the whole app recolours instantly, and rolls back on failure.
+    // Optimistic: the whole app recolours instantly.
     onMutate: (color: ColorId) => {
-      const previous = queryClient.getQueryData<Me | null>(key);
+      latest.current = color;
       const next: Me = { ...me, color };
       queryClient.setQueryData<Me | null>(key, next);
-      return { previous };
     },
-    onError: (_error, _color, context) => {
-      queryClient.setQueryData(key, context?.previous);
+    // Only the response for the most recent pick may touch the cache; older
+    // ones would flash an earlier colour back.
+    onSuccess: ({ me: updated }, color) => {
+      if (latest.current === color) queryClient.setQueryData(key, updated);
+    },
+    onError: (_error, color) => {
+      if (latest.current !== color) return; // a later pick is still on its way
       toast("Couldn’t save your colour.", "error");
+      queryClient.invalidateQueries({ queryKey: key }); // fall back to what the server has
     },
-    onSuccess: ({ me: updated }) => queryClient.setQueryData(key, updated),
   });
 }
 

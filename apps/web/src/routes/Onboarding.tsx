@@ -2,7 +2,7 @@ import { type ColorId, colorFor, type Me, normalizeHandle } from "@hop/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useNavigate } from "@tanstack/react-router";
 import { Check } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Logo } from "../components/Logo";
 import { AccentScope } from "../components/ui/AccentScope";
 import { Button } from "../components/ui/Button";
@@ -58,6 +58,7 @@ export function Onboarding() {
   const [input, setInput] = useState("");
   const [color, setColor] = useState<ColorId | null>(null);
   const [celebrating, setCelebrating] = useState(false);
+  const pendingFinish = useRef<{ timer: ReturnType<typeof setTimeout>; me: Me } | null>(null);
   const pickedColor: ColorId | undefined = color ?? (me ? colorFor(me.color, me.id).id : undefined);
   const { handle, state } = useHandleAvailability(input);
 
@@ -74,12 +75,25 @@ export function Onboarding() {
     onSuccess: ({ me: updated }) => {
       // Let Bobble celebrate before moving on (updating the cache redirects).
       setCelebrating(true);
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        pendingFinish.current = null;
         queryClient.setQueryData(queries.me().queryKey, updated);
         navigate({ to: "/app" });
       }, 1300);
+      pendingFinish.current = { timer, me: updated };
     },
   });
+
+  // Leaving during the celebration: skip the redirect, but keep the new account.
+  useEffect(
+    () => () => {
+      const pending = pendingFinish.current;
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      queryClient.setQueryData(queries.me().queryKey, pending.me);
+    },
+    [queryClient],
+  );
 
   if (isPending || !me) return <PageSpinner />;
   if (me.handle) return <Navigate to="/app" />;

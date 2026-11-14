@@ -21,9 +21,9 @@ export function MascotPoster({
     background: `radial-gradient(circle at 34% 28%, color-mix(in oklab, ${color} 62%, white), ${color} 58%, color-mix(in oklab, ${color} 82%, black))`,
   } as CSSProperties;
   const eye = asleep ? (
-    <span className="block h-[8%] w-[16%] rounded-full bg-[#17171c]" />
+    <span className="block aspect-[3/1] h-[28%] rounded-full bg-[#17171c]" />
   ) : (
-    <span className="relative block h-[22%] w-[17%] rounded-full bg-[#17171c]">
+    <span className="relative block aspect-[4/5] h-full rounded-full bg-[#17171c]">
       <span className="absolute top-[18%] left-[22%] size-[34%] rounded-full bg-white" />
     </span>
   );
@@ -44,7 +44,7 @@ export function MascotPoster({
           className="absolute top-[22%] right-[15%] bottom-[14%] left-[15%] rounded-[48%_48%_44%_44%/58%_58%_42%_42%] shadow-[inset_0_-10px_24px_rgb(0_0_0/0.12)]"
           style={style}
         >
-          <div className="absolute inset-x-[22%] top-[44%] flex items-center justify-between">
+          <div className="absolute inset-x-[22%] top-[38%] flex h-[24%] items-center justify-between">
             {eye}
             {eye}
           </div>
