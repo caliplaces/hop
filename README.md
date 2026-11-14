@@ -34,6 +34,10 @@ pnpm dev
 
 See [`apps/api/README.md`](apps/api/README.md) for local secrets, how uploads work, and Cloudflare setup.
 
+## Contributing
+
+Pull requests go to the `staging` branch; see [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues privately, as described in [SECURITY.md](SECURITY.md).
+
 ## License
 
 Copyright © Caliplaces.

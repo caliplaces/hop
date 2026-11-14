@@ -44,10 +44,6 @@ wrangler secret put TURNSTILE_SECRET_KEY --env staging
 wrangler secret put R2_ACCOUNT_ID --env staging
 wrangler secret put R2_ACCESS_KEY_ID --env staging        # R2 API token, Object Read & Write, this bucket only
 wrangler secret put R2_SECRET_ACCESS_KEY --env staging
-
-# Schema, then deploy
-pnpm --filter @hop/api db:migrate:staging
-pnpm build && pnpm --filter @hop/api exec wrangler deploy --env staging
 ```
 
 You also need to:
@@ -55,3 +51,11 @@ You also need to:
 - Fill in `OIDC_CLIENT_ID` and `TURNSTILE_SITE_KEY` in `wrangler.jsonc`.
 - Register `https://staging.onmyhop.com/api/auth/callback` on the Caliplaces developer app.
 - Verify the app's domain with the DNS TXT record, which removes the "unverified app" warning and the 100-user cap.
+
+## Deploys
+
+CI deploys every merge: `staging` goes to staging.onmyhop.com and `main` to onmyhop.com. It applies D1 migrations first, then deploys the Worker (see [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)). To redeploy without a new merge, run the CI workflow manually on that branch.
+
+Deploys need a Cloudflare API token (the "Edit Cloudflare Workers" template plus Account › D1 › Edit, limited to this account and the onmyhop.com zone). It's stored as the `CLOUDFLARE_API_TOKEN` secret on the `staging` and `production` GitHub environments. Each environment only accepts deploys from its own branch. The account ID is the `CLOUDFLARE_ACCOUNT_ID` repository variable.
+
+Migrations run before the new Worker goes live, so each one must still work with the previous release.
