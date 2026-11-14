@@ -3,11 +3,12 @@
  *
  *   pnpm --filter @hop/web mascot:assets          # everything
  *   pnpm --filter @hop/web mascot:assets email    # only the email images
+ *   pnpm --filter @hop/web mascot:assets ios      # only the iOS app images
  *
  * Starts Vite in-process, opens the mascot lab in headless Chrome, freezes
  * Bobble at an exact moment, and writes PNGs to public/bobble/ (logo) and
- * public/email/ (email heroes). Set CHROME_PATH if Chrome isn't in the
- * default macOS location.
+ * public/email/ (email heroes), or into the iOS app's asset catalog. Set
+ * CHROME_PATH if Chrome isn't in the default macOS location.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -54,7 +55,26 @@ const EMAIL_POSES = {
   busy: { state: "busy", at: 0.33, crop: { size: 0.84, top: 0.02 } },
 };
 const EMAIL_SIZE = 400;
-const only = process.argv[2]; // "email" to skip the logo images
+const only = process.argv[2]; // "email" to skip the logo images, "ios" for the iOS app only
+/**
+ * iOS app images, written straight into apps/ios's asset catalog: two poses,
+ * the face and the app icons. Bobble shows at up to ~220 pt there, so poses
+ * render at 3x of that.
+ */
+const iosAssets = path.resolve(webDir, "..", "ios", "Hop", "Assets.xcassets");
+const IOS_POSES = {
+  // Sits inside the welcome bubble.
+  "bobble-idle": {
+    set: "BobbleIdle",
+    state: "idle",
+    at: STILL_AT,
+    crop: { size: 0.84, top: 0.02 },
+  },
+  // Greets people on the sign-in screen.
+  "bobble-cheer": { set: "BobbleCheer", state: "cheer", at: 1.3, crop: { size: 0.84, top: 0.02 } },
+};
+const IOS_POSE_SIZE = 660;
+const IOS_ICON_SIZE = 1024;
 
 const server = await createServer({ root: webDir, logLevel: "error", server: { port: 0 } });
 await server.listen();
@@ -65,10 +85,13 @@ const browser = await puppeteer.launch({
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
 
-async function render(hex, { state = "idle", at = STILL_AT, framing = "portrait" } = {}) {
+async function render(
+  hex,
+  { state = "idle", at = STILL_AT, framing = "portrait", size = RENDER } = {},
+) {
   const page = await browser.newPage();
-  await page.setViewport({ width: RENDER, height: RENDER });
-  const url = `${base}mascot-lab.html?capture=1&framing=${framing}&state=${state}&shells=32&size=${RENDER}&color=${encodeURIComponent(hex)}`;
+  await page.setViewport({ width: size, height: size });
+  const url = `${base}mascot-lab.html?capture=1&framing=${framing}&state=${state}&shells=32&size=${size}&color=${encodeURIComponent(hex)}`;
   await page.goto(url, { waitUntil: "networkidle0" });
   await page.waitForFunction(() => window.__mascot);
   await page.evaluate((until) => {
@@ -105,6 +128,41 @@ async function snapshot(page, size, { background = null, padding = 0, crop = nul
     crop,
   );
   return Buffer.from(dataUrl.split(",")[1], "base64");
+}
+
+if (only === "ios") {
+  const hex = PALETTE[BRAND];
+  for (const [name, pose] of Object.entries(IOS_POSES)) {
+    const page = await render(hex, { ...pose, framing: "stage", size: 1024 });
+    const png = await sharp(await snapshot(page, IOS_POSE_SIZE, { crop: pose.crop }))
+      .png({ compressionLevel: 9, effort: 10 })
+      .toBuffer();
+    fs.writeFileSync(path.join(iosAssets, `${pose.set}.imageset`, `${name}.png`), png);
+    await page.close();
+  }
+  const page = await render(hex, { size: IOS_ICON_SIZE });
+  const iconDir = path.join(iosAssets, "AppIcon.appiconset");
+  // The App Store rejects icons with an alpha channel.
+  const icon = await snapshot(page, IOS_ICON_SIZE, { background: "#fafaf7", padding: 0.12 });
+  fs.writeFileSync(
+    path.join(iconDir, "app-icon.png"),
+    await sharp(icon).removeAlpha().png({ compressionLevel: 9 }).toBuffer(),
+  );
+  // Dark Home Screens draw their own backdrop behind a transparent icon.
+  fs.writeFileSync(
+    path.join(iconDir, "app-icon-dark.png"),
+    await snapshot(page, IOS_ICON_SIZE, { padding: 0.12 }),
+  );
+  // The face beside the wordmark on the welcome screen.
+  fs.writeFileSync(
+    path.join(iosAssets, "BobbleFace.imageset", "bobble-face.png"),
+    await snapshot(page, 128),
+  );
+  await page.close();
+  await browser.close();
+  await server.close();
+  console.log("rendered iOS assets");
+  process.exit(0);
 }
 
 fs.mkdirSync(outDir, { recursive: true });
