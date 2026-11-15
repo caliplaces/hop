@@ -7,6 +7,8 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     /// The QR code full screen, outside Event mode.
     @State private var showingQRCode = false
+    /// A link that arrived before Event mode settled, opened once it has.
+    @State private var pendingLink: HopDeepLink?
 
     var body: some View {
         @Bindable var eventMode = eventMode
@@ -34,19 +36,29 @@ struct HomeView: View {
             Color.clear.fullScreenCover(isPresented: $showingQRCode) { QRCodeScreen() }
         }
         // The Live Activity, the widgets, Control Center and Shortcuts open
-        // the QR code: Event mode's while it runs, the pass's otherwise.
+        // the QR code: Event mode's while it runs, the pass's otherwise. On a
+        // cold launch the link waits until Event mode has resumed, or it
+        // would open the pass while an event is running.
         .onOpenURL { url in
-            switch HopDeepLink(url: url) {
-            case .eventStage:
-                if eventMode.run != nil { eventMode.isStagePresented = true }
-            case .qrCode:
-                if eventMode.run != nil {
-                    eventMode.isStagePresented = true
-                } else {
-                    showingQRCode = true
-                }
-            case nil:
-                break
+            guard let link = HopDeepLink(url: url) else { return }
+            if eventMode.hasSettled { open(link) } else { pendingLink = link }
+        }
+        .onChange(of: eventMode.hasSettled) { _, settled in
+            guard settled, let link = pendingLink else { return }
+            pendingLink = nil
+            open(link)
+        }
+    }
+
+    private func open(_ link: HopDeepLink) {
+        switch link {
+        case .eventStage:
+            if eventMode.run != nil { eventMode.isStagePresented = true }
+        case .qrCode:
+            if eventMode.run != nil {
+                eventMode.isStagePresented = true
+            } else {
+                showingQRCode = true
             }
         }
     }

@@ -302,6 +302,29 @@ struct EventModeTests {
         #expect(relaunched.arrival?.headline == "Mum sent a clip")
     }
 
+    @Test func settlesOnceItHasCaughtUpWithTheLaunch() async throws {
+        serve(arrivals: Locked(arrivalsJSON(0, [])))
+        let api = server.client(token: "hs_t")
+
+        // Nothing was running: settled once it has looked.
+        let fresh = eventMode()
+        #expect(!fresh.hasSettled)
+        try await fresh.resume(for: me(), api: api)
+        #expect(fresh.hasSettled)
+
+        // An event was running: settled once it's back.
+        try await eventMode().start(.existing(jam()), me: me(), api: api)
+        let relaunched = eventMode()
+        #expect(!relaunched.hasSettled)
+        try await relaunched.resume(for: me(), api: api)
+        #expect(relaunched.hasSettled)
+        #expect(relaunched.run != nil)
+
+        // Signing out unsettles it for whoever signs in next.
+        await relaunched.reset()
+        #expect(!relaunched.hasSettled)
+    }
+
     @Test func anEventRunsOutAfterTwelveHours() async throws {
         serve(arrivals: Locked(arrivalsJSON(0, [])))
         try await eventMode().start(.existing(jam()), me: me(), api: server.client(token: "hs_t"))

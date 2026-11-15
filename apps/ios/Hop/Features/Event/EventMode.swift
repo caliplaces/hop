@@ -51,6 +51,10 @@ final class EventMode {
     private(set) var isOffline = false
     /// Whether the full-screen QR code is showing.
     var isStagePresented = false
+    /// Whether Event mode has caught up with this launch: resumed the event
+    /// that was running when the app quit, or found there wasn't one. Links
+    /// into the app wait for it, so they open the right screen.
+    private(set) var hasSettled = false
 
     /// Events stop on their own after this long, like a Live Activity does.
     static let maxDuration: TimeInterval = 12 * 60 * 60
@@ -103,6 +107,7 @@ final class EventMode {
     /// belongs to this athlete and hasn't run out. Otherwise clears it, and
     /// any Live Activity left behind.
     func resume(for me: Me, api: APIClient) async {
+        defer { hasSettled = true }
         if let run {
             if run.userId != me.id { await reset() }
             return
@@ -189,8 +194,10 @@ final class EventMode {
         await activity.end()
     }
 
-    /// Ends Event mode when its athlete signs out.
+    /// Ends Event mode when its athlete signs out. The next athlete's
+    /// launch settles again.
     func reset() async {
+        hasSettled = false
         await end()
     }
 
