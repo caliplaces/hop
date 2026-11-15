@@ -30,6 +30,16 @@ final class FakeEventActivity: EventActivityControlling {
     func start(_ attributes: EventActivityAttributes) { started.append(attributes) }
     func update(_ state: EventActivityAttributes.ContentState) async { updates.append(state) }
     func end() async { ends += 1 }
+
+    /// Each follower of the push tokens, newest last.
+    private var followers: [AsyncStream<String>.Continuation] = []
+    func pushTokens() -> AsyncStream<String> {
+        let (stream, continuation) = AsyncStream.makeStream(of: String.self)
+        followers.append(continuation)
+        return stream
+    }
+    /// Apple issues (or rotates to) a push token.
+    func issue(_ token: String) { followers.last?.yield(token) }
 }
 
 @MainActor
@@ -229,7 +239,7 @@ struct EventModeTests {
         #expect(server.requests.count == before)
         // And it doesn't come back on the next launch.
         let relaunched = eventMode()
-        try await relaunched.resume(for: me())
+        try await relaunched.resume(for: me(), api: server.client(token: "hs_t"))
         #expect(relaunched.run == nil)
     }
 
@@ -239,18 +249,18 @@ struct EventModeTests {
 
         // Relaunched, same athlete.
         let relaunched = eventMode()
-        try await relaunched.resume(for: me())
+        try await relaunched.resume(for: me(), api: server.client(token: "hs_t"))
         #expect(relaunched.run?.hopId == "jam")
         #expect(relaunched.run?.since == Double(activatedAt))
 
         // Someone else signed in: it's not theirs, and it's gone for good.
         let someoneElse = eventMode()
         let endsBefore = activity.ends
-        try await someoneElse.resume(for: me(id: "usr_2"))
+        try await someoneElse.resume(for: me(id: "usr_2"), api: server.client(token: "hs_t"))
         #expect(someoneElse.run == nil)
         #expect(activity.ends == endsBefore + 1)
         let again = eventMode()
-        try await again.resume(for: me())
+        try await again.resume(for: me(), api: server.client(token: "hs_t"))
         #expect(again.run == nil)
     }
 
@@ -272,7 +282,7 @@ struct EventModeTests {
         arrivals.value = arrivalsJSON(2, [("c2", "@mia"), ("c1", "@leo")])
         online.value = false
         let relaunched = eventMode()
-        try await relaunched.resume(for: me())
+        try await relaunched.resume(for: me(), api: server.client(token: "hs_t"))
         await relaunched.poll(api: api)
         #expect(relaunched.isOffline)
 
@@ -298,12 +308,12 @@ struct EventModeTests {
 
         clock.value = start + EventMode.maxDuration - 60
         let soon = eventMode()
-        try await soon.resume(for: me())
+        try await soon.resume(for: me(), api: server.client(token: "hs_t"))
         #expect(soon.run != nil)
 
         clock.value = start + EventMode.maxDuration
         let late = eventMode()
-        try await late.resume(for: me())
+        try await late.resume(for: me(), api: server.client(token: "hs_t"))
         #expect(late.run == nil)
     }
 
@@ -343,6 +353,140 @@ struct EventModeTests {
         online.value = true
         await mode.poll(api: api)
         #expect(!mode.isOffline)
+    }
+}
+
+@MainActor
+@Suite("Event mode push updates", .serialized)
+struct EventPushTests {
+    let server = StubServer(host: "event-push.test")
+    let defaults = UserDefaults(suiteName: "event-push-tests-\(UUID().uuidString)")!
+    let activity = FakeEventActivity()
+    let tokenA = String(repeating: "a1", count: 40)
+    let tokenB = String(repeating: "b2", count: 40)
+
+    private func eventMode() -> EventMode {
+        EventMode(defaults: defaults, activity: activity, now: { start })
+    }
+
+    private func registrations(_ token: String? = nil) -> [(request: URLRequest, body: Data)] {
+        server.requests.filter { entry in
+            entry.request.httpMethod == "PUT"
+                && entry.request.url?.path.hasPrefix("/api/me/live-activities/\(token ?? "")") == true
+        }
+    }
+
+    /// Answers activation and arrivals; live-activity registrations with `register`.
+    private func serve(register: Locked<(Int, String)> = Locked((200, #"{"ok":true}"#))) {
+        server.reply = { request in
+            switch (request.httpMethod, request.url?.path ?? "") {
+            case ("POST", "/api/me/hops/jam/activate"): return (200, activated)
+            case ("GET", "/api/me/hops/jam/arrivals"): return (200, arrivalsJSON(0, []))
+            case ("PUT", let path) where path.hasPrefix("/api/me/live-activities/"): return register.value
+            case ("DELETE", let path) where path.hasPrefix("/api/me/live-activities/"): return (200, #"{"ok":true}"#)
+            default: return (404, "{}")
+            }
+        }
+    }
+
+    @Test func eachPushTokenIsRegisteredAndForgottenOnEnd() async throws {
+        serve()
+        let mode = eventMode()
+        try await mode.start(.existing(jam()), me: me(), api: server.client(token: "hs_t"))
+
+        activity.issue(tokenA)
+        try await server.waitForRequests { $0.httpMethod == "PUT" }
+        let body = try #require(registrations(tokenA).first.map { try JSONSerialization.jsonObject(with: $0.body) as? [String: Any] })
+        #expect(body?["hopId"] as? String == "jam")
+        #expect(body?["since"] as? Int == activatedAt)
+        #expect(body?["environment"] as? String == "sandbox")
+
+        // Apple rotates the token: the new one is registered too.
+        activity.issue(tokenB)
+        try await server.waitForRequests(count: 2) { $0.httpMethod == "PUT" }
+        #expect(registrations(tokenB).count == 1)
+
+        await mode.end()
+        try await server.waitForRequests { $0.httpMethod == "DELETE" }
+        let forgotten = server.requests.filter { $0.request.httpMethod == "DELETE" }
+        #expect(forgotten.map { $0.request.url?.path } == ["/api/me/live-activities/\(tokenB)"])
+    }
+
+    @Test func aFailedRegistrationIsTriedAgainOnTheNextCheck() async throws {
+        let register = Locked((503, "{}"))
+        serve(register: register)
+        let mode = eventMode()
+        let api = server.client(token: "hs_t")
+        try await mode.start(.existing(jam()), me: me(), api: api)
+        activity.issue(tokenA)
+        try await server.waitForRequests { $0.httpMethod == "PUT" }
+
+        register.value = (200, #"{"ok":true}"#)
+        await mode.poll(api: api)
+        #expect(registrations(tokenA).count == 2)
+
+        // Registered now: later checks leave it be.
+        await mode.poll(api: api)
+        #expect(registrations(tokenA).count == 2)
+    }
+
+    @Test func aSlowRegistrationNeverHoldsUpTheLockScreen() async throws {
+        let register = Locked((503, "{}"))
+        let arrived = Locked(arrivalsJSON(0, []))
+        server.reply = { request in
+            switch (request.httpMethod, request.url?.path ?? "") {
+            case ("POST", "/api/me/hops/jam/activate"): return (200, activated)
+            case ("GET", "/api/me/hops/jam/arrivals"): return (200, arrived.value)
+            case ("PUT", let path) where path.hasPrefix("/api/me/live-activities/"): return register.value
+            default: return (404, "{}")
+            }
+        }
+        let mode = eventMode()
+        let api = server.client(token: "hs_t")
+        try await mode.start(.existing(jam()), me: me(), api: api)
+        activity.issue(tokenA)
+        try await server.waitForRequests { $0.httpMethod == "PUT" }
+
+        // The retry hangs; the new count still reaches the Lock Screen first.
+        register.value = (200, #"{"ok":true}"#)
+        server.held = ["/api/me/live-activities/\(tokenA)"]
+        arrived.value = arrivalsJSON(1, [("c1", "@mia")])
+        let polling = Task { await mode.poll(api: api) }
+        try await server.waitForRequests(count: 2) { $0.httpMethod == "PUT" }
+        #expect(activity.updates == [.init(clips: 1, latest: "@mia")])
+        server.release()
+        await polling.value
+    }
+
+    @Test func aServerForTheOtherEnvironmentIsNotAskedAgain() async throws {
+        let register = Locked((409, #"{"error":"wrong_environment","message":"Push updates aren't available for this build."}"#))
+        serve(register: register)
+        let mode = eventMode()
+        let api = server.client(token: "hs_t")
+        try await mode.start(.existing(jam()), me: me(), api: api)
+        activity.issue(tokenA)
+        try await server.waitForRequests { $0.httpMethod == "PUT" }
+
+        await mode.poll(api: api)
+        #expect(registrations(tokenA).count == 1)
+    }
+
+    @Test func aRelaunchRegistersTheTokenAgain() async throws {
+        serve()
+        let api = server.client(token: "hs_t")
+        // Event mode lives as long as the app; this one until the "relaunch".
+        var first: EventMode? = eventMode()
+        try await first?.start(.existing(jam()), me: me(), api: api)
+        activity.issue(tokenA)
+        try await server.waitForRequests { $0.httpMethod == "PUT" }
+        first = nil
+
+        let relaunched = eventMode()
+        try await relaunched.resume(for: me(), api: api)
+        activity.issue(tokenA)
+        try await server.waitForRequests(count: 2) { $0.httpMethod == "PUT" }
+        #expect(registrations(tokenA).count == 2)
+        #expect(first == nil)
     }
 }
 

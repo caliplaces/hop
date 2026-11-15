@@ -48,7 +48,7 @@ struct RootView: View {
         // ends it: it belongs to whoever is signed in, and only to them.
         .task(id: session.me?.id) {
             if let me = session.me {
-                await eventMode.resume(for: me)
+                await eventMode.resume(for: me, api: session.api)
             } else if !session.isSignedIn {
                 await eventMode.reset()
             }

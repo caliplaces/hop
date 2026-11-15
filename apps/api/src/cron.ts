@@ -1,7 +1,7 @@
 import { PENDING_UPLOAD_TTL_MS } from "@hop/shared";
 import { and, eq, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { files, sessions } from "./db/schema";
+import { files, liveActivities, sessions } from "./db/schema";
 import type { Env } from "./env";
 import { finishRemoval } from "./lib/files";
 
@@ -13,7 +13,7 @@ const STUCK_DELETE_MS = 10 * 60 * 1000;
 
 /**
  * Removes uploads with no activity for a day, retries removals that failed
- * midway, and deletes expired sessions.
+ * midway, and deletes expired sessions and Live Activity registrations.
  */
 export async function cleanup(env: Env) {
   const db = getDb(env.DB);
@@ -56,5 +56,6 @@ export async function cleanup(env: Env) {
   }
 
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
+  await db.delete(liveActivities).where(lt(liveActivities.expiresAt, Date.now()));
   console.log(`cleanup: removed ${removed} uploads, ${failed} failed`);
 }

@@ -29,6 +29,7 @@ import { SNIFF_BYTES, sniffMedia } from "../lib/sniff";
 import { normalizeEtag, presignUploadPart } from "../lib/storage";
 import { verifyTurnstile } from "../lib/turnstile";
 import { validate } from "../lib/validate";
+import { pushArrivals } from "../live";
 
 /** A pass proves the contributor solved Turnstile for this hop recently. */
 type HopPass = { purpose: "hop-pass"; exp: number; hopId: string; passId: string };
@@ -286,6 +287,12 @@ export const uploadRoutes = new Hono<AppEnv>()
       await c.env.BUCKET.delete(file.r2Key);
       return fail(c, 410, "upload_expired", "This upload expired. Please upload the file again.");
     }
+    // After the response: the athlete's Live Activity counts the new clip.
+    c.executionCtx.waitUntil(
+      pushArrivals(c.env, file.hopId).catch((error) =>
+        console.error("live activity: update failed", error),
+      ),
+    );
     return c.json({ ok: true });
   })
 

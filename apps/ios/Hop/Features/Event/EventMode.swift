@@ -66,6 +66,23 @@ final class EventMode {
     private var catchingUp = false
     /// What the Live Activity shows, so it's only updated on a change.
     private var shown = EventActivityAttributes.ContentState(clips: 0, latest: nil)
+    /// The Live Activity's push token (hex), and the one the API last
+    /// accepted, so it can update the count while the phone is locked.
+    private var pushToken: String?
+    private var registeredToken: String?
+    /// Follows the Live Activity's push tokens as Apple issues and rotates them.
+    private var pushTokens: Task<Void, Never>?
+    /// The client Event mode last used, to forget the push token on End.
+    private var api: APIClient?
+
+    /// The APNs environment this build's push tokens belong to.
+    static var pushEnvironment: String {
+        #if DEBUG
+        "sandbox"
+        #else
+        "production"
+        #endif
+    }
     /// Bumped whenever the run starts, ends or is reset, so an answer to an
     /// older request can't change the current one.
     private var generation = 0
@@ -85,7 +102,7 @@ final class EventMode {
     /// Picks up an event that was running when the app last quit, if it
     /// belongs to this athlete and hasn't run out. Otherwise clears it, and
     /// any Live Activity left behind.
-    func resume(for me: Me) async {
+    func resume(for me: Me, api: APIClient) async {
         if let run {
             if run.userId != me.id { await reset() }
             return
@@ -97,6 +114,8 @@ final class EventMode {
             generation += 1
             run = saved
             catchingUp = true
+            // Registering again refreshes it, in case it lapsed meanwhile.
+            followPushTokens(api: api)
             return
         }
         await reset()
@@ -143,6 +162,7 @@ final class EventMode {
             color: me.color,
             startedAt: started.startedAt
         ))
+        followPushTokens(api: api)
     }
 
     /// Stops Event mode. The link keeps uploading into the event, for the
@@ -157,6 +177,15 @@ final class EventMode {
         isStagePresented = false
         announced = []
         defaults.removeObject(forKey: Self.runKey)
+        pushTokens?.cancel()
+        pushTokens = nil
+        // The API stops updating it. If this doesn't get through, the
+        // registration expires on its own and Apple drops the ended activity.
+        if let token = registeredToken, let api {
+            Task { try? await api.delete("api/me/live-activities/\(token)") }
+        }
+        pushToken = nil
+        registeredToken = nil
         await activity.end()
     }
 
@@ -188,15 +217,20 @@ final class EventMode {
             let fresh = reply.latest.filter { !announced.contains($0.id) }
             announced.formUnion(reply.latest.map(\.id))
             clips = reply.count
-            latest = reply.latest.first?.contributor
+            // As the API's pushes name them, so the Lock Screen agrees.
+            latest = reply.latest.first?.contributorName
             if clips > previous, !quietly {
                 arrival = Arrival(count: clips - previous, senders: fresh.map(\.contributor))
             }
 
             let state = EventActivityAttributes.ContentState(clips: clips, latest: latest)
-            guard state != shown else { return }
-            shown = state
-            await activity.update(state)
+            if state != shown {
+                shown = state
+                await activity.update(state)
+            }
+            // Then a registration that failed earlier, offline perhaps, goes
+            // again; the Lock Screen never waits for it.
+            await registerPushToken(api: api)
         } catch let error as APIError where error.status == 404 {
             // The event was deleted, on the website perhaps.
             guard asked == generation else { return }
@@ -210,6 +244,42 @@ final class EventMode {
 
     private static func isCancellation(_ error: Error) -> Bool {
         error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+
+    /// Registers each push token the Live Activity gets with the API.
+    private func followPushTokens(api: APIClient) {
+        self.api = api
+        pushTokens?.cancel()
+        let asked = generation
+        let tokens = activity.pushTokens()
+        pushTokens = Task { [weak self] in
+            for await token in tokens {
+                guard let self, asked == self.generation else { return }
+                self.pushToken = token
+                await self.registerPushToken(api: api)
+            }
+        }
+    }
+
+    /// Tells the API about the current push token, unless it already knows it.
+    private func registerPushToken(api: APIClient) async {
+        guard let run, let token = pushToken, token != registeredToken else { return }
+        let asked = generation
+        do {
+            let _: Ack = try await api.put(
+                "api/me/live-activities/\(token)",
+                body: Registration(hopId: run.hopId, since: Int64(run.since), environment: Self.pushEnvironment)
+            )
+            guard asked == generation else { return }
+            registeredToken = token
+        } catch let error as APIError where error.code == "wrong_environment" {
+            // A debug build talking to production, say: it can't be pushed
+            // to. The app still updates the count while it's open.
+            guard asked == generation else { return }
+            registeredToken = token
+        } catch {
+            // Offline, most likely: the next check tries again.
+        }
     }
 
     /// Checks for new clips every `interval` until cancelled.
@@ -247,6 +317,14 @@ final class EventMode {
     }
 
     private struct Empty: Encodable {}
+
+    private struct Registration: Encodable {
+        let hopId: String
+        let since: Int64
+        let environment: String
+    }
+
+    private struct Ack: Decodable {}
 
     private struct Activation: Decodable {
         /// Milliseconds, by the server's clock.

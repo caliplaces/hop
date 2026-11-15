@@ -121,6 +121,37 @@ export const files = sqliteTable(
   ],
 );
 
+/**
+ * Event mode's Live Activities, to push updates to while the phone is locked.
+ * Apple gives each Live Activity a push token and may rotate it; each token is
+ * its own row. Rows go when the app ends Event mode, when Apple says the token
+ * is gone, or when they expire (Live Activities end within 12 hours anyway).
+ */
+export const liveActivities = sqliteTable(
+  "live_activities",
+  {
+    /** The Live Activity's APNs push token, as hex. */
+    token: text("token").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    hopId: text("hop_id")
+      .notNull()
+      .references(() => hops.id, { onDelete: "cascade" }),
+    /** Clips that finish uploading from this moment (ms, server clock) count. */
+    since: integer("since").notNull(),
+    /** When a push last lit the screen up; quieter updates in between. */
+    alertedAt: integer("alerted_at"),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [
+    index("live_activities_hop_idx").on(t.hopId, t.expiresAt),
+    index("live_activities_user_idx").on(t.userId, t.createdAt),
+    index("live_activities_expires_idx").on(t.expiresAt),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;

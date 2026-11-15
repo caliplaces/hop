@@ -127,6 +127,17 @@ export type InboxFile = {
 
 export type InboxPage = { files: InboxFile[]; nextCursor: string | null };
 
+/**
+ * Registers a Live Activity's push token (the URL's last segment) so the API
+ * can update its count as clips land. `environment` is the APNs environment the
+ * token belongs to: "sandbox" for debug builds, "production" otherwise.
+ */
+export const liveActivitySchema = z.object({
+  hopId: z.string().min(1).max(64),
+  since: z.number().int().nonnegative(),
+  environment: z.enum(["sandbox", "production"]),
+});
+
 /** Making a hop live: when it happened, by the server's clock. */
 export type HopActivation = { ok: true; activatedAt: number };
 

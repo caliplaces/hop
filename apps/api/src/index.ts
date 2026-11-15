@@ -11,6 +11,7 @@ import { announceNewClips } from "./notify";
 import { authRoutes } from "./routes/auth";
 import { devRoutes } from "./routes/dev";
 import { emailRoutes } from "./routes/email";
+import { liveActivityRoutes } from "./routes/live";
 import { meRoutes } from "./routes/me";
 import { publicRoutes } from "./routes/public";
 import { uploadRoutes } from "./routes/uploads";
@@ -44,6 +45,7 @@ app.route("/email", emailRoutes);
 app.route("/", publicRoutes);
 app.route("/", meRoutes);
 app.route("/", uploadRoutes);
+app.route("/", liveActivityRoutes);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 app.use("/dev/*", async (c, next) => {
   // Belt and braces: even a mistaken deploy with development vars can't expose these.

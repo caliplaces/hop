@@ -30,7 +30,15 @@
     "OIDC_APP_CLIENT_ID": "399623629245054982",
     "R2_BUCKET_NAME": "hop-dev",
     // Cloudflare's always-pass Turnstile test key.
-    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+    // Apple's push service, for Event mode's Live Activity. Each environment has
+    // its own key, restricted to the app's bundle ID: sandbox here and on staging
+    // (debug builds), production for TestFlight and App Store builds. The key
+    // itself is the APNS_KEY secret (.dev.vars locally); without it nothing is pushed.
+    "APPLE_TEAM_ID": "XH66L5M6JJ",
+    "APNS_BUNDLE_ID": "com.onmyhop.app",
+    "APNS_ENVIRONMENT": "sandbox",
+    "APNS_KEY_ID": "K4TQW3FWN6"
   },
   "d1_databases": [
     {
@@ -62,7 +70,11 @@
         "OIDC_CLIENT_ID": "399581759521488902",
         "OIDC_APP_CLIENT_ID": "399623629245054982",
         "R2_BUCKET_NAME": "hop-staging",
-        "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzxw0pDT6tjGB4"
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzxw0pDT6tjGB4",
+        "APPLE_TEAM_ID": "XH66L5M6JJ",
+        "APNS_BUNDLE_ID": "com.onmyhop.app",
+        "APNS_ENVIRONMENT": "sandbox",
+        "APNS_KEY_ID": "K4TQW3FWN6"
       },
       "d1_databases": [
         {
@@ -99,7 +111,11 @@
         "OIDC_CLIENT_ID": "399569698213068806",
         "OIDC_APP_CLIENT_ID": "399623629245054982",
         "R2_BUCKET_NAME": "hop-production",
-        "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzsqAA1kSjsSnQ"
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzsqAA1kSjsSnQ",
+        "APPLE_TEAM_ID": "XH66L5M6JJ",
+        "APNS_BUNDLE_ID": "com.onmyhop.app",
+        "APNS_ENVIRONMENT": "production",
+        "APNS_KEY_ID": "JNYA3Z4YF6"
       },
       "d1_databases": [
         {
