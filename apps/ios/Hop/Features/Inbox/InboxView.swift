@@ -4,6 +4,7 @@ import SwiftUI
 /// as the cover.
 struct InboxView: View {
     @Environment(Session.self) private var session
+    @Environment(EventMode.self) private var eventMode
     @State private var model = InboxModel()
 
     private var color: PaletteColor { session.me?.paletteColor ?? Palette.brand }
@@ -19,7 +20,11 @@ struct InboxView: View {
                 }
                 .background(Theme.canvas)
         }
-        .task(id: session.me?.activeHopId) { await refresh() }
+        // Reloads when the link moves to another event, and as clips land
+        // during Event mode.
+        .task(id: Reload(activeHopId: session.me?.activeHopId, eventClips: eventMode.clips)) {
+            await refresh()
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -62,6 +67,11 @@ struct InboxView: View {
 
     private func refresh() async {
         await model.refresh(api: session.api, activeHopId: session.me?.activeHopId)
+    }
+
+    private struct Reload: Equatable {
+        let activeHopId: String?
+        let eventClips: Int
     }
 }
 

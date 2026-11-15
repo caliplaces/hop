@@ -15,13 +15,15 @@ nonisolated struct Hop: Decodable, Identifiable, Hashable, Sendable {
 
     var isClosed: Bool { status == "closed" }
 
+    /// "12 clips"
+    var clipCount: String {
+        fileCount == 1 ? String(localized: "1 clip") : String(localized: "\(fileCount) clips")
+    }
+
     /// "12 clips · 1.2 GB"
     var summary: String {
-        let clips = fileCount == 1
-            ? String(localized: "1 clip")
-            : String(localized: "\(fileCount) clips")
-        guard totalBytes > 0 else { return clips }
-        return "\(clips) · \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))"
+        guard totalBytes > 0 else { return clipCount }
+        return "\(clipCount) · \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))"
     }
 }
 

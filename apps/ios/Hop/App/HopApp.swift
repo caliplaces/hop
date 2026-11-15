@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct HopApp: App {
     @State private var session = Session()
+    @State private var eventMode = EventMode()
 
     init() {
         // Downloads cut short by the app quitting would otherwise linger.
@@ -13,6 +14,7 @@ struct HopApp: App {
         WindowGroup {
             RootView()
                 .environment(session)
+                .environment(eventMode)
         }
     }
 }
@@ -20,6 +22,7 @@ struct HopApp: App {
 /// Signed out, the welcome bubble; new, claiming a handle; otherwise the app.
 struct RootView: View {
     @Environment(Session.self) private var session
+    @Environment(EventMode.self) private var eventMode
 
     var body: some View {
         ZStack {
@@ -40,6 +43,15 @@ struct RootView: View {
         .onChange(of: session.isSignedIn) { _, signedIn in
             // Thumbnails are private to whoever was signed in.
             if !signedIn { Thumbnails.shared.removeAll() }
+        }
+        // Carries on with an event that was running when the app quit, or
+        // ends it: it belongs to whoever is signed in, and only to them.
+        .task(id: session.me?.id) {
+            if let me = session.me {
+                await eventMode.resume(for: me)
+            } else if !session.isSignedIn {
+                await eventMode.reset()
+            }
         }
     }
 }
