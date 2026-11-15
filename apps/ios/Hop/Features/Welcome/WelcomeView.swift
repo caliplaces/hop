@@ -184,7 +184,7 @@ struct BubbleScene: View, Animatable {
 
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { context in
-            // Wrapped to keep the shaders' Float time precise.
+            // Seconds for the idle breathing, wrapped to keep the numbers small.
             let time = reduceMotion
                 ? 0
                 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600)
@@ -198,7 +198,7 @@ struct BubbleScene: View, Animatable {
                     world(frame)
                 }
                 portal(frame)
-                rim(frame, time: time)
+                rim(frame)
                 if frame.hintOpacity > 0 {
                     hint(frame)
                 }
@@ -212,7 +212,7 @@ struct BubbleScene: View, Animatable {
             .layerEffect(
                 ShaderLibrary.bubbleLens(
                     .float2(frame.center), .float(frame.radius), .float2(frame.scale),
-                    .float(frame.lensStrength), .float(0.035), .float2(layout.size)
+                    .float(frame.lensStrength), .float2(layout.size)
                 ),
                 maxSampleOffset: CGSize(width: 72, height: 72),
                 isEnabled: frame.lensStrength > 0.001
@@ -249,15 +249,15 @@ struct BubbleScene: View, Animatable {
         }
     }
 
-    /// The bubble's skin: soap film, highlights and edge.
-    private func rim(_ frame: BubbleLayout.Frame, time: Double) -> some View {
+    /// The bubble's skin: rim light, highlights and edge.
+    private func rim(_ frame: BubbleLayout.Frame) -> some View {
         let visible = frame.rimOpacity > 0.001
         return Rectangle()
             .fill(.white)
             .colorEffect(
                 ShaderLibrary.bubbleRim(
                     .float2(frame.center), .float(frame.radius), .float2(frame.scale),
-                    .float(time), .float(colorScheme == .dark ? 1 : 0), .float(frame.rimOpacity)
+                    .float(colorScheme == .dark ? 1 : 0), .float(frame.rimOpacity)
                 ),
                 isEnabled: visible
             )
