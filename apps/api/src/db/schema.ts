@@ -209,13 +209,18 @@ export const subscriptions = sqliteTable(
 
 /**
  * Who asked to hear when Hop launches, from the landing page. Emails are
- * stored lowercased, once each. The list is only for the launch email.
+ * stored lowercased, once each. The list is only for the launch email, and
+ * each address is deleted a day after it went out (see launch.ts).
  */
 export const waitlist = sqliteTable("waitlist", {
   email: text("email").primaryKey(),
   createdAt: integer("created_at").notNull(),
-  /** When the launch email went out to them. */
+  /** When the launch email went out to them. The row goes a day later. */
   notifiedAt: integer("notified_at"),
+  /** The launch email's first and last tries, and how many there have been. */
+  launchFirstAttemptAt: integer("launch_first_attempt_at"),
+  launchAttemptedAt: integer("launch_attempted_at"),
+  launchAttempts: integer("launch_attempts").notNull().default(0),
 });
 
 export type UserRow = typeof users.$inferSelect;

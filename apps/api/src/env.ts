@@ -35,6 +35,13 @@ export type Env = {
   /** Resend API key. Optional locally, where emails are logged instead of sent. */
   RESEND_API_KEY?: string;
   /**
+   * When the launch email goes out (ISO 8601), for trying it on staging
+   * early. Defaults to LAUNCH_AT in packages/shared.
+   */
+  LAUNCH_AT?: string;
+  /** The App Store page, once the app is out; the launch email links it. */
+  APP_STORE_URL?: string;
+  /**
    * Apple's push service, for Event mode's Live Activity. APNS_KEY is the .p8
    * signing key (PEM, a secret); without it nothing is pushed. The key is
    * restricted to APPLE_BUNDLE_ID and to one APNS_ENVIRONMENT.

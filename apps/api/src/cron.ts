@@ -1,8 +1,9 @@
 import { PENDING_UPLOAD_TTL_MS } from "@hop/shared";
 import { and, eq, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { files, liveActivities, sessions } from "./db/schema";
+import { files, liveActivities, sessions, waitlist } from "./db/schema";
 import type { Env } from "./env";
+import { KEEP_SENT_MS } from "./launch";
 import { finishRemoval } from "./lib/files";
 
 const BATCH = 100;
@@ -57,5 +58,7 @@ export async function cleanup(env: Env) {
 
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
   await db.delete(liveActivities).where(lt(liveActivities.expiresAt, Date.now()));
+  // The waitlist keeps an address only until a day after its launch email.
+  await db.delete(waitlist).where(lt(waitlist.notifiedAt, Date.now() - KEEP_SENT_MS));
   console.log(`cleanup: removed ${removed} uploads, ${failed} failed`);
 }

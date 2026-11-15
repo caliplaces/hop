@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { getDb } from "../db";
 import { files, hops } from "../db/schema";
+import { launchEmail } from "../email/launch";
 import { newClipsEmail } from "../email/new-clips";
 import type { RenderedEmail } from "../email/send";
 import { welcomeEmail } from "../email/welcome";
@@ -25,6 +26,12 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
       handle: query("handle") || "matej",
       name: query("name") ?? "Matej Matiasko",
       color: colorFor(query("color"), "preview"),
+    }),
+  // ?app=1 adds the App Store link.
+  launch: (appUrl, query) =>
+    launchEmail({
+      appUrl,
+      appStoreUrl: query("app") ? "https://apps.apple.com/app/id6834920854" : undefined,
     }),
   "new-clips": (appUrl, query) => {
     const hops = [
