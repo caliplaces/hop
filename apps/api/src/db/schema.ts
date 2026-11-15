@@ -108,6 +108,8 @@ export const files = sqliteTable(
     index("files_owner_status_activity_idx").on(t.ownerId, t.status, t.lastActivityAt),
     index("files_owner_status_created_idx").on(t.ownerId, t.status, t.createdAt),
     index("files_hop_status_created_idx").on(t.hopId, t.status, t.createdAt),
+    // Event mode's arrivals: a hop's clips finished since a moment.
+    index("files_hop_status_completed_idx").on(t.hopId, t.status, t.completedAt),
     index("files_status_activity_idx").on(t.status, t.lastActivityAt),
     index("files_pass_status_idx").on(t.passId, t.status),
     // Only finished uploads not yet announced: tiny, since almost every row is.

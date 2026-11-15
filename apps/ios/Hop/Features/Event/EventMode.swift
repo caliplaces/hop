@@ -7,10 +7,13 @@ nonisolated struct EventRun: Codable, Equatable, Sendable {
     let userId: String
     let hopId: String
     let title: String
+    /// When Event mode started, by this phone's clock, for showing how long
+    /// it has been live.
     let startedAt: Date
-    /// The event's clip count when Event mode started. Only clips after
-    /// that count, so an event already in use starts from zero.
-    let baseline: Int
+    /// The same moment by the server's clock, in milliseconds. Clips that
+    /// finish uploading from then on count, so an event already in use
+    /// starts from zero.
+    let since: Double
 }
 
 /// Event mode: the athlete's QR code full screen, the screen kept on, and
@@ -31,7 +34,9 @@ final class EventMode {
     /// Clips that came in together, for one "Mia sent a clip" moment.
     struct Arrival: Identifiable, Equatable {
         let id = UUID()
-        /// Who sent them, newest first.
+        /// How many came in.
+        let count: Int
+        /// Who sent them, newest first. Only the newest few are named.
         let senders: [String]
     }
 
@@ -55,9 +60,12 @@ final class EventMode {
     private let now: () -> Date
     /// Clips already announced, so none is celebrated twice.
     private var announced: Set<String> = []
-    /// Set when an event resumes after a relaunch, so the first check
-    /// catches up quietly instead of celebrating clips from while it was shut.
+    /// Set when an event resumes after a relaunch, until a check succeeds:
+    /// it catches up quietly instead of celebrating clips from while the
+    /// app was shut.
     private var catchingUp = false
+    /// What the Live Activity shows, so it's only updated on a change.
+    private var shown = EventActivityAttributes.ContentState(clips: 0, latest: nil)
     /// Bumped whenever the run starts, ends or is reset, so an answer to an
     /// older request can't change the current one.
     private var generation = 0
@@ -106,7 +114,7 @@ final class EventMode {
         case let .existing(existing):
             hop = existing
         }
-        try await api.post("api/me/hops/\(hop.id)/activate")
+        let activation: Activation = try await api.post("api/me/hops/\(hop.id)/activate", body: Empty())
         // Ended, reset or started again while this was on its way.
         guard asked == generation, let link = me.link else { return }
 
@@ -115,7 +123,7 @@ final class EventMode {
             hopId: hop.id,
             title: hop.title,
             startedAt: now(),
-            baseline: hop.fileCount
+            since: activation.activatedAt
         )
         run = started
         clips = 0
@@ -123,6 +131,7 @@ final class EventMode {
         arrival = nil
         announced = []
         catchingUp = false
+        shown = .init(clips: 0, latest: nil)
         isOffline = false
         save()
         // This event's Live Activity replaces any earlier one.
@@ -165,41 +174,42 @@ final class EventMode {
             return
         }
         do {
-            let reply: HopsReply = try await api.get("api/me/hops")
+            let reply: Arrivals = try await api.get(
+                "api/me/hops/\(current.hopId)/arrivals",
+                query: [URLQueryItem(name: "since", value: String(Int64(current.since)))]
+            )
             guard asked == generation else { return }
-            guard let hop = reply.hops.first(where: { $0.id == current.hopId }) else {
-                // The event was deleted, on the website perhaps.
-                await end()
-                return
-            }
             isOffline = false
             let quietly = catchingUp
             catchingUp = false
-            let count = max(hop.fileCount - current.baseline, 0)
-            guard count != clips else { return }
-            var senders: [String] = []
-            if count > clips {
-                let page: ClipPage = try await api.get(
-                    "api/me/files",
-                    query: [URLQueryItem(name: "hopId", value: current.hopId)]
-                )
-                guard asked == generation else { return }
-                // Newest first. Clips from before Event mode don't count.
-                let fresh = page.files.filter { clip in
-                    clip.sentAt >= current.startedAt && !announced.contains(clip.id)
-                }
-                announced.formUnion(fresh.map(\.id))
-                senders = fresh.map(\.contributor)
+
+            let previous = clips
+            // Newest first; only clips not celebrated before are news.
+            let fresh = reply.latest.filter { !announced.contains($0.id) }
+            announced.formUnion(reply.latest.map(\.id))
+            clips = reply.count
+            latest = reply.latest.first?.contributor
+            if clips > previous, !quietly {
+                arrival = Arrival(count: clips - previous, senders: fresh.map(\.contributor))
             }
-            let grew = count > clips
-            clips = count
-            if let newest = senders.first { latest = newest }
-            if grew, !quietly { arrival = Arrival(senders: senders) }
-            await activity.update(.init(clips: clips, latest: latest))
-        } catch {
+
+            let state = EventActivityAttributes.ContentState(clips: clips, latest: latest)
+            guard state != shown else { return }
+            shown = state
+            await activity.update(state)
+        } catch let error as APIError where error.status == 404 {
+            // The event was deleted, on the website perhaps.
             guard asked == generation else { return }
+            await end()
+        } catch {
+            // A check cut short because the screen changed isn't being offline.
+            guard asked == generation, !Self.isCancellation(error) else { return }
             isOffline = true
         }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
     /// Checks for new clips every `interval` until cancelled.
@@ -210,16 +220,17 @@ final class EventMode {
         }
     }
 
-    /// Creates the event. Its link name comes from the title; when the
-    /// athlete already has one by that name, the next free number is added.
+    /// Creates the event, with a link name from its title that the athlete
+    /// doesn't have yet. If another device takes it meanwhile, looks again.
     private func create(title: String, api: APIClient) async throws -> Hop {
         var attempt = 1
         while true {
-            let body = NewHop(title: title, slug: attempt == 1 ? nil : "\(title) \(attempt)")
+            let mine: HopsReply = try await api.get("api/me/hops")
+            let slug = EventLink.free(for: title, taken: Set(mine.hops.map(\.slug)))
             do {
-                let reply: HopReply = try await api.post("api/me/hops", body: body)
+                let reply: HopReply = try await api.post("api/me/hops", body: NewHop(title: title, slug: slug))
                 return reply.hop
-            } catch let error as APIError where error.code == "slug_taken" && attempt < 20 {
+            } catch let error as APIError where error.code == "slug_taken" && attempt < 3 {
                 attempt += 1
             }
         }
@@ -232,7 +243,19 @@ final class EventMode {
 
     private struct NewHop: Encodable {
         let title: String
-        let slug: String?
+        let slug: String
+    }
+
+    private struct Empty: Encodable {}
+
+    private struct Activation: Decodable {
+        /// Milliseconds, by the server's clock.
+        let activatedAt: Double
+    }
+
+    private struct Arrivals: Decodable {
+        let count: Int
+        let latest: [Clip]
     }
 
     private struct HopReply: Decodable {
@@ -247,19 +270,23 @@ final class EventMode {
 extension EventMode.Arrival {
     /// Short, for the pill: "Mia sent a clip", "Mia and 2 more".
     var headline: String {
-        guard let first = senders.first else { return String(localized: "New clips") }
-        return senders.count == 1
+        guard let first = senders.first else {
+            return count == 1 ? String(localized: "New clip") : String(localized: "\(count) new clips")
+        }
+        return count == 1
             ? String(localized: "\(first) sent a clip")
-            : String(localized: "\(first) and \(senders.count - 1) more")
+            : String(localized: "\(first) and \(count - 1) more")
     }
 
     /// In full, for VoiceOver: "Mia and 2 others sent clips".
     var announcement: String {
-        guard let first = senders.first else { return String(localized: "New clips arrived") }
-        switch senders.count {
+        guard let first = senders.first else {
+            return count == 1 ? String(localized: "A new clip arrived") : String(localized: "\(count) new clips arrived")
+        }
+        switch count {
         case 1: return String(localized: "\(first) sent a clip")
         case 2: return String(localized: "\(first) and 1 other sent clips")
-        default: return String(localized: "\(first) and \(senders.count - 1) others sent clips")
+        default: return String(localized: "\(first) and \(count - 1) others sent clips")
         }
     }
 }

@@ -127,6 +127,15 @@ export type InboxFile = {
 
 export type InboxPage = { files: InboxFile[]; nextCursor: string | null };
 
+/** Making a hop live: when it happened, by the server's clock. */
+export type HopActivation = { ok: true; activatedAt: number };
+
+/**
+ * Clips that finished uploading into a hop since a moment (by the server's
+ * clock): how many, and the newest few, newest first. Event mode counts with it.
+ */
+export type HopArrivals = { count: number; latest: InboxFile[] };
+
 export const fileUrlsSchema = z.object({
   ids: z.array(z.string().min(1).max(64)).min(1).max(100),
   download: z.boolean().default(true),

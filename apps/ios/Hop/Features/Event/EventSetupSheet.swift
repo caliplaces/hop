@@ -78,7 +78,10 @@ struct EventSetupSheet: View {
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
+                    // Once Go live is on its way, it finishes: cancelling
+                    // now would leave an event started behind the athlete's back.
                     Button("Cancel", systemImage: "xmark", role: .cancel) { dismiss() }
+                        .disabled(isStarting)
                 }
             }
         }
