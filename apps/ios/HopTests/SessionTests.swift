@@ -95,7 +95,12 @@ struct SessionTests {
                 : (404, "{}")
         }
         let session = makeSession()
-        for other in [#"{"host":"evil.example","path":"/callback"}"#, #"{"scheme":"com.evil.app"}"#] {
+        let host = server.baseURL.host() ?? ""
+        for other in [
+            #"{"host":"evil.example","path":"/api/auth/app/callback"}"#,
+            #"{"host":"\#(host)","path":"/somewhere/else"}"#,
+            #"{"scheme":"com.evil.app"}"#,
+        ] {
             callback.value = other
             var asked = false
             await #expect(throws: URLError(.badServerResponse)) {

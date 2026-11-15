@@ -25,8 +25,10 @@
     // Each environment has its own Caliplaces developer app. For local dev, set
     // OIDC_CLIENT_ID and OIDC_CLIENT_SECRET in .dev.vars from your own dev app.
     "OIDC_CLIENT_ID": "",
-    // The iPhone app's Caliplaces developer app (Native, no secret). Its redirect
-    // URI is a custom scheme, so one app serves every environment.
+    // The iPhone app's Caliplaces developer app (Native, no secret), shared by
+    // every environment. OIDC_APP_REDIRECT picks where sign-in comes back to:
+    // "https" (this site's callback, which only Hop can catch) or "scheme" (the
+    // older custom scheme). Anything else turns app sign-in off.
     "OIDC_APP_CLIENT_ID": "399623629245054982",
     "OIDC_APP_REDIRECT": "scheme",
     "R2_BUCKET_NAME": "hop-dev",

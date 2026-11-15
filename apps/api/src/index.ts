@@ -71,7 +71,7 @@ export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     // The one file outside /api: Apple reads it to tie this site to the app.
     if (new URL(request.url).pathname === APP_SITE_ASSOCIATION_PATH) {
-      return appSiteAssociation(env);
+      return appSiteAssociation(request, env);
     }
     return app.fetch(request, env, ctx);
   },

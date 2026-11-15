@@ -137,11 +137,15 @@ nonisolated enum SignInCallback: Equatable, Sendable, Decodable {
 
     static let customScheme = SignInCallback.scheme(HopServer.callbackScheme)
 
-    /// Only Hop's own callbacks: the custom scheme, or https on the API's own host.
+    /// The API's https callback page.
+    static let httpsPath = "/api/auth/app/callback"
+
+    /// Only Hop's own callbacks: its custom scheme, or the callback page on
+    /// the API's own host.
     func isTrusted(for baseURL: URL) -> Bool {
         switch self {
         case let .scheme(scheme): scheme == HopServer.callbackScheme
-        case let .https(host, path): host == baseURL.host() && path.hasPrefix("/")
+        case let .https(host, path): host == baseURL.host() && path == Self.httpsPath
         }
     }
 

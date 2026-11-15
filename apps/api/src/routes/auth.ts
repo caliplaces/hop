@@ -15,6 +15,7 @@ import {
   appOidcClient,
   appRedirectUri,
   authorizationServer,
+  isOwnAppRedirect,
   isRedirectTo,
   OIDC_SCOPES,
   oidcClient,
@@ -258,6 +259,10 @@ export const authRoutes = new Hono<AppEnv>()
       return fail(c, 503, "unavailable", "Signing in from the app isn't set up here.");
     }
     const appRedirect = appRedirectUri(c.env);
+    if (!appRedirect) {
+      console.error('auth: OIDC_APP_REDIRECT must be "https" or "scheme"');
+      return fail(c, 503, "unavailable", "Signing in from the app isn't set up here.");
+    }
     const { flow, url } = await startFlow(c.env, c.env.OIDC_APP_CLIENT_ID, appRedirect);
     const state: AppFlowState = { purpose: "app-oidc-flow", ...flow, redirectUri: appRedirect };
     return c.json({
@@ -295,7 +300,7 @@ export const authRoutes = new Hono<AppEnv>()
     }
     // Flows started before redirects were recorded used the custom scheme.
     const appRedirect = flow.redirectUri ?? APP_SCHEME_REDIRECT_URI;
-    if (!isRedirectTo(callback, appRedirect)) {
+    if (!isOwnAppRedirect(c.env, appRedirect) || !isRedirectTo(callback, appRedirect)) {
       return fail(c, 400, "invalid_callback");
     }
 
@@ -330,15 +335,16 @@ export const authRoutes = new Hono<AppEnv>()
 
   /**
    * The app's https callback. Its web authentication session catches the
-   * redirect before this loads, so a browser only gets here if something
-   * went wrong. Nothing in the URL is used, shown or kept.
+   * redirect before this loads, so a browser only gets here if the app
+   * didn't, and that sign-in can't finish. Nothing in the URL is used,
+   * shown or kept.
    */
   .get("/app/callback", (c) => {
     c.header("cache-control", "no-store");
     return c.html(
       '<!doctype html><html lang="en"><meta charset="utf-8">' +
         '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-        "<title>Hop</title><p>Go back to the Hop app to finish signing in.</p></html>",
+        "<title>Hop</title><p>Signing in didn’t finish. Open the Hop app and try again.</p></html>",
     );
   })
 

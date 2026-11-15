@@ -123,6 +123,7 @@ beforeEach(() => {
     OIDC_CLIENT_ID: "web-client",
     OIDC_CLIENT_SECRET: "web-secret",
     OIDC_APP_CLIENT_ID: APP_CLIENT,
+    OIDC_APP_REDIRECT: "scheme",
     SESSION_SECRET: "test-secret",
     AUTH_LIMITER: { limit: async () => ({ success: allowSignIn }) } as RateLimit,
   } as Env;
@@ -159,9 +160,26 @@ describe("the apple-app-site-association file", () => {
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.json()).toEqual({
       webcredentials: { apps: ["XH66L5M6JJ.com.onmyhop.app"] },
     });
+  });
+
+  it("is only read, and says nothing without the app's identity", async () => {
+    const aasa = (method: string) =>
+      worker.fetch(
+        new Request("https://onmyhop.com/.well-known/apple-app-site-association", { method }),
+        env,
+        {} as ExecutionContext,
+      );
+    env.APPLE_TEAM_ID = "XH66L5M6JJ";
+    env.APPLE_BUNDLE_ID = "com.onmyhop.app";
+    expect((await aasa("HEAD")).status).toBe(200);
+    expect((await aasa("POST")).status).toBe(405);
+    expect((await aasa("DELETE")).status).toBe(405);
+    env.APPLE_TEAM_ID = "";
+    expect((await aasa("GET")).status).toBe(404);
   });
 });
 
@@ -285,6 +303,43 @@ describe("app sign-in", () => {
     expect(tokenRequests[0]?.body.get("redirect_uri")).toBe(https);
   });
 
+  it("is off, not quietly on the custom scheme, when the setting isn't valid", async () => {
+    for (const setting of [undefined, "", "HTTPS", " https", "scheme ", "http"]) {
+      env.OIDC_APP_REDIRECT = setting as Env["OIDC_APP_REDIRECT"];
+      const response = await post("/auth/app/start");
+      expect(response.status).toBe(503);
+    }
+    // https needs an https site with a plain host.
+    env.OIDC_APP_REDIRECT = "https";
+    for (const site of ["http://onmyhop.com", "https://onmyhop.com:8443"]) {
+      env.APP_URL = site;
+      expect((await post("/auth/app/start")).status).toBe(503);
+    }
+    env.APP_URL = "https://onmyhop.com/";
+    const ok = (await (await post("/auth/app/start")).json()) as { callback: unknown };
+    expect(ok.callback).toEqual({ host: "onmyhop.com", path: "/api/auth/app/callback" });
+  });
+
+  it("only finishes flows that come back to this site's own callback", async () => {
+    // A correctly signed flow naming another environment's callback.
+    const staging = "https://staging.onmyhop.com/api/auth/app/callback";
+    const flow = await signPayload(env.SESSION_SECRET, {
+      purpose: "app-oidc-flow",
+      exp: Date.now() + 60_000,
+      state: "s",
+      nonce: "n",
+      codeVerifier: "v".repeat(43),
+      redirectUri: staging,
+    });
+    const response = await post("/auth/app/session", {
+      flow,
+      callbackUrl: `${staging}?code=c&state=s`,
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_callback" });
+    expect(tokenRequests).toHaveLength(0);
+  });
+
   it("finishes a sign-in with the redirect it started with, if the setting changes meanwhile", async () => {
     const { flow, state } = await start();
     env.OIDC_APP_REDIRECT = "https";
@@ -302,7 +357,7 @@ describe("app sign-in", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(response.headers.get("cache-control")).toBe("no-store");
     const page = await response.text();
-    expect(page).toContain("Hop app");
+    expect(page).toContain("Open the Hop app and try again");
     expect(page).not.toContain("secret-code");
     expect(page).not.toContain("<script");
   });
