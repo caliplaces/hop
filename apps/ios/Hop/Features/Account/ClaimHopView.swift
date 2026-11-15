@@ -98,28 +98,66 @@ struct ClaimHopView: View {
     /// What's being claimed can't change until the server has answered.
     private var isLocked: Bool { model.isClaiming || celebrating }
 
+    /// Like an address bar: the domain small on top, the handle large below,
+    /// so it fits any domain on any phone without wrapping.
     private var handleField: some View {
-        HStack(spacing: 0) {
-            Text(verbatim: "\(HopServer.baseURL.spoken)/")
-                .foregroundStyle(Theme.muted)
-            TextField("yourname", text: $model.input)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.asciiCapable)
-                .textContentType(.username)
-                .submitLabel(.done)
-                .focused($editing)
-                .onSubmit { Task { await claim() } }
-                .accessibilityLabel("Handle")
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: "\(HopServer.baseURL.spoken)/")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+                TextField("yourname", text: $model.input)
+                    .font(.title2.weight(.semibold))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.asciiCapable)
+                    .textContentType(.username)
+                    .submitLabel(.done)
+                    .focused($editing)
+                    .onSubmit { Task { await claim() } }
+                    .accessibilityLabel("Handle")
+            }
+            statusMark
         }
-        .font(.title3.weight(.medium))
         .multilineTextAlignment(.leading)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .contentShape(.rect(cornerRadius: 26))
         .onTapGesture { editing = true }
     }
 
+    /// How the handle stands, at the end of the field: a check when it's
+    /// free, a spinner while checking, a mark when it can't be used.
+    @ViewBuilder private var statusMark: some View {
+        Group {
+            switch model.status {
+            case .idle:
+                EmptyView()
+            case .checking:
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Checking")
+            case .available:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(light: 0x0F8A4F, dark: 0x3DDC97))
+                    .accessibilityLabel("Available")
+            case .unavailable:
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Color(light: 0xD92D20, dark: 0xFF6369))
+                    .accessibilityLabel("Not available")
+            }
+        }
+        .font(.title2)
+        .frame(width: 28, height: 28)
+        .transition(.scale(scale: 0.6).combined(with: .opacity))
+        .animation(.spring(duration: 0.3, bounce: 0.4), value: model.status)
+    }
+
+    /// Words under the field, only when there's something to explain. It
+    /// keeps its height, so the screen doesn't jump as they type.
     @ViewBuilder private var statusLine: some View {
         Group {
             if let problem = model.problem {
@@ -130,11 +168,8 @@ struct ClaimHopView: View {
                 case .idle:
                     Text("You get one, so pick something you’ll say out loud.")
                         .foregroundStyle(Theme.muted)
-                case .checking:
-                    ProgressView().controlSize(.small)
-                case .available:
-                    Label("Available", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(Color(light: 0x0F8A4F, dark: 0x3DDC97))
+                case .checking, .available:
+                    Color.clear
                 case let .unavailable(reason):
                     Text(reason)
                         .foregroundStyle(Color(light: 0xD92D20, dark: 0xFF6369))
