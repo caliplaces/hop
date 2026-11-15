@@ -18,18 +18,35 @@ export function timeLeft(now: number, target = LAUNCH_AT): TimeLeft | null {
   };
 }
 
-/** setTimeout fires immediately for delays past 2^31 - 1 ms (about 24.8 days). */
-const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+/**
+ * How long to wait before checking for launch again, or null once launched.
+ * Capped, because setTimeout fires at once for delays past 2^31 - 1 ms (about
+ * 24.8 days) and timers fall behind while a laptop sleeps.
+ */
+export function launchCheckDelay(now: number, target = LAUNCH_AT): number | null {
+  const delay = target - now;
+  return delay <= 0 ? null : Math.min(delay, 60 * 60 * 1000);
+}
 
-/** Flips to true at launch, also for a page that was opened before it. */
+/** Flips to true at launch, also in a tab that was opened long before it. */
 export function useLaunched(): boolean {
-  const [launched, setLaunched] = useState(() => Date.now() >= LAUNCH_AT);
+  const [launched, setLaunched] = useState(() => launchCheckDelay(Date.now()) === null);
   useEffect(() => {
     if (launched) return;
-    const delay = LAUNCH_AT - Date.now();
-    if (delay > MAX_TIMEOUT_MS) return;
-    const id = setTimeout(() => setLaunched(true), Math.max(0, delay));
-    return () => clearTimeout(id);
+    let id: ReturnType<typeof setTimeout> | undefined;
+    const check = () => {
+      clearTimeout(id);
+      const delay = launchCheckDelay(Date.now());
+      if (delay === null) setLaunched(true);
+      else id = setTimeout(check, delay);
+    };
+    check();
+    // Coming back to a tab (or waking a laptop) re-checks straight away.
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("visibilitychange", check);
+    };
   }, [launched]);
   return launched;
 }

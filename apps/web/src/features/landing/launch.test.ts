@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LAUNCH_AT, timeLeft } from "./launch";
+import { LAUNCH_AT, launchCheckDelay, timeLeft } from "./launch";
 
 describe("timeLeft", () => {
   it("launches at midnight CET on 1 December 2026", () => {
@@ -19,5 +19,22 @@ describe("timeLeft", () => {
     expect(timeLeft(LAUNCH_AT - 999)).toBeNull();
     expect(timeLeft(LAUNCH_AT)).toBeNull();
     expect(timeLeft(LAUNCH_AT + 60_000)).toBeNull();
+  });
+});
+
+describe("launchCheckDelay", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  it("waits until launch when it's close", () => {
+    expect(launchCheckDelay(LAUNCH_AT - 5_000)).toBe(5_000);
+  });
+
+  it("checks again within the hour when launch is far off", () => {
+    expect(launchCheckDelay(LAUNCH_AT - 40 * 24 * HOUR)).toBe(HOUR);
+  });
+
+  it("is null from the launch moment on", () => {
+    expect(launchCheckDelay(LAUNCH_AT)).toBeNull();
+    expect(launchCheckDelay(LAUNCH_AT + 1)).toBeNull();
   });
 });
