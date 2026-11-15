@@ -7,8 +7,8 @@ private func hopJSON(_ id: String, title: String, createdAt: Int, files: Int, by
     #"{"id":"\#(id)","slug":"\#(id)","title":"\#(title)","status":"open","createdAt":\#(createdAt),"fileCount":\#(files),"totalBytes":\#(bytes)}"#
 }
 
-private func clipJSON(_ id: String, hop: String, size: Int = 1000) -> String {
-    #"{"id":"\#(id)","hopId":"\#(hop)","name":"IMG_1.MOV","mime":"video/mp4","size":\#(size),"hasThumbnail":true,"contributorName":"@mia","contributorVerified":true,"note":null,"createdAt":1700000000000}"#
+private func clipJSON(_ id: String, hop: String, size: Int = 1000, createdAt: Int = 1_700_000_000_000) -> String {
+    #"{"id":"\#(id)","hopId":"\#(hop)","name":"IMG_1.MOV","mime":"video/mp4","size":\#(size),"hasThumbnail":true,"contributorName":"@mia","contributorVerified":true,"note":null,"createdAt":\#(createdAt)}"#
 }
 
 @MainActor
@@ -159,9 +159,38 @@ struct InboxModelTests {
         server.release()
         await pageThree.value
 
-        // Page three must not land after the new first page, skipping c and d.
-        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b"])
+        // Page three, requested before the refresh, is dropped. The pages
+        // already loaded stay, and paging carries on after the new first page.
+        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b", "c", "d"])
         #expect(model.clips["jam"]?.nextCursor == "2:b")
+    }
+
+    @Test func aRefreshKeepsLoadedPagesSoAWatchedClipStays() async throws {
+        let arrived = Locked(false)
+        server.reply = { request in
+            let query = request.url?.query() ?? ""
+            switch request.url?.path {
+            case "/api/me/hops":
+                return (200, #"{"hops":[\#(hopJSON("jam", title: "Jam", createdAt: 1, files: 4))]}"#)
+            case "/api/me/files" where query.contains("cursor=2"):
+                return (200, #"{"files":[\#(clipJSON("c", hop: "jam", createdAt: 3)),\#(clipJSON("d", hop: "jam", createdAt: 2))],"nextCursor":null}"#)
+            default:
+                // A clip lands during Event mode: the first page moves down by one.
+                return arrived.value
+                    ? (200, #"{"files":[\#(clipJSON("n", hop: "jam", createdAt: 9)),\#(clipJSON("a", hop: "jam", createdAt: 5))],"nextCursor":"2:a"}"#)
+                    : (200, #"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 5)),\#(clipJSON("b", hop: "jam", createdAt: 4))],"nextCursor":"2:b"}"#)
+            }
+        }
+        let model = InboxModel()
+        let api = server.client(token: "hs_t")
+        await model.refresh(api: api, activeHopId: nil)
+        await model.loadMore(in: "jam", api: api)
+        // Someone is watching "d", from the second page.
+        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b", "c", "d"])
+
+        arrived.value = true
+        await model.refresh(api: api, activeHopId: nil)
+        #expect(model.clips["jam"]?.items.map(\.id) == ["n", "a", "b", "c", "d"])
     }
 
     @Test func showsAFailureOnlyWhenThereIsNothingToShow() async {

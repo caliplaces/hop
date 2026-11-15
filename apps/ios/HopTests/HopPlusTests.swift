@@ -81,6 +81,12 @@ nonisolated final class FakePurchases: PurchaseSource, @unchecked Sendable {
         return lock.withLock { held }
     }
 
+    /// The test's purchases not finished yet.
+    func unfinished() async -> [Purchase] {
+        let finished = Set(self.finished)
+        return lock.withLock { held }.filter { !finished.contains($0.id) }
+    }
+
     func updates() -> AsyncStream<Purchase> { stream }
 
     func restore() async throws {
@@ -195,6 +201,25 @@ struct HopPlusTests {
         #expect(sent == ["jws-1", "jws-2"])
         running.cancel()
         await running.value
+    }
+
+    @Test func anUnconfirmedPurchaseIsSentAgainWhenTheAppComesBack() async {
+        let purchase = Locked((503, #"{"error":"unavailable"}"#))
+        serve(purchase: purchase)
+        purchases.have(1)
+        let hopPlus = HopPlus(source: purchases)
+        #expect(await hopPlus.send(purchases.make(1), api: api) == .later)
+
+        // Back online, and back in the app: only what's unfinished goes again.
+        purchase.value = (200, planJSON(plan: "plus", subscription: plusSubscription))
+        await hopPlus.resendUnfinished(api: api)
+        #expect(sent == ["jws-1", "jws-1"])
+        #expect(purchases.finished == [1])
+        #expect(hopPlus.status?.plan == .plus)
+
+        // Nothing left: coming back again sends nothing.
+        await hopPlus.resendUnfinished(api: api)
+        #expect(sent.count == 2)
     }
 
     @Test func restoreAsksTheAppStoreThenSendsWhatItFound() async throws {

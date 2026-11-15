@@ -78,6 +78,16 @@ final class HopPlus {
         await sync(api: api, for: generation)
     }
 
+    /// Sends again the transactions the API hasn't answered for yet, as when
+    /// one went through while offline. Cheap: usually there are none.
+    func resendUnfinished(api: APIClient) async {
+        let asked = generation
+        for purchase in await source.unfinished() {
+            guard asked == generation else { return }
+            await send(purchase, api: api, for: asked)
+        }
+    }
+
     /// Asks the App Store for this Apple ID's purchases, then sends them.
     func restore(api: APIClient) async throws {
         let asked = generation

@@ -66,11 +66,15 @@ struct RootView: View {
             }
             await hopPlus.run(api: session.api)
         }
-        // Storage fills up while the app is away.
+        // Storage fills up while the app is away, and a purchase made
+        // offline gets another go once the app is back.
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, session.isSignedIn else { return }
             let api = session.api
-            Task { await hopPlus.refresh(api: api) }
+            Task {
+                await hopPlus.resendUnfinished(api: api)
+                await hopPlus.refresh(api: api)
+            }
         }
         // Carries on with an event that was running when the app quit, or
         // ends it: it belongs to whoever is signed in, and only to them.

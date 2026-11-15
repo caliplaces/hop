@@ -73,9 +73,14 @@ final class InboxModel {
             let page: ClipPage = try await api.get("api/me/files", query: query)
             guard generations[hopId, default: 0] == generation else { return }
             var list = clips[hopId] ?? ClipList()
-            let known = replacing ? [] : list.items
-            // A page can overlap the last if clips arrived meanwhile.
-            list.items = known + page.files.filter { clip in !known.contains { $0.id == clip.id } }
+            // A refresh keeps the pages already loaded, so a clip someone is
+            // watching from further down stays in the list. A page can overlap
+            // what's loaded if clips arrived meanwhile.
+            let fresh = Set(page.files.map(\.id))
+            let merged = replacing
+                ? page.files + list.items.filter { !fresh.contains($0.id) }
+                : list.items + page.files.filter { clip in !list.items.contains { $0.id == clip.id } }
+            list.items = Self.newestFirst(merged)
             list.nextCursor = page.nextCursor
             list.loadedOnce = true
             list.failed = nil
@@ -86,6 +91,17 @@ final class InboxModel {
             clips[hopId, default: ClipList()].isLoading = false
             clips[hopId, default: ClipList()].failed = error.localizedDescription
         }
+    }
+
+    /// Newest first, as the API pages them; clips that tie keep their order.
+    private static func newestFirst(_ clips: [Clip]) -> [Clip] {
+        clips.enumerated()
+            .sorted { a, b in
+                a.element.createdAt != b.element.createdAt
+                    ? a.element.createdAt > b.element.createdAt
+                    : a.offset < b.offset
+            }
+            .map(\.element)
     }
 
     /// Deletes a clip for good, and updates its event's totals.
