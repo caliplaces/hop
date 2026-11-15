@@ -99,11 +99,20 @@ Until launch (December 1, 2026), the landing page collects a waitlist. `POST /ap
 - Turnstile is required, minted with the `waitlist` action, so a token from the upload form doesn't count. Locally, a missing token is allowed.
 - Each IP gets 10 tries a minute (`WAITLIST_LIMITER`).
 
-The list is only for the launch email; `notified_at` records who has had it. To read it:
+The list is only for the launch email (`src/launch.ts`, template `src/email/launch.tsx`):
+
+- **When:** from `LAUNCH_AT` in `packages/shared/src/launch.ts` (midnight CET, December 1), on the five-minute cron.
+- **How:** one email at a time, paced under Resend's rate limit, for up to three and a half minutes a run. Each address is claimed first and has a fixed idempotency key, so neither overlapping runs nor retries email anyone twice.
+- **Failures:** a failed send is tried again five minutes later, five times at most. A rate limit ends the run.
+- **Afterwards:** `notified_at` marks who has had it. The hourly cleanup deletes each address a day later, as the email tells them.
+- **The app:** set `APP_STORE_URL` once the app is out, and the email links it too.
+- **Trying it out:** the email lab (`/email-lab.html` while `pnpm dev` runs) shows the email. To send it for real on staging before launch, set `LAUNCH_AT` there to an ISO time: everyone on staging's waitlist gets it.
+
+To read the list:
 
 ```sh
 wrangler d1 execute hop-production --remote --env production \
-  --command "select email, created_at from waitlist order by created_at"
+  --command "select email, created_at, notified_at from waitlist order by created_at"
 ```
 
 ## Live Activity pushes

@@ -5,6 +5,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { cleanup } from "./cron";
 import { ONE_CLICK_UNSUBSCRIBE_PATH } from "./email/unsubscribe";
 import type { AppEnv, Env } from "./env";
+import { announceLaunch } from "./launch";
 import { fail } from "./lib/http";
 import { APP_SITE_ASSOCIATION_PATH, appSiteAssociation } from "./lib/oidc";
 import { loadSession } from "./lib/session";
@@ -76,7 +77,12 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(controller.cron === CLEANUP_CRON ? cleanup(env) : announceNewClips(env));
+    ctx.waitUntil(
+      controller.cron === CLEANUP_CRON
+        ? cleanup(env)
+        : // Separately, so one failing can't hold up the other.
+          Promise.allSettled([announceNewClips(env), announceLaunch(env)]),
+    );
   },
 } satisfies ExportedHandler<Env>;
 
