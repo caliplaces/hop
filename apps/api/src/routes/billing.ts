@@ -117,6 +117,18 @@ async function apply(
   const mayWrite = owner.byToken
     ? or(eq(subscriptions.userId, owner.userId), lt(subscriptions.purchasedAt, purchasedAt))
     : eq(subscriptions.userId, owner.userId);
+  // Every account whose plan this may change gets a new revision, in the same
+  // transaction: whoever has the subscription now, and its new owner.
+  const revise = db
+    .update(users)
+    .set({ planRevision: sql`${users.planRevision} + 1` })
+    .where(
+      or(
+        eq(users.id, owner.userId),
+        sql`${users.id} = (select ${subscriptions.userId} from ${subscriptions}
+          where ${subscriptions.originalTransactionId} = ${transaction.originalTransactionId})`,
+      ),
+    );
   const upsert = db
     .insert(subscriptions)
     .values({
@@ -149,7 +161,7 @@ async function apply(
       setWhere: and(newer, mayWrite, sameKind),
     });
   if (!renewal) {
-    await upsert;
+    await db.batch([revise, upsert]);
     return;
   }
 
@@ -177,10 +189,19 @@ async function apply(
         ),
       ),
     );
-  await db.batch([upsert, renewalUpdate]);
+  await db.batch([revise, upsert, renewalUpdate]);
 }
 
 async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
+  // Read first: everything read after it is at least this new.
+  const revision =
+    (
+      await db
+        .select({ revision: users.planRevision })
+        .from(users)
+        .where(eq(users.id, user.id))
+        .get()
+    )?.revision ?? 0;
   const now = Date.now();
   const [subscription, used, token] = await Promise.all([
     activeSubscription(db, user.id, now),
@@ -210,6 +231,7 @@ async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
       : null,
     appAccountToken: token,
     plans: PLANS,
+    revision,
   };
 }
 

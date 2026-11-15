@@ -125,6 +125,8 @@ How a subscription's state is kept right:
 - **Ownership.** A subscription belongs to the account whose token is on its newest purchase. Restoring someone else's purchase is refused. If the same Apple ID later subscribes again from another Hop account, the subscription moves there, since only that Apple ID can make a new purchase for it.
 - **Billing grace.** While Apple retries a failed renewal, Hop+ continues until the grace period ends. Only renewal info, which comes with notifications, starts it, and a newer purchase ends it. Renewal info is ordered by its own signing time, apart from the transaction's, so the app syncing a purchase can't hold back a grace period Apple delivers late. It only counts when it comes with the current purchase, so a late notification about an older one can't bring its grace period back.
 
+- **Ordering replies.** Each athlete has a `plan_revision`, bumped in the same transaction as any change to their subscriptions (both accounts' when one moves). `GET /api/me/plan` and purchase replies read it first and return it as `revision`, so the rest of the reply is at least that new. The app never replaces a plan with one of a lower revision, whichever reply arrives last.
+
 Upload quota checks use the plan at the moment of the upload (`src/lib/plans.ts`). Retention isn't enforced yet: no clip is deleted for being older than 30 days.
 
 In App Store Connect, under the app's **App Information › App Store Server Notifications**, set Version 2 URLs:

@@ -523,6 +523,46 @@ describe("App Store notifications", () => {
   });
 });
 
+describe("the plan's revision", () => {
+  const revisionOf = async (userId: string) =>
+    (
+      await db
+        .select({ revision: users.planRevision })
+        .from(users)
+        .where(eq(users.id, userId))
+        .get()
+    )?.revision;
+
+  it("goes up with every change, and only then", async () => {
+    const { appAccountToken, revision } = await plan();
+    expect((await plan()).revision).toBe(revision);
+
+    const bought = (await (await send(transaction(appAccountToken))).json()) as PlanStatus;
+    expect(bought.revision).toBe(revision + 1);
+    expect((await plan()).revision).toBe(revision + 1);
+
+    const refunded = { revocationDate: Date.now(), signedDate: Date.now() + 1000 };
+    await notify("REFUND", await appData(transaction(appAccountToken, refunded)));
+    expect((await plan()).revision).toBe(revision + 2);
+  });
+
+  it("goes up for both accounts when a subscription moves", async () => {
+    const now = Date.now();
+    const tokenB = await tokenFor("usr_b");
+    await notify(
+      "SUBSCRIBED",
+      await appData(
+        transaction(tokenB, { purchaseDate: now - 60 * DAY, expiresDate: now - 30 * DAY }),
+      ),
+    );
+    const [a, b] = [await revisionOf("usr_a"), await revisionOf("usr_b")];
+    const { appAccountToken } = await plan();
+    await send(transaction(appAccountToken, { transactionId: "2000000009" }));
+    expect(await revisionOf("usr_a")).toBe((a ?? 0) + 1);
+    expect(await revisionOf("usr_b")).toBe((b ?? 0) + 1);
+  });
+});
+
 describe("malformed requests", () => {
   it("get a 400 or 413, never a server error", async () => {
     const nul = btoa("null").replace(/=+$/, "");

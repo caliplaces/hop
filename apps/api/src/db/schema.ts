@@ -20,6 +20,11 @@ export const users = sqliteTable("users", {
    * appAccountToken), so the API knows whose they are. Made when first needed.
    */
   appAccountToken: text("app_account_token").unique(),
+  /**
+   * Goes up whenever one of the athlete's subscriptions changes, so the app
+   * can tell a stale plan reply from a newer one (see GET /api/me/plan).
+   */
+  planRevision: integer("plan_revision").notNull().default(0),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
