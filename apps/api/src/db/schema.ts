@@ -202,6 +202,17 @@ export const subscriptions = sqliteTable(
   (t) => [index("subscriptions_user_idx").on(t.userId, t.expiresAt)],
 );
 
+/**
+ * Who asked to hear when Hop launches, from the landing page. Emails are
+ * stored lowercased, once each. The list is only for the launch email.
+ */
+export const waitlist = sqliteTable("waitlist", {
+  email: text("email").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+  /** When the launch email went out to them. */
+  notifiedAt: integer("notified_at"),
+});
+
 export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;
