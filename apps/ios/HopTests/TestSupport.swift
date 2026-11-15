@@ -114,8 +114,10 @@ struct StubServer: Sendable {
     }
 
     /// Waits until `count` requests matching `matching` have reached the stub.
+    /// The deadline is generous for busy CI machines; a passing wait ends early.
     func waitForRequests(count: Int = 1, where matching: (URLRequest) -> Bool) async throws {
-        for _ in 0..<400 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if requests.filter({ matching($0.request) }).count >= count { return }
             try await Task.sleep(for: .milliseconds(5))
         }
@@ -139,11 +141,7 @@ struct StubServer: Sendable {
 
     /// Waits until a request for `path` has reached the stub.
     func waitForRequest(_ path: String) async throws {
-        for _ in 0..<400 {
-            if requests.contains(where: { $0.request.url?.path == path }) { return }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        throw URLError(.timedOut)
+        try await waitForRequests { $0.url?.path == path }
     }
 }
 

@@ -382,7 +382,8 @@ struct EventModeTests {
 @MainActor
 @Suite("Event mode push updates", .serialized)
 struct EventPushTests {
-    let server = StubServer(host: "event-push.test")
+    /// A host per test: a request a finished test left in flight can't land in the next.
+    let server = StubServer(host: "event-push-\(UUID().uuidString.lowercased()).test")
     let defaults = UserDefaults(suiteName: "event-push-tests-\(UUID().uuidString)")!
     let activity = FakeEventActivity()
     let tokenA = String(repeating: "a1", count: 40)
@@ -425,14 +426,23 @@ struct EventPushTests {
         #expect(body?["environment"] as? String == "sandbox")
 
         // Apple rotates the token: the new one is registered too.
+        server.held = ["/api/me/live-activities/\(tokenB)"]
         activity.issue(tokenB)
         try await server.waitForRequests(count: 2) { $0.httpMethod == "PUT" }
         #expect(registrations(tokenB).count == 1)
 
+        // Ended while that registration is still under way: it lands first,
+        // then both tokens are forgotten, so neither outlives Event mode.
         await mode.end()
-        try await server.waitForRequests { $0.httpMethod == "DELETE" }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!server.requests.contains { $0.request.httpMethod == "DELETE" })
+        server.release()
+        try await server.waitForRequests(count: 2) { $0.httpMethod == "DELETE" }
         let forgotten = server.requests.filter { $0.request.httpMethod == "DELETE" }
-        #expect(forgotten.map { $0.request.url?.path } == ["/api/me/live-activities/\(tokenB)"])
+        #expect(Set(forgotten.compactMap { $0.request.url?.path }) == [
+            "/api/me/live-activities/\(tokenA)",
+            "/api/me/live-activities/\(tokenB)",
+        ])
     }
 
     @Test func aFailedRegistrationIsTriedAgainOnTheNextCheck() async throws {

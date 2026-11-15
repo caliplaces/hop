@@ -74,6 +74,10 @@ final class EventMode {
     /// accepted, so it can update the count while the phone is locked.
     private var pushToken: String?
     private var registeredToken: String?
+    /// Every push token this run was issued, so End can forget them all.
+    private var issuedTokens: Set<String> = []
+    /// The registration request under way, which End lets finish first.
+    private var registering: Task<Void, Error>?
     /// Follows the Live Activity's push tokens as Apple issues and rotates them.
     private var pushTokens: Task<Void, Never>?
     /// The client Event mode last used, to forget the push token on End.
@@ -184,13 +188,24 @@ final class EventMode {
         defaults.removeObject(forKey: Self.runKey)
         pushTokens?.cancel()
         pushTokens = nil
-        // The API stops updating it. If this doesn't get through, the
-        // registration expires on its own and Apple drops the ended activity.
-        if let token = registeredToken, let api {
-            Task { try? await api.delete("api/me/live-activities/\(token)") }
+        // The API stops updating it: every token this run was issued is
+        // forgotten, once a registration under way has landed, so none
+        // outlives it. If this doesn't get through, registrations expire on
+        // their own and Apple drops the ended activity.
+        let tokens = issuedTokens
+        let inFlight = registering
+        if !tokens.isEmpty, let api {
+            Task {
+                _ = await inFlight?.result
+                for token in tokens.sorted() {
+                    try? await api.delete("api/me/live-activities/\(token)")
+                }
+            }
         }
         pushToken = nil
         registeredToken = nil
+        issuedTokens = []
+        registering = nil
         await activity.end()
     }
 
@@ -263,6 +278,7 @@ final class EventMode {
             for await token in tokens {
                 guard let self, asked == self.generation else { return }
                 self.pushToken = token
+                self.issuedTokens.insert(token)
                 await self.registerPushToken(api: api)
             }
         }
@@ -272,11 +288,14 @@ final class EventMode {
     private func registerPushToken(api: APIClient) async {
         guard let run, let token = pushToken, token != registeredToken else { return }
         let asked = generation
+        let body = Registration(hopId: run.hopId, since: Int64(run.since), environment: Self.pushEnvironment)
+        // Its own task, so End can wait for it to land before forgetting the token.
+        let request = Task {
+            let _: Ack = try await api.put("api/me/live-activities/\(token)", body: body)
+        }
+        registering = request
         do {
-            let _: Ack = try await api.put(
-                "api/me/live-activities/\(token)",
-                body: Registration(hopId: run.hopId, since: Int64(run.since), environment: Self.pushEnvironment)
-            )
+            try await request.value
             guard asked == generation else { return }
             registeredToken = token
         } catch let error as APIError where error.code == "wrong_environment" {
