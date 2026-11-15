@@ -16,6 +16,7 @@ import { liveActivityRoutes } from "./routes/live";
 import { meRoutes } from "./routes/me";
 import { publicRoutes } from "./routes/public";
 import { uploadRoutes } from "./routes/uploads";
+import { waitlistRoutes } from "./routes/waitlist";
 
 /** Keep in sync with "triggers" in wrangler.jsonc; every other schedule runs the digest. */
 const CLEANUP_CRON = "17 * * * *";
@@ -48,6 +49,7 @@ app.route("/", meRoutes);
 app.route("/", uploadRoutes);
 app.route("/", liveActivityRoutes);
 app.route("/", billingRoutes);
+app.route("/", waitlistRoutes);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 app.use("/dev/*", async (c, next) => {
   // Belt and braces: even a mistaken deploy with development vars can't expose these.

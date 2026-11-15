@@ -57,6 +57,13 @@
       "when": 1794762077954,
       "tag": "0007_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794764219242,
+      "tag": "0008_waitlist",
+      "breakpoints": true
     }
   ]
 }

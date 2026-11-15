@@ -1,11 +1,19 @@
 import type { Env } from "../env";
 
-/** Action name set on the widget, checked so tokens minted elsewhere don't count. */
-export const TURNSTILE_ACTION = "upload";
+/**
+ * Action names set on the widget, checked so a token minted for one form
+ * (or another site) doesn't count for another.
+ */
+export type TurnstileAction = "upload" | "waitlist";
 
 type SiteverifyResponse = { success?: boolean; hostname?: string; action?: string };
 
-export async function verifyTurnstile(env: Env, token: string, ip: string): Promise<boolean> {
+export async function verifyTurnstile(
+  env: Env,
+  token: string,
+  ip: string,
+  action: TurnstileAction,
+): Promise<boolean> {
   const body = new FormData();
   body.append("secret", env.TURNSTILE_SECRET_KEY);
   body.append("response", token);
@@ -19,5 +27,5 @@ export async function verifyTurnstile(env: Env, token: string, ip: string): Prom
   if (data.success !== true) return false;
   // Cloudflare's test keys (used locally) report hostname "example.com" and no action.
   if (env.ENVIRONMENT === "development") return true;
-  return data.hostname === new URL(env.APP_URL).hostname && data.action === TURNSTILE_ACTION;
+  return data.hostname === new URL(env.APP_URL).hostname && data.action === action;
 }
