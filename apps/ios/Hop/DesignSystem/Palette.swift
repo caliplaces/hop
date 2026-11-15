@@ -33,3 +33,39 @@ nonisolated enum Palette {
     /// Hop's own colour, for screens that don't belong to an athlete yet.
     static let brand = grape
 }
+
+nonisolated extension Palette {
+    /// The colour with this id, or Hop's own when the id is unknown.
+    static func color(id: String?) -> PaletteColor {
+        all.first { $0.id == id } ?? brand
+    }
+
+    /// WCAG contrast ratio between two 0xRRGGBB colours, as on the web.
+    static func contrast(_ a: UInt32, _ b: UInt32) -> Double {
+        let (la, lb) = (luminance(a), luminance(b))
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+
+    private static func luminance(_ hex: UInt32) -> Double {
+        let channels = [16, 8, 0].map { shift -> Double in
+            let c = Double((hex >> UInt32(shift)) & 0xFF) / 255
+            return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+    }
+}
+
+nonisolated extension PaletteColor {
+    static let ink: UInt32 = 0x0B0B0C
+    static let white: UInt32 = 0xFFFFFF
+
+    /// Ink or white, whichever reads better on this colour (as `textOn` on the web).
+    var onColorHex: UInt32 {
+        Palette.contrast(hex, Self.ink) >= Palette.contrast(hex, Self.white) ? Self.ink : Self.white
+    }
+
+    var onColor: Color { Color(hex: onColorHex) }
+
+    /// Bobble idling in this colour.
+    var bobble: Image { Image("Bobble-\(id)") }
+}

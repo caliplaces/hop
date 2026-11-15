@@ -69,13 +69,25 @@ nonisolated struct APIClient: Sendable {
         _ = try await send("POST", path, body: nil)
     }
 
+    func put<Response: Decodable>(_ path: String, body: some Encodable) async throws -> Response {
+        try await decode(send("PUT", path, body: JSONEncoder().encode(body)))
+    }
+
+    func patch<Response: Decodable>(_ path: String, body: some Encodable) async throws -> Response {
+        try await decode(send("PATCH", path, body: JSONEncoder().encode(body)))
+    }
+
+    func delete(_ path: String) async throws {
+        _ = try await send("DELETE", path, body: nil)
+    }
+
     private func send(_ method: String, _ path: String, body: Data?) async throws -> Data {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if method != "GET" {
-            // The API treats unlabelled POSTs like cross-site form posts and
-            // refuses them, so every POST says it's JSON, even without a body.
+            // The API treats unlabelled writes like cross-site form posts and
+            // refuses them, so every write says it's JSON, even without a body.
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = body
         }
@@ -117,4 +129,17 @@ nonisolated struct Me: Codable, Equatable, Sendable {
     /// A palette colour id.
     let color: String
     let emailNewClips: Bool
+
+    var paletteColor: PaletteColor { Palette.color(id: color) }
+
+    /// Their upload page, on the server this build talks to.
+    var link: URL? { handle.map { HopServer.baseURL.appending(path: $0) } }
+}
+
+nonisolated extension URL {
+    /// "onmyhop.com/alex": a link as people say it, without the scheme.
+    var spoken: String {
+        let port = port.map { ":\($0)" } ?? ""
+        return "\(host() ?? "")\(port)\(path())"
+    }
 }

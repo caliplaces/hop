@@ -2,119 +2,13 @@ import Foundation
 import Testing
 @testable import Hop
 
-/// Answers requests from a closure instead of the network, and records them.
-/// Replies to paths in `held` wait until `release()`, to stage races.
-final class StubProtocol: URLProtocol {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var _reply: (URLRequest) -> (Int, String) = { _ in (404, "{}") }
-    nonisolated(unsafe) private static var _requests: [(request: URLRequest, body: Data)] = []
-    nonisolated(unsafe) private static var _held: Set<String> = []
-    nonisolated(unsafe) private static var pending: [StubProtocol] = []
-
-    static var reply: (URLRequest) -> (Int, String) {
-        get { lock.withLock { _reply } }
-        set { lock.withLock { _reply = newValue } }
-    }
-    static var requests: [(request: URLRequest, body: Data)] {
-        get { lock.withLock { _requests } }
-        set { lock.withLock { _requests = newValue } }
-    }
-    static var held: Set<String> {
-        get { lock.withLock { _held } }
-        set { lock.withLock { _held = newValue } }
-    }
-
-    /// The thread URLSession started this request on; replies go back there.
-    private var loadingThread: Thread?
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        // URLSession hands bodies to protocols as streams.
-        var body = Data()
-        if let stream = request.httpBodyStream {
-            stream.open()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while stream.hasBytesAvailable {
-                let count = stream.read(&buffer, maxLength: buffer.count)
-                if count <= 0 { break }
-                body.append(buffer, count: count)
-            }
-            stream.close()
-        }
-        let path = request.url?.path ?? ""
-        let hold = Self.lock.withLock {
-            Self._requests.append((request, body))
-            guard Self._held.contains(path) else { return false }
-            Self.pending.append(self)
-            return true
-        }
-        if hold {
-            loadingThread = .current
-        } else {
-            deliver()
-        }
-    }
-
-    /// Lets every held reply through.
-    static func release() {
-        let waiting = lock.withLock {
-            defer { pending = [] }
-            return pending
-        }
-        for stub in waiting {
-            stub.perform(#selector(deliver), on: stub.loadingThread!, with: nil, waitUntilDone: false)
-        }
-    }
-
-    @objc private func deliver() {
-        let (status, json) = Self.reply(request)
-        let response = HTTPURLResponse(
-            url: request.url!, statusCode: status, httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(json.utf8))
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
-}
-
-final class MemoryTokenStore: TokenStore, @unchecked Sendable {
-    var token: String?
-    init(_ token: String? = nil) { self.token = token }
-    func read() -> String? { token }
-    func write(_ token: String) throws { self.token = token }
-    func delete() { token = nil }
-    func deleteAll() { token = nil }
-}
-
-private let me = """
-    {"id":"usr_1","name":"Alex Rider","email":"alex@example.com","handle":"alex",
-     "activeHopId":"hop_1","color":"grape","emailNewClips":true}
-    """
+private let me = meJSON()
 
 @MainActor
 @Suite("Session", .serialized)
 struct SessionTests {
     let store = MemoryTokenStore()
-    let base = URL(string: "https://hop.test")!
-
-    init() {
-        StubProtocol.requests = []
-        StubProtocol.held = []
-    }
-
-    /// Waits until a request for `path` has reached the stub.
-    private func waitForRequest(_ path: String) async throws {
-        for _ in 0..<400 {
-            if StubProtocol.requests.contains(where: { $0.request.url?.path == path }) { return }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        Issue.record("No request for \(path)")
-    }
+    let server = StubServer(host: "session.test")
 
     /// Defaults for an app that has run before; see `freshInstallStartsSignedOut`.
     private func installedDefaults() -> UserDefaults {
@@ -126,17 +20,15 @@ struct SessionTests {
     private func makeSession(
         store: MemoryTokenStore? = nil, defaults: UserDefaults? = nil
     ) -> Session {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubProtocol.self]
         return Session(
-            store: store ?? self.store, baseURL: base,
-            urlSession: URLSession(configuration: configuration),
+            store: store ?? self.store, baseURL: server.baseURL,
+            urlSession: server.urlSession(),
             defaults: defaults ?? installedDefaults()
         )
     }
 
     @Test func signsInThroughTheAPI() async throws {
-        StubProtocol.reply = { request in
+        server.reply = { request in
             switch request.url?.path {
             case "/api/auth/app/start":
                 (200, #"{"authorizeUrl":"https://auth.test/authorize?state=s","flow":"signed.flow"}"#)
@@ -158,7 +50,7 @@ struct SessionTests {
         #expect(session.me?.handle == "alex")
         #expect(store.token == "tok_123")
 
-        let exchange = try #require(StubProtocol.requests.last)
+        let exchange = try #require(server.requests.last)
         #expect(exchange.request.httpMethod == "POST")
         #expect(exchange.request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         let sent = try JSONSerialization.jsonObject(with: exchange.body) as? [String: String]
@@ -169,7 +61,7 @@ struct SessionTests {
     }
 
     @Test func passesOnTheAPIsExplanation() async {
-        StubProtocol.reply = { _ in
+        server.reply = { _ in
             (400, #"{"error":"expired","message":"Signing in took too long."}"#)
         }
         let session = makeSession()
@@ -181,17 +73,17 @@ struct SessionTests {
     }
 
     @Test func remembersTheTokenAndSignsRequestsWithIt() async throws {
-        StubProtocol.reply = { _ in (200, #"{"me":\#(me)}"#) }
+        server.reply = { _ in (200, #"{"me":\#(me)}"#) }
         let session = makeSession(store: MemoryTokenStore("tok_saved"))
         #expect(session.isSignedIn)
         await session.refresh()
         #expect(session.me?.name == "Alex Rider")
-        let request = try #require(StubProtocol.requests.last?.request)
+        let request = try #require(server.requests.last?.request)
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer tok_saved")
     }
 
     @Test func signsOutWhenTheServerForgotTheSession() async {
-        StubProtocol.reply = { _ in (200, #"{"me":null}"#) }
+        server.reply = { _ in (200, #"{"me":null}"#) }
         let saved = MemoryTokenStore("tok_old")
         let session = makeSession(store: saved)
         await session.refresh()
@@ -200,15 +92,15 @@ struct SessionTests {
     }
 
     @Test func staysSignedInWhileOffline() async {
-        StubProtocol.reply = { _ in (503, "{}") }
+        server.reply = { _ in (503, "{}") }
         let session = makeSession(store: MemoryTokenStore("tok_saved"))
         await session.refresh()
         #expect(session.isSignedIn)
     }
 
     @Test func ignoresARefreshOvertakenBySignOutAndBackIn() async throws {
-        StubProtocol.held = ["/api/me"]
-        StubProtocol.reply = { request in
+        server.held = ["/api/me"]
+        server.reply = { request in
             switch request.url?.path {
             case "/api/me": (200, #"{"me":null}"#)
             case "/api/auth/app/start":
@@ -224,15 +116,39 @@ struct SessionTests {
         // The launch-time refresh is still on its way when the person signs
         // out and back in; its stale "signed out" reply must not win.
         let refreshing = Task { await session.refresh() }
-        try await waitForRequest("/api/me")
+        try await server.waitForRequest("/api/me")
         await session.signOut()
         try await session.signIn { _ in URL(string: "com.onmyhop.app:/auth/callback?code=c&state=s")! }
-        StubProtocol.release()
+        server.release()
         await refreshing.value
 
         #expect(session.token == "tok_new")
         #expect(saved.token == "tok_new")
         #expect(session.me?.handle == "alex")
+    }
+
+    @Test func dropsAProfileFromASessionThatWasReplaced() async throws {
+        server.reply = { request in
+            switch request.url?.path {
+            case "/api/auth/app/start":
+                (200, #"{"authorizeUrl":"https://auth.test/authorize","flow":"f"}"#)
+            case "/api/auth/app/session":
+                (200, #"{"token":"tok_new","expiresAt":1,"me":\#(me)}"#)
+            default: (200, #"{"ok":true}"#)
+            }
+        }
+        let session = makeSession(store: MemoryTokenStore("tok_old"))
+        let asked = session.token
+        await session.signOut()
+        try await session.signIn { _ in URL(string: "com.onmyhop.app:/auth/callback?code=c&state=s")! }
+
+        let stale = try JSONDecoder().decode(Me.self, from: Data(meJSON(handle: "someoneelse").utf8))
+        session.update(stale, from: asked)
+        #expect(session.me?.handle == "alex")
+        session.update(stale, from: nil)
+        #expect(session.me?.handle == "alex")
+        session.update(stale, from: session.token)
+        #expect(session.me?.handle == "someoneelse")
     }
 
     @Test func storesTokensPerServerIncludingThePort() {
@@ -279,13 +195,13 @@ struct SessionTests {
     }
 
     @Test func signOutForgetsLocallyAndEndsTheServerSession() async throws {
-        StubProtocol.reply = { _ in (200, #"{"ok":true}"#) }
+        server.reply = { _ in (200, #"{"ok":true}"#) }
         let saved = MemoryTokenStore("tok_saved")
         let session = makeSession(store: saved)
         await session.signOut()
         #expect(!session.isSignedIn)
         #expect(saved.token == nil)
-        let request = try #require(StubProtocol.requests.last?.request)
+        let request = try #require(server.requests.last?.request)
         #expect(request.url?.path == "/api/auth/logout")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer tok_saved")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
