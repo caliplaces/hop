@@ -11,14 +11,19 @@ nonisolated enum QRCode {
         // Medium error correction: survives a scuffed screen, stays easy to scan.
         filter.correctionLevel = "M"
         guard let output = filter.outputImage else { return nil }
-        return CIContext().createCGImage(output, from: output.extent)
+        return context.createCGImage(output, from: output.extent)
     }
+
+    /// A few dozen pixels need no GPU, and the widget extension stays light.
+    private static let context = CIContext(options: [.useSoftwareRenderer: true])
 }
 
 /// A QR code in ink on white, the way every phone camera expects it,
 /// whatever the theme.
 struct QRCodeView: View {
     let text: String
+    var padding: CGFloat = 14
+    var cornerRadius: CGFloat = 22
 
     var body: some View {
         if let image = QRCode.image(for: text) {
@@ -26,8 +31,8 @@ struct QRCodeView: View {
                 .interpolation(.none)
                 .resizable()
                 .scaledToFit()
-                .padding(14)
-                .background(.white, in: .rect(cornerRadius: 22))
+                .padding(padding)
+                .background(.white, in: .rect(cornerRadius: cornerRadius))
                 .accessibilityLabel(Text("QR code for \(text)"))
         }
     }

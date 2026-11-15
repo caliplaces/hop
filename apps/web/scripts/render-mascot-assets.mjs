@@ -57,11 +57,14 @@ const EMAIL_POSES = {
 const EMAIL_SIZE = 400;
 const only = process.argv[2]; // "email" to skip the logo images, "ios" for the iOS app only
 /**
- * iOS app images, written straight into apps/ios's asset catalog: two poses,
- * the face, the app icons, and Bobble idling in every athlete colour. Bobble
- * shows at up to ~220 pt there, so poses render at 3x of that.
+ * iOS app images, written straight into apps/ios's asset catalogs: two poses,
+ * the face, the app icons, and Bobble idling in every athlete colour; and for
+ * the widgets, Bobble's face in every colour. Bobble shows at up to ~220 pt
+ * in the app, so poses render at 3x of that.
  */
 const iosAssets = path.resolve(webDir, "..", "ios", "Hop", "Assets.xcassets");
+/** The widget extension's catalog: Bobble's face, for the Dynamic Island. */
+const widgetAssets = path.resolve(webDir, "..", "ios", "HopWidgets", "Assets.xcassets");
 const IOS_POSES = {
   // Sits inside the welcome bubble.
   "bobble-idle": {
@@ -76,6 +79,8 @@ const IOS_POSES = {
 const IOS_POSE_SIZE = 660;
 /** Per-colour Bobbles show at up to 160 pt. */
 const IOS_COLOR_POSE_SIZE = 480;
+/** Per-colour faces show at up to 32 pt. */
+const IOS_FACE_SIZE = 96;
 const IOS_ICON_SIZE = 1024;
 const XCODE_INFO = { author: "xcode", version: 1 };
 
@@ -170,8 +175,32 @@ if (only === "ios") {
     path.join(colorsDir, "Contents.json"),
     `${JSON.stringify({ info: XCODE_INFO }, null, 2)}\n`,
   );
+  const facesDir = path.join(widgetAssets, "Face");
+  fs.mkdirSync(facesDir, { recursive: true });
+  for (const dir of [widgetAssets, facesDir]) {
+    fs.writeFileSync(
+      path.join(dir, "Contents.json"),
+      `${JSON.stringify({ info: XCODE_INFO }, null, 2)}\n`,
+    );
+  }
   const idle = IOS_POSES["bobble-idle"];
   for (const [id, colorHex] of Object.entries(PALETTE)) {
+    // Bobble's face in this colour, for the widgets.
+    const facePage = await render(colorHex);
+    const face = path.join(facesDir, `Face-${id}.imageset`);
+    fs.mkdirSync(face, { recursive: true });
+    fs.writeFileSync(
+      path.join(face, `face-${id}.png`),
+      await sharp(await snapshot(facePage, IOS_FACE_SIZE))
+        .png({ compressionLevel: 9, effort: 10 })
+        .toBuffer(),
+    );
+    fs.writeFileSync(
+      path.join(face, "Contents.json"),
+      `${JSON.stringify({ images: [{ filename: `face-${id}.png`, idiom: "universal", scale: "3x" }], info: XCODE_INFO }, null, 2)}\n`,
+    );
+    await facePage.close();
+
     const colorPage = await render(colorHex, { ...idle, framing: "stage", size: 768 });
     const png = await sharp(await snapshot(colorPage, IOS_COLOR_POSE_SIZE, { crop: idle.crop }))
       .png({ compressionLevel: 9, effort: 10 })

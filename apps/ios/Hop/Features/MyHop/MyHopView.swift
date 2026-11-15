@@ -4,7 +4,12 @@ import UIKit
 /// The athlete's link: what to say, show or send at an event.
 struct MyHopView: View {
     @Environment(Session.self) private var session
+    @Environment(EventMode.self) private var eventMode
     @State private var copied = false
+    @State private var settingUpEvent = false
+    /// Set when the setup sheet started Event mode, to go on stage once
+    /// the sheet is gone.
+    @State private var startedEvent = false
 
     var body: some View {
         NavigationStack {
@@ -22,6 +27,14 @@ struct MyHopView: View {
             }
             .navigationTitle("My Hop")
             .toolbar { AccountMenu() }
+            .sheet(isPresented: $settingUpEvent, onDismiss: {
+                if startedEvent {
+                    startedEvent = false
+                    eventMode.isStagePresented = true
+                }
+            }) {
+                EventSetupSheet { startedEvent = true }
+            }
         }
     }
 
@@ -58,6 +71,8 @@ struct MyHopView: View {
             .padding(20)
             .glassEffect(.regular, in: .rect(cornerRadius: 32))
 
+            eventModeButton(color: me.paletteColor)
+
             GlassEffectContainer(spacing: 12) {
                 HStack(spacing: 12) {
                     Button {
@@ -89,5 +104,28 @@ struct MyHopView: View {
             try? await Task.sleep(for: .seconds(2))
             copied = false
         }
+    }
+
+    /// Starts Event mode, or goes back to the one that's running.
+    private func eventModeButton(color: PaletteColor) -> some View {
+        Button {
+            if eventMode.run != nil {
+                eventMode.isStagePresented = true
+            } else {
+                settingUpEvent = true
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .symbolEffect(.variableColor.iterative, isActive: eventMode.run != nil)
+                Text(eventMode.run != nil ? "Back to Event mode" : "Start Event mode")
+            }
+            .font(.headline)
+            .foregroundStyle(color.onColor)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.glassProminent)
+        .controlSize(.extraLarge)
+        .tint(color.color)
     }
 }

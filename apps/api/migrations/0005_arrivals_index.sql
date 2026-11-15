@@ -1,0 +1,1 @@
+CREATE INDEX `files_hop_status_completed_idx` ON `files` (`hop_id`,`status`,`completed_at`);

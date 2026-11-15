@@ -150,11 +150,3 @@ nonisolated struct Me: Codable, Equatable, Sendable {
     /// Their upload page, on the server this build talks to.
     var link: URL? { handle.map { HopServer.baseURL.appending(path: $0) } }
 }
-
-nonisolated extension URL {
-    /// "onmyhop.com/alex": a link as people say it, without the scheme.
-    var spoken: String {
-        let port = port.map { ":\($0)" } ?? ""
-        return "\(host() ?? "")\(port)\(path())"
-    }
-}

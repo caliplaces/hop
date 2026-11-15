@@ -3,8 +3,6 @@
 
 PRODUCT_NAME = Hop
 PRODUCT_BUNDLE_IDENTIFIER = com.onmyhop.app
-MARKETING_VERSION = 0.1.0
-CURRENT_PROJECT_VERSION = 1
 
 // UI code runs on the main actor unless it says otherwise.
 SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
@@ -14,6 +12,9 @@ ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor
 ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES
 
 GENERATE_INFOPLIST_FILE = YES
+// Adds what generated keys can't express: the app's URL scheme, which
+// Event mode's Live Activity opens the app with.
+INFOPLIST_FILE = Config/Hop.plist
 INFOPLIST_KEY_CFBundleDisplayName = Hop
 INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.photography
 INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
@@ -21,5 +22,7 @@ INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES
 INFOPLIST_KEY_UILaunchScreen_Generation = YES
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait
 INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = Hop saves the clips you choose to your photo library.
+// Event mode shows a Live Activity.
+INFOPLIST_KEY_NSSupportsLiveActivities = YES
 
 CODE_SIGN_STYLE = Automatic
