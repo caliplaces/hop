@@ -15,6 +15,11 @@ export const users = sqliteTable("users", {
   activeHopId: text("active_hop_id"),
   /** Email the athlete when new clips arrive. On by default; unsubscribe links turn it off. */
   emailNewClips: integer("email_new_clips", { mode: "boolean" }).notNull().default(true),
+  /**
+   * A UUID the iPhone app sets on App Store purchases (StoreKit's
+   * appAccountToken), so the API knows whose they are. Made when first needed.
+   */
+  appAccountToken: text("app_account_token").unique(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -152,6 +157,52 @@ export const liveActivities = sqliteTable(
   ],
 );
 
+/**
+ * Hop+ subscriptions bought through the App Store, one row per subscription
+ * (Apple's originalTransactionId, which stays the same across renewals). Kept
+ * up to date from signed transactions the app sends and from App Store Server
+ * Notifications. An athlete has Hop+ while one of theirs is paid up or in a
+ * billing grace period, and wasn't revoked (refunded).
+ */
+export const subscriptions = sqliteTable(
+  "subscriptions",
+  {
+    originalTransactionId: text("original_transaction_id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull(),
+    environment: text("environment", { enum: ["Sandbox", "Production"] }).notNull(),
+    /** End of the paid period. */
+    expiresAt: integer("expires_at").notNull(),
+    /**
+     * While Apple retries a failed renewal, Hop+ carries on until this. Only
+     * renewal info (from notifications) sets it; a newer purchase clears it.
+     */
+    graceExpiresAt: integer("grace_expires_at"),
+    /** Set when Apple refunded or revoked it: Hop+ ends at once. */
+    revokedAt: integer("revoked_at"),
+    autoRenew: integer("auto_renew", { mode: "boolean" }).notNull().default(true),
+    /**
+     * Which data is newest: the purchase date of the latest transaction
+     * applied (each renewal, upgrade or resubscription is a new one), then when
+     * Apple signed it. Older data (a retry, an out-of-order notification, or a
+     * freshly signed copy of a superseded transaction) never overwrites newer.
+     */
+    purchasedAt: integer("purchased_at").notNull(),
+    signedAt: integer("signed_at").notNull(),
+    /**
+     * When the newest renewal info applied (grace period, auto-renew) was
+     * signed. It's ordered on its own, apart from the transaction's.
+     */
+    renewalSignedAt: integer("renewal_signed_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("subscriptions_user_idx").on(t.userId, t.expiresAt)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;
+export type SubscriptionRow = typeof subscriptions.$inferSelect;

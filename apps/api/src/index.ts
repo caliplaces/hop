@@ -9,6 +9,7 @@ import { fail } from "./lib/http";
 import { loadSession } from "./lib/session";
 import { announceNewClips } from "./notify";
 import { authRoutes } from "./routes/auth";
+import { billingRoutes } from "./routes/billing";
 import { devRoutes } from "./routes/dev";
 import { emailRoutes } from "./routes/email";
 import { liveActivityRoutes } from "./routes/live";
@@ -46,6 +47,7 @@ app.route("/", publicRoutes);
 app.route("/", meRoutes);
 app.route("/", uploadRoutes);
 app.route("/", liveActivityRoutes);
+app.route("/", billingRoutes);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 app.use("/dev/*", async (c, next) => {
   // Belt and braces: even a mistaken deploy with development vars can't expose these.

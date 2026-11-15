@@ -100,7 +100,7 @@ export async function pushLiveActivity(
     headers: {
       authorization: `bearer ${await providerToken(env, now)}`,
       "apns-push-type": "liveactivity",
-      "apns-topic": `${env.APNS_BUNDLE_ID}.push-type.liveactivity`,
+      "apns-topic": `${env.APPLE_BUNDLE_ID}.push-type.liveactivity`,
       // Immediate. The app asks for frequent updates (NSSupportsLiveActivitiesFrequentUpdates).
       "apns-priority": "10",
       "content-type": "application/json",

@@ -138,6 +138,36 @@ export const liveActivitySchema = z.object({
   environment: z.enum(["sandbox", "production"]),
 });
 
+/** A signed App Store transaction (StoreKit 2's `jwsRepresentation`). */
+export const appleTransactionSchema = z.object({
+  transaction: z.string().min(1).max(16_384),
+});
+
+/** The athlete's plan, storage and, with Hop+, their subscription. */
+export type PlanStatus = {
+  plan: "free" | "plus";
+  storage: { usedBytes: number; limitBytes: number };
+  /** Days free clips are kept; null with Hop+ (kept for good). */
+  retentionDays: number | null;
+  /** With Hop+: when the current period ends, and whether it renews. */
+  subscription: {
+    productId: string;
+    expiresAt: number;
+    /**
+     * Set while Apple retries a failed renewal: the period has ended, and
+     * Hop+ carries on until this unless the athlete fixes their payment.
+     */
+    graceExpiresAt: number | null;
+    autoRenew: boolean;
+    environment: "Sandbox" | "Production";
+  } | null;
+  /**
+   * Ties App Store purchases to this account (StoreKit's appAccountToken):
+   * the app sets it on every purchase, and the API only credits matching ones.
+   */
+  appAccountToken: string;
+};
+
 /** Making a hop live: when it happened, by the server's clock. */
 export type HopActivation = { ok: true; activatedAt: number };
 

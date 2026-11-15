@@ -51,7 +51,7 @@ beforeEach(async () => {
     APNS_KEY_ID: "KEY1234567",
     APNS_ENVIRONMENT: "sandbox",
     APPLE_TEAM_ID: "TEAM123456",
-    APNS_BUNDLE_ID: "com.onmyhop.app",
+    APPLE_BUNDLE_ID: "com.onmyhop.app",
   } as Env;
   db = getDb(DB);
   await db.insert(users).values([

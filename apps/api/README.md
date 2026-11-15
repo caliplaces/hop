@@ -87,6 +87,54 @@ The iPhone app's Event mode shows a Live Activity counting the clips that come i
 - Each environment has its own APNs key, restricted to the `com.onmyhop.app` topic: a sandbox key for staging (debug builds) and a production key for production (TestFlight and App Store builds). The key is the `APNS_KEY` secret; its ID and environment are `APNS_KEY_ID` and `APNS_ENVIRONMENT` in `wrangler.jsonc`. Without the secret, nothing is pushed.
 - `wrangler dev` can't reach APNs, so try pushes on staging. Locally, `POST /api/dev/hops/:hopId/arrivals` lands a fake clip in an event, for trying Event mode without uploading anything.
 
+## Hop+ subscriptions
+
+Athletes subscribe to Hop+ in the iPhone app, through the App Store. The plans are in `packages/shared/src/limits.ts`:
+
+| Plan | Storage | Clips kept |
+| ---- | ------- | ---------- |
+| Free | 15 GB   | 30 days    |
+| Hop+ | 200 GB  | Forever    |
+
+The products are `hop_plus` (monthly) and `hop_plus_annual` (yearly), in one subscription group. Prices live only in App Store Connect; the app shows what StoreKit returns.
+
+The API decides who has Hop+, and only from data Apple signed (`src/lib/apple.ts`). Each signed payload carries its certificate chain, which must lead to the pinned Apple Root CA G3 (`src/lib/apple-roots.ts`) through Apple's App Store signing certificates, as in Apple's own server library.
+
+- `GET /api/me/plan` returns the plan, storage use and limit, and the athlete's `appAccountToken`. The app passes the token to StoreKit with each purchase, so Apple's records tie the purchase to this account.
+- `POST /api/me/subscriptions/apple` takes a transaction from StoreKit, sent after a purchase, on restore, and as renewals arrive. It's only accepted when the transaction carries this account's token.
+- `POST /api/apple/notifications` receives App Store Server Notifications V2 for renewals, lapses, billing grace periods and refunds, and credits the account whose token the purchase carries.
+
+How a subscription's state is kept right:
+
+- **Newest wins.** Data applies only when it's for a later purchase (a renewal, upgrade or resubscription), or for the same purchase signed later. Retries, late notifications and old transactions signed again can't roll a subscription back. Transactions superseded by an upgrade (`isUpgraded`) are ignored, as in Apple's sample code.
+- **Ownership.** A subscription belongs to the account whose token is on its newest purchase. Restoring someone else's purchase is refused. If the same Apple ID later subscribes again from another Hop account, the subscription moves there, since only that Apple ID can make a new purchase for it.
+- **Billing grace.** While Apple retries a failed renewal, Hop+ continues until the grace period ends. Only renewal info, which comes with notifications, starts it, and a newer purchase ends it. Renewal info is ordered by its own signing time, apart from the transaction's, so the app syncing a purchase can't hold back a grace period Apple delivers late. It only counts when it comes with the current purchase, so a late notification about an older one can't bring its grace period back.
+
+Upload quota checks use the plan at the moment of the upload (`src/lib/plans.ts`). Retention isn't enforced yet: no clip is deleted for being older than 30 days.
+
+In App Store Connect, under the app's **App Information › App Store Server Notifications**, set Version 2 URLs:
+
+- Production: `https://onmyhop.com/api/apple/notifications`
+- Sandbox: `https://staging.onmyhop.com/api/apple/notifications`
+
+Production notifications must name this app's Apple ID (`APPLE_APP_ID` in `wrangler.jsonc`).
+
+### Sandbox purchases
+
+App Review and TestFlight buy in the sandbox against production, and TestFlight subscriptions cost nothing. On production, sandbox purchases unlock Hop+ only for the accounts in the `APPLE_SANDBOX_USERS` secret: App Review's demo account and the team's. Anyone else gets `403 test_purchase`. Staging accepts every sandbox purchase.
+
+```sh
+# User IDs, comma separated
+wrangler d1 execute hop-production --remote --env production \
+  --command "select id from users where handle in ('demo', 'you')"
+wrangler secret put APPLE_SANDBOX_USERS --env production
+```
+
+### Not covered yet
+
+- Nothing catches up on notifications Apple gave up retrying (after about 3 days). Asking the App Store Server API for the subscription's status would, and needs an In-App Purchase key.
+- Purchases that carry no `appAccountToken`, such as offer codes redeemed in the App Store app, can't be credited.
+
 ## Deploys
 
 CI deploys every merge: `staging` goes to staging.onmyhop.com and `main` to onmyhop.com. It applies D1 migrations first, then deploys the Worker (see [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)). To redeploy without a new merge, run the CI workflow manually on that branch.
