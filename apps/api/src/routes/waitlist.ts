@@ -14,12 +14,15 @@ import { verifyTurnstile } from "../lib/turnstile";
  */
 export const waitlistRoutes = new Hono<AppEnv>().post(
   "/waitlist",
+  // Counted first, so every try counts, oversized ones included.
+  async (c, next) => {
+    const { success } = await c.env.WAITLIST_LIMITER.limit({ key: `waitlist:${clientIp(c)}` });
+    if (!success) return fail(c, 429, "rate_limited", "Too many tries. Try again in a minute.");
+    await next();
+  },
   bodyLimit({ maxSize: 8 * 1024, onError: (c) => fail(c, 413, "too_large") }),
   async (c) => {
     const ip = clientIp(c);
-    const { success } = await c.env.WAITLIST_LIMITER.limit({ key: `waitlist:${ip}` });
-    if (!success) return fail(c, 429, "rate_limited", "Too many tries. Try again in a minute.");
-
     const parsed = joinWaitlistSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return fail(c, 400, "invalid_email", "That doesn't look like an email address.");

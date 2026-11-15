@@ -7,12 +7,15 @@ import { createTestD1 } from "../test/d1";
 
 let env: Env;
 let allow: boolean;
+/** The keys the rate limiter was asked about. */
+let counted: string[];
 /** What Cloudflare's siteverify answers, and the forms it was sent. */
 let siteverify: { success: boolean; hostname?: string; action?: string };
 let verified: FormData[];
 
 beforeEach(() => {
   allow = true;
+  counted = [];
   siteverify = { success: true, hostname: "onmyhop.com", action: "waitlist" };
   verified = [];
   env = {
@@ -20,7 +23,12 @@ beforeEach(() => {
     ENVIRONMENT: "production",
     APP_URL: "https://onmyhop.com",
     TURNSTILE_SECRET_KEY: "turnstile-secret",
-    WAITLIST_LIMITER: { limit: async () => ({ success: allow }) } as RateLimit,
+    WAITLIST_LIMITER: {
+      limit: async ({ key }: { key: string }) => {
+        counted.push(key);
+        return { success: allow };
+      },
+    } as RateLimit,
   } as Env;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     expect(String(input)).toBe("https://challenges.cloudflare.com/turnstile/v0/siteverify");
@@ -123,8 +131,11 @@ describe("limits", () => {
     expect(await rows()).toHaveLength(0);
   });
 
-  it("refuses oversized bodies", async () => {
-    const response = await join({ email: "maya@example.com", padding: "a".repeat(20_000) });
-    expect(response.status).toBe(413);
+  it("refuses oversized bodies, and counts them toward the limit", async () => {
+    const oversized = { email: "maya@example.com", padding: "a".repeat(20_000) };
+    expect((await join(oversized)).status).toBe(413);
+    expect(counted).toEqual(["waitlist:203.0.113.7"]);
+    allow = false;
+    expect((await join(oversized)).status).toBe(429);
   });
 });
