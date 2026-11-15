@@ -10,9 +10,12 @@ import type { AppEnv, Env } from "../env";
 import { newId, signPayload, verifyPayload } from "../lib/crypto";
 import { clientIp, fail, isSecureUrl, safeReturnTo } from "../lib/http";
 import {
-  APP_REDIRECT_URI,
+  APP_SCHEME_REDIRECT_URI,
+  appCallback,
   appOidcClient,
+  appRedirectUri,
   authorizationServer,
+  isRedirectTo,
   OIDC_SCOPES,
   oidcClient,
   redirectUri,
@@ -44,6 +47,8 @@ type AppFlowState = {
   state: string;
   nonce: string;
   codeVerifier: string;
+  /** Where this flow sends the app back to, so a setting changed meanwhile can't break it. */
+  redirectUri?: string;
 };
 
 /**
@@ -252,11 +257,14 @@ export const authRoutes = new Hono<AppEnv>()
     if (!c.env.OIDC_APP_CLIENT_ID) {
       return fail(c, 503, "unavailable", "Signing in from the app isn't set up here.");
     }
-    const { flow, url } = await startFlow(c.env, c.env.OIDC_APP_CLIENT_ID, APP_REDIRECT_URI);
-    const state: AppFlowState = { purpose: "app-oidc-flow", ...flow };
+    const appRedirect = appRedirectUri(c.env);
+    const { flow, url } = await startFlow(c.env, c.env.OIDC_APP_CLIENT_ID, appRedirect);
+    const state: AppFlowState = { purpose: "app-oidc-flow", ...flow, redirectUri: appRedirect };
     return c.json({
       authorizeUrl: url.toString(),
       flow: await signPayload(c.env.SESSION_SECRET, state),
+      // What the app's web authentication session waits for.
+      callback: appCallback(appRedirect),
     });
   })
 
@@ -285,7 +293,9 @@ export const authRoutes = new Hono<AppEnv>()
     } catch {
       return fail(c, 400, "invalid_callback");
     }
-    if (`${callback.protocol}${callback.pathname}` !== APP_REDIRECT_URI) {
+    // Flows started before redirects were recorded used the custom scheme.
+    const appRedirect = flow.redirectUri ?? APP_SCHEME_REDIRECT_URI;
+    if (!isRedirectTo(callback, appRedirect)) {
       return fail(c, 400, "invalid_callback");
     }
 
@@ -305,7 +315,7 @@ export const authRoutes = new Hono<AppEnv>()
         client,
         clientAuth: oauth.None(),
         params,
-        redirectUri: APP_REDIRECT_URI,
+        redirectUri: appRedirect,
         codeVerifier: flow.codeVerifier,
         nonce: flow.nonce,
       });
@@ -316,6 +326,20 @@ export const authRoutes = new Hono<AppEnv>()
 
     const session = await createAppSession(c.env, user.id);
     return c.json({ token: session.token, expiresAt: session.expiresAt, me: toMe(user) });
+  })
+
+  /**
+   * The app's https callback. Its web authentication session catches the
+   * redirect before this loads, so a browser only gets here if something
+   * went wrong. Nothing in the URL is used, shown or kept.
+   */
+  .get("/app/callback", (c) => {
+    c.header("cache-control", "no-store");
+    return c.html(
+      '<!doctype html><html lang="en"><meta charset="utf-8">' +
+        '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+        "<title>Hop</title><p>Go back to the Hop app to finish signing in.</p></html>",
+    );
   })
 
   .post("/logout", async (c) => {

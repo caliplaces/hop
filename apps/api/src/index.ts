@@ -6,6 +6,7 @@ import { cleanup } from "./cron";
 import { ONE_CLICK_UNSUBSCRIBE_PATH } from "./email/unsubscribe";
 import type { AppEnv, Env } from "./env";
 import { fail } from "./lib/http";
+import { APP_SITE_ASSOCIATION_PATH, appSiteAssociation } from "./lib/oidc";
 import { loadSession } from "./lib/session";
 import { announceNewClips } from "./notify";
 import { authRoutes } from "./routes/auth";
@@ -67,7 +68,13 @@ app.onError((error, c) => {
 });
 
 export default {
-  fetch: app.fetch,
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    // The one file outside /api: Apple reads it to tie this site to the app.
+    if (new URL(request.url).pathname === APP_SITE_ASSOCIATION_PATH) {
+      return appSiteAssociation(env);
+    }
+    return app.fetch(request, env, ctx);
+  },
   async scheduled(controller, env, ctx) {
     ctx.waitUntil(controller.cron === CLEANUP_CRON ? cleanup(env) : announceNewClips(env));
   },

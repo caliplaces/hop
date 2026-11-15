@@ -148,6 +148,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("the apple-app-site-association file", () => {
+  it("ties this site to the Hop app, for its sign-in callback", async () => {
+    env.APPLE_TEAM_ID = "XH66L5M6JJ";
+    env.APPLE_BUNDLE_ID = "com.onmyhop.app";
+    const response = await worker.fetch(
+      new Request("https://onmyhop.com/.well-known/apple-app-site-association"),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await response.json()).toEqual({
+      webcredentials: { apps: ["XH66L5M6JJ.com.onmyhop.app"] },
+    });
+  });
+});
+
 describe("app sign-in", () => {
   it("starts a PKCE flow for the app's own client and redirect", async () => {
     const { url, flow } = await start();
@@ -161,6 +178,15 @@ describe("app sign-in", () => {
     expect(url.searchParams.get("state")).toBeTruthy();
     expect(url.searchParams.get("nonce")).toBeTruthy();
     expect(flow).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  });
+
+  it("tells the app which callback to wait for: the custom scheme, until https is on", async () => {
+    const scheme = (await (await post("/auth/app/start")).json()) as { callback: unknown };
+    expect(scheme.callback).toEqual({ scheme: "com.onmyhop.app" });
+
+    env.OIDC_APP_REDIRECT = "https";
+    const https = (await (await post("/auth/app/start")).json()) as { callback: unknown };
+    expect(https.callback).toEqual({ host: "onmyhop.com", path: "/api/auth/app/callback" });
   });
 
   it("exchanges the code as a public client and returns a working bearer session", async () => {
@@ -231,6 +257,54 @@ describe("app sign-in", () => {
     });
     expect((await post("/auth/app/session", { flow: website, callbackUrl })).status).toBe(400);
     expect(tokenRequests).toHaveLength(0);
+  });
+
+  it("signs in through the https callback, which only Hop can catch", async () => {
+    env.OIDC_APP_REDIRECT = "https";
+    const https = `${env.APP_URL}/api/auth/app/callback`;
+    const { flow, state, url } = await start();
+    expect(url.searchParams.get("redirect_uri")).toBe(https);
+
+    for (const callbackUrl of [
+      `https://evil.example/api/auth/app/callback?code=c&state=${state}`,
+      `https://onmyhop.com/api/auth/elsewhere?code=c&state=${state}`,
+      `http://onmyhop.com/api/auth/app/callback?code=c&state=${state}`,
+      // An https flow doesn't take the custom scheme another app could claim.
+      `${APP_REDIRECT}?code=c&state=${state}`,
+    ]) {
+      const refused = await post("/auth/app/session", { flow, callbackUrl });
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toMatchObject({ error: "invalid_callback" });
+    }
+
+    const response = await post("/auth/app/session", {
+      flow,
+      callbackUrl: `${https}?code=the-code&state=${state}`,
+    });
+    expect(response.status).toBe(200);
+    expect(tokenRequests[0]?.body.get("redirect_uri")).toBe(https);
+  });
+
+  it("finishes a sign-in with the redirect it started with, if the setting changes meanwhile", async () => {
+    const { flow, state } = await start();
+    env.OIDC_APP_REDIRECT = "https";
+    const response = await post("/auth/app/session", {
+      flow,
+      callbackUrl: `${APP_REDIRECT}?code=the-code&state=${state}`,
+    });
+    expect(response.status).toBe(200);
+    expect(tokenRequests[0]?.body.get("redirect_uri")).toBe(APP_REDIRECT);
+  });
+
+  it("shows a plain page if the callback ever opens in a browser, keeping nothing", async () => {
+    const response = await call("/auth/app/callback?code=secret-code&state=s");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const page = await response.text();
+    expect(page).toContain("Hop app");
+    expect(page).not.toContain("secret-code");
+    expect(page).not.toContain("<script");
   });
 
   it("rejects a callback to another redirect or with the wrong state", async () => {
