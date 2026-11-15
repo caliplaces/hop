@@ -23,5 +23,5 @@ nonisolated struct EventActivityAttributes: ActivityAttributes {
 
     /// Opens the app on the full-screen QR code. Tapping the Live Activity
     /// goes here.
-    static let stageURL = URL(string: "com.onmyhop.app://event")!
+    static let stageURL = HopDeepLink.eventStage.url
 }

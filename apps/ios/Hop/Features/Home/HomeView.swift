@@ -5,6 +5,8 @@ struct HomeView: View {
     @Environment(Session.self) private var session
     @Environment(EventMode.self) private var eventMode
     @Environment(\.scenePhase) private var scenePhase
+    /// The QR code full screen, outside Event mode.
+    @State private var showingQRCode = false
 
     var body: some View {
         @Bindable var eventMode = eventMode
@@ -27,10 +29,24 @@ struct HomeView: View {
             guard watch.hopId != nil, watch.isActive else { return }
             await eventMode.watch(api: session.api, every: watch.isOnStage ? .seconds(4) : .seconds(15))
         }
-        // Tapping the Live Activity brings the QR code back.
+        .background {
+            // Its own anchor, apart from Event mode's full-screen cover.
+            Color.clear.fullScreenCover(isPresented: $showingQRCode) { QRCodeScreen() }
+        }
+        // The Live Activity, the widgets, Control Center and Shortcuts open
+        // the QR code: Event mode's while it runs, the pass's otherwise.
         .onOpenURL { url in
-            if url == EventActivityAttributes.stageURL, eventMode.run != nil {
-                eventMode.isStagePresented = true
+            switch HopDeepLink(url: url) {
+            case .eventStage:
+                if eventMode.run != nil { eventMode.isStagePresented = true }
+            case .qrCode:
+                if eventMode.run != nil {
+                    eventMode.isStagePresented = true
+                } else {
+                    showingQRCode = true
+                }
+            case nil:
+                break
             }
         }
     }

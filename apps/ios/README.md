@@ -2,13 +2,21 @@
 
 The native iOS app, built with SwiftUI and Liquid Glass. In so far: the welcome
 bubble, Sign in with Caliplaces, claiming a Hop link, the inbox (events, clips,
-a full-screen player, saving to Photos and sharing), the Hop pass and Event
-mode. Widgets for the QR code, the Wallet pass and "Share to Hop" come next.
+a full-screen player, saving to Photos and sharing), the Hop pass, quick
+access to the QR code and Event mode. The Wallet pass and "Share to Hop" come
+next.
 
 The Hop pass, on the My Hop tab, is the athlete's card: their colour with a
 holographic foil (a Metal shader) that shifts as the phone tilts or a finger
 turns it, Bobble peeking over the top, the QR code on white so it always
 scans, and their clips and events. It can be shared as a story-sized image.
+
+The QR code is a move away from anywhere: a Home Screen widget shows it, and a
+Lock Screen widget, a Control Center control and the "Show my Hop QR code"
+shortcut (Siri, Spotlight, the Action button) open it full screen, or Event
+mode's screen while that runs. The app shares the athlete's link with the
+widgets through the `group.com.onmyhop.app` app group, and clears it when they
+sign out.
 
 Event mode puts the QR code full screen, keeps the screen on, and counts the
 clips that come in, in the app and as a Live Activity on the Lock Screen and in
@@ -48,21 +56,21 @@ so run the tests from a full checkout of the repository.
 
 ## What's where
 
-| Folder                 | What's inside                                                |
-| ---------------------- | ------------------------------------------------------------ |
-| `Hop/App`              | The app's entry point and sign-in state                      |
-| `Hop/DesignSystem`     | Aura and shimmering text                                     |
-| `Hop/Features/Welcome` | The welcome bubble: geometry, Metal shaders, haptics         |
-| `Hop/Features/Account` | Claiming a handle and picking a colour                       |
-| `Hop/Features/Inbox`   | Events, clip grids, the player, save and share               |
-| `Hop/Features/MyHop`   | The Hop pass: link, QR code, foil shader, tilt, story image  |
-| `Hop/Features/Event`   | Event mode: setup, the full-screen QR code, the clip count   |
-| `Hop/Features/Home`    | The signed-in tabs                                           |
-| `Hop/Networking`       | The API client and Keychain token storage                    |
-| `HopWidgets`           | The widget extension: Event mode's Live Activity             |
-| `Shared`               | Code the app and its widgets share: palette, theme, QR codes |
-| `HopTests`             | Unit tests                                                   |
-| `Config`               | Build settings, as `.xcconfig` files                         |
+| Folder                 | What's inside                                               |
+| ---------------------- | ----------------------------------------------------------- |
+| `Hop/App`              | The app's entry point and sign-in state                     |
+| `Hop/DesignSystem`     | Aura and shimmering text                                    |
+| `Hop/Features/Welcome` | The welcome bubble: geometry, Metal shaders, haptics        |
+| `Hop/Features/Account` | Claiming a handle and picking a colour                      |
+| `Hop/Features/Inbox`   | Events, clip grids, the player, save and share              |
+| `Hop/Features/MyHop`   | The Hop pass: link, QR code, foil shader, tilt, story image |
+| `Hop/Features/Event`   | Event mode: setup, the full-screen QR code, the clip count  |
+| `Hop/Features/Home`    | The signed-in tabs                                          |
+| `Hop/Networking`       | The API client and Keychain token storage                   |
+| `HopWidgets`           | QR code widget and control, Event mode's Live Activity      |
+| `Shared`               | Shared with the widgets: palette, QR codes, links, intents  |
+| `HopTests`             | Unit tests                                                  |
+| `Config`               | Build settings, as `.xcconfig` files                        |
 
 New files in `Hop/`, `HopWidgets/`, `Shared/` and `HopTests/` are part of the
 build automatically, with no project edits needed. Files in `Shared/` are built

@@ -44,6 +44,10 @@ struct RootView: View {
             // Thumbnails are private to whoever was signed in.
             if !signedIn { Thumbnails.shared.removeAll() }
         }
+        // The widgets show this athlete's QR code, and nobody's once they sign out.
+        .onChange(of: session.me, initial: true) { _, me in
+            if me != nil || !session.isSignedIn { HopCard.publish(me) }
+        }
         // Carries on with an event that was running when the app quit, or
         // ends it: it belongs to whoever is signed in, and only to them.
         .task(id: session.me?.id) {
