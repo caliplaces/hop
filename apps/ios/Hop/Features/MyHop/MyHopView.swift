@@ -96,7 +96,9 @@ struct MyHopView: View {
             try? await Task.sleep(for: .seconds(2))
             copied = false
         }
-        .task(id: me) { await loadStats() }
+        // Reloads when the profile changes, and as clips land in Event mode,
+        // so the pass and its story image keep up.
+        .task(id: StatsKey(me: me, eventClips: eventMode.clips)) { await loadStats() }
         .task(id: StoryKey(me: me, stats: stats)) {
             story = PassStory.image(me: me, link: link, stats: stats).map(Image.init(uiImage:))
         }
@@ -107,6 +109,11 @@ struct MyHopView: View {
         struct Reply: Decodable { let hops: [Hop] }
         guard let reply: Reply = try? await session.api.get("api/me/hops") else { return }
         stats = PassStats(hops: reply.hops)
+    }
+
+    private struct StatsKey: Equatable {
+        let me: Me
+        let eventClips: Int
     }
 
     private struct StoryKey: Equatable {
@@ -169,5 +176,9 @@ private struct TurningPass: View {
             )
             .onAppear { if !reduceMotion { tilt.start() } }
             .onDisappear { tilt.stop() }
+            // Turning Reduce Motion on or off while the pass is showing.
+            .onChange(of: reduceMotion) { _, reduce in
+                if reduce { tilt.stop() } else { tilt.start() }
+            }
     }
 }
