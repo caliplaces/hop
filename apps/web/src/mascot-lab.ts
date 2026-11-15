@@ -4,7 +4,8 @@
  *
  * ?capture=1&state=busy&color=%23FF6B5B&size=600&shells=24 renders a single
  * mascot without a clock; window.__mascot.render(t) draws an exact frame,
- * which is how review videos are recorded.
+ * which is how review videos are recorded. &orbit=0.8 views it from the side
+ * (radians around it).
  */
 import { PALETTE } from "@hop/shared";
 import {
@@ -20,6 +21,8 @@ const root = document.getElementById("lab") as HTMLElement;
 const dark = params.get("dark") === "1";
 document.body.style.cssText = `margin:0;font:14px system-ui;background:${dark ? "#0b0b0c" : "#fafaf7"};color:${dark ? "#f4f4ef" : "#0b0b0c"}`;
 
+const orbit = Number(params.get("orbit") ?? 0);
+
 function mount(size: number, color: string, state: MascotState, shells?: number) {
   const canvas = document.createElement("canvas");
   canvas.style.width = canvas.style.height = `${size}px`;
@@ -29,6 +32,7 @@ function mount(size: number, color: string, state: MascotState, shells?: number)
     state,
     shells,
     framing,
+    orbit,
     preserveDrawingBuffer: true,
   });
   mascot.resize(size, size);

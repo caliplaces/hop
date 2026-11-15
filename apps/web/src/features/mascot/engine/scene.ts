@@ -22,6 +22,8 @@ export type MascotOptions = {
   framing?: "stage" | "portrait";
   /** Keep the GL buffer so screenshots work (used by the lab/capture). */
   preserveDrawingBuffer?: boolean;
+  /** Camera angle around Bobble in radians, 0 being straight ahead (the lab's review views). */
+  orbit?: number;
 };
 
 export type MascotController = {
@@ -128,8 +130,13 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
   const portrait = options.framing === "portrait";
   const initialFrame = portrait ? PORTRAIT : FRAMING[options.state ?? "idle"];
   const shot = { y: initialFrame.y, distance: initialFrame.distance };
+  const orbit = options.orbit ?? 0;
   function placeCamera() {
-    camera.position.set(0, shot.y + 0.35, shot.distance);
+    camera.position.set(
+      Math.sin(orbit) * shot.distance,
+      shot.y + 0.35,
+      Math.cos(orbit) * shot.distance,
+    );
     camera.lookAt(0, shot.y, 0);
   }
   placeCamera();
@@ -188,8 +195,10 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
     for (const coat of rig.paint.coat) coat.color.copy(base);
     // The under-coat (seen between strands) is a deeper shade, which gives the fur depth.
     rig.paint.undercoat.color.copy(base).multiplyScalar(0.9);
-    rig.paint.paws.color.copy(base).multiplyScalar(0.92);
+    rig.paint.shoes.color.copy(base).multiplyScalar(0.86);
     rig.paint.accent.color.copy(base);
+    // Lighter than the coat, so it reads as light caught in a dark eye.
+    rig.paint.eyeGlow.color.copy(base).lerp(new THREE.Color("#ffffff"), 0.3);
     hemisphere.groundColor.set("#e8dfd2").lerp(base, 0.3);
   }
   applyColor(options.color);
@@ -334,11 +343,19 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
     rig.root.rotation.x = pose.lean - pointer.y * 0.12 * (1 - w);
     rig.root.rotation.z = pose.tilt;
 
-    // Feet stay planted while the body squashes; one lifts on each side-step.
+    // Feet stay flat on the ground whatever the body does (squash, lean,
+    // tilt); one lifts on each side-step. Each shoe undoes the body's lean
+    // and tilt, and sits at the height that puts its sole back on the floor.
+    const lean = rig.root.rotation.x;
+    const tilt = rig.root.rotation.z;
     rig.feet.forEach((foot, i) => {
       const side = i === 0 ? -1 : 1;
-      foot.position.y = 0.08 + Math.max(0, side * pose.lift) * 0.07;
-      foot.scale.set(1.05 * sxz, 0.55, 1.35);
+      const lift = Math.max(0, side * pose.lift) * 0.07;
+      const { x, z } = foot.position;
+      const leaned = (lift + z * Math.sin(lean)) / Math.cos(lean);
+      foot.position.y = (leaned - x * Math.sin(tilt)) / Math.cos(tilt);
+      foot.rotation.set(-lean, foot.rotation.y, -tilt, "ZXY");
+      foot.scale.x = sxz;
     });
     rig.arms.forEach((arm, i) => {
       const side = i === 0 ? -1 : 1;
@@ -519,7 +536,13 @@ export function createMascot(canvas: HTMLCanvasElement, options: MascotOptions):
         if (obj instanceof THREE.Mesh) {
           obj.geometry.dispose();
           const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
-          for (const m of materials) m.dispose();
+          for (const m of materials) {
+            // Materials don't free their textures (the blush and eye glow maps).
+            for (const value of Object.values(m)) {
+              if (value instanceof THREE.Texture) value.dispose();
+            }
+            m.dispose();
+          }
         }
       });
       for (const texture of [shadowMap, zMap, environment]) texture.dispose();
