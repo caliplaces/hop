@@ -1,8 +1,8 @@
 # Hop for iPhone
 
 The native iOS app, built with SwiftUI and Liquid Glass. It's early: the welcome
-bubble, Sign in with Caliplaces and an empty home screen are in. The inbox, the
-Hop pass, Event mode and "Share to Hop" come next.
+bubble, Sign in with Caliplaces, claiming a Hop link and the My Hop tab (link and
+QR code) are in. The inbox, the Hop pass, Event mode and "Share to Hop" come next.
 
 ## Running it
 
@@ -40,14 +40,18 @@ so run the tests from a full checkout of the repository.
 | `Hop/App`              | The app's entry point and sign-in state              |
 | `Hop/DesignSystem`     | Palette, light and dark theme, aura, shimmering text |
 | `Hop/Features/Welcome` | The welcome bubble: geometry, Metal shaders, haptics |
+| `Hop/Features/Account` | Claiming a handle and picking a colour               |
+| `Hop/Features/MyHop`   | The athlete's link and QR code                       |
 | `Hop/Features/Home`    | The signed-in tabs                                   |
+| `Hop/Networking`       | The API client and Keychain token storage            |
 | `HopTests`             | Unit tests                                           |
 | `Config`               | Build settings, as `.xcconfig` files                 |
 
 New files in `Hop/` and `HopTests/` are part of the build automatically, with no
 project edits needed.
 
-Bobble's images and the app icon are rendered from the website's 3D mascot:
+Bobble's images, in every athlete colour, and the app icon are rendered from the
+website's 3D mascot:
 
 ```sh
 pnpm --filter @hop/web mascot:assets ios

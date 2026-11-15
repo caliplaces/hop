@@ -29,6 +29,18 @@ struct PaletteTests {
         }
     }
 
+    /// As on the web: every colour gets ink or white text that passes WCAG AA.
+    @Test(arguments: Palette.all)
+    func textOnEveryColourIsReadable(color: PaletteColor) {
+        #expect(Palette.contrast(color.hex, color.onColorHex) >= 4.5, "\(color.id)")
+    }
+
+    @Test func unknownColoursFallBackToTheBrand() {
+        #expect(Palette.color(id: "lime") == Palette.brand)
+        #expect(Palette.color(id: nil) == Palette.brand)
+        #expect(Palette.color(id: "sky") == Palette.sky)
+    }
+
     @Test func brandIsGrape() {
         #expect(Palette.brand.id == "grape")
     }

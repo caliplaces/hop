@@ -41,8 +41,15 @@ final class Session {
         token = store.read()
     }
 
-    private var api: APIClient {
+    /// A client signed with this session, for the app's other screens.
+    var api: APIClient {
         APIClient(baseURL: baseURL, token: token, session: urlSession)
+    }
+
+    /// Takes a newer copy of the profile, such as the reply to claiming a handle.
+    func update(_ me: Me) {
+        guard token != nil else { return }
+        self.me = me
     }
 
     /// Signs in with Caliplaces.
