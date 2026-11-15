@@ -58,8 +58,8 @@ const EMAIL_SIZE = 400;
 const only = process.argv[2]; // "email" to skip the logo images, "ios" for the iOS app only
 /**
  * iOS app images, written straight into apps/ios's asset catalog: two poses,
- * the face and the app icons. Bobble shows at up to ~220 pt there, so poses
- * render at 3x of that.
+ * the face, the app icons, and Bobble idling in every athlete colour. Bobble
+ * shows at up to ~220 pt there, so poses render at 3x of that.
  */
 const iosAssets = path.resolve(webDir, "..", "ios", "Hop", "Assets.xcassets");
 const IOS_POSES = {
@@ -74,7 +74,10 @@ const IOS_POSES = {
   "bobble-cheer": { set: "BobbleCheer", state: "cheer", at: 1.3, crop: { size: 0.84, top: 0.02 } },
 };
 const IOS_POSE_SIZE = 660;
+/** Per-colour Bobbles show at up to 160 pt. */
+const IOS_COLOR_POSE_SIZE = 480;
 const IOS_ICON_SIZE = 1024;
+const XCODE_INFO = { author: "xcode", version: 1 };
 
 const server = await createServer({ root: webDir, logLevel: "error", server: { port: 0 } });
 await server.listen();
@@ -159,6 +162,30 @@ if (only === "ios") {
     await snapshot(page, 128),
   );
   await page.close();
+
+  // Bobble idling in each athlete colour, for the screens that wear it.
+  const colorsDir = path.join(iosAssets, "Bobble");
+  fs.mkdirSync(colorsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(colorsDir, "Contents.json"),
+    `${JSON.stringify({ info: XCODE_INFO }, null, 2)}\n`,
+  );
+  const idle = IOS_POSES["bobble-idle"];
+  for (const [id, colorHex] of Object.entries(PALETTE)) {
+    const colorPage = await render(colorHex, { ...idle, framing: "stage", size: 768 });
+    const png = await sharp(await snapshot(colorPage, IOS_COLOR_POSE_SIZE, { crop: idle.crop }))
+      .png({ compressionLevel: 9, effort: 10 })
+      .toBuffer();
+    const set = path.join(colorsDir, `Bobble-${id}.imageset`);
+    fs.mkdirSync(set, { recursive: true });
+    fs.writeFileSync(path.join(set, `bobble-${id}.png`), png);
+    const images = [{ filename: `bobble-${id}.png`, idiom: "universal", scale: "3x" }];
+    fs.writeFileSync(
+      path.join(set, "Contents.json"),
+      `${JSON.stringify({ images, info: XCODE_INFO }, null, 2)}\n`,
+    );
+    await colorPage.close();
+  }
   await browser.close();
   await server.close();
   console.log("rendered iOS assets");
