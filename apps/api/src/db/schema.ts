@@ -217,7 +217,8 @@ export const waitlist = sqliteTable("waitlist", {
   createdAt: integer("created_at").notNull(),
   /** When the launch email went out to them. The row goes a day later. */
   notifiedAt: integer("notified_at"),
-  /** The launch email's last try, and how many there have been. */
+  /** The launch email's first and last tries, and how many there have been. */
+  launchFirstAttemptAt: integer("launch_first_attempt_at"),
   launchAttemptedAt: integer("launch_attempted_at"),
   launchAttempts: integer("launch_attempts").notNull().default(0),
 });

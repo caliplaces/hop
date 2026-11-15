@@ -5,7 +5,9 @@ import { cleanup } from "./cron";
 import { getDb } from "./db";
 import { waitlist } from "./db/schema";
 import { launchEmail } from "./email/launch";
+import { setResendPacing } from "./email/send";
 import type { Env } from "./env";
+import { sendEmails } from "./index";
 import { announceLaunch, launchAt } from "./launch";
 import { sha256Hex } from "./lib/crypto";
 import { createTestD1 } from "./test/d1";
@@ -19,7 +21,7 @@ let sends: { to: string; key: string | null; subject: string }[];
 let answer: (to: string) => number;
 
 const run = (options: Parameters<typeof announceLaunch>[1] = {}) =>
-  announceLaunch(env, { now: LAUNCH_AT, pause: async () => {}, ...options });
+  announceLaunch(env, { now: LAUNCH_AT, ...options });
 
 async function join(...addresses: string[]) {
   let at = Date.now() - DAY;
@@ -55,7 +57,10 @@ beforeEach(() => {
     const status = answer(to);
     return status === 200
       ? Response.json({ id: "email_1" })
-      : Response.json({ name: "error", message: "nope" }, { status });
+      : Response.json(
+          { name: status === 409 ? "invalid_idempotent_request" : "error", message: "nope" },
+          { status },
+        );
   });
 });
 
@@ -126,16 +131,33 @@ describe("the launch email", () => {
     expect((await row("leo@example.com"))?.launchAttempts).toBe(0);
   });
 
-  it("waits between emails, and keeps to its time", async () => {
-    await join("maya@example.com", "leo@example.com");
-    const pauses: number[] = [];
-    await run({ pause: async (ms) => void pauses.push(ms) });
-    expect(pauses.every((ms) => ms >= 500)).toBe(true);
-    expect(pauses).toHaveLength(2);
-
-    await join("ana@example.com");
+  it("keeps to its time", async () => {
+    await join("maya@example.com");
     await run({ budgetMs: 0 });
-    expect(sends).toHaveLength(2);
+    expect(sends).toHaveLength(0);
+  });
+
+  it("stops trying before the key that keeps it from going twice could expire", async () => {
+    await join("maya@example.com");
+    // First tried almost a day ago, and never confirmed.
+    await db
+      .update(waitlist)
+      .set({
+        launchFirstAttemptAt: Date.now() - 23.5 * 60 * 60 * 1000,
+        launchAttemptedAt: Date.now() - 60 * 60 * 1000,
+        launchAttempts: 1,
+      })
+      .where(eq(waitlist.email, "maya@example.com"));
+    await run();
+    expect(sends).toHaveLength(0);
+  });
+
+  it("counts it as sent when Resend already had a different email under its key", async () => {
+    await join("maya@example.com");
+    answer = () => 409;
+    await run();
+    expect(sends).toHaveLength(1);
+    expect((await row("maya@example.com"))?.notifiedAt).toBeTypeOf("number");
   });
 
   it("can go out early where LAUNCH_AT says, to try it on staging", async () => {
@@ -183,5 +205,46 @@ describe("its content", () => {
     expect(withApp.text).toContain(
       "On iPhone? Get the app: https://apps.apple.com/app/id6834920854",
     );
+  });
+});
+
+describe("sending pace", () => {
+  afterEach(() => setResendPacing(0));
+
+  it("spaces every send to Resend, whichever job it's from", async () => {
+    setResendPacing(40);
+    await join("maya@example.com", "leo@example.com", "ana@example.com");
+    const started = Date.now();
+    await run();
+    expect(sends).toHaveLength(3);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(80);
+  });
+});
+
+describe("the five-minute email jobs", () => {
+  it("log a failed job and fail the run, after letting the other finish", async () => {
+    await join("maya@example.com");
+    // The digest's first query fails; the launch email still goes out.
+    const failing = {
+      ...env,
+      DB: new Proxy(env.DB, {
+        get(target, key) {
+          const value = Reflect.get(target, key);
+          if (key !== "prepare") return typeof value === "function" ? value.bind(target) : value;
+          return (query: string) => {
+            if (query.includes("notify_attempted_at")) throw new Error("D1 is down");
+            return target.prepare(query);
+          };
+        },
+      }),
+    } as Env;
+    vi.setSystemTime(LAUNCH_AT + 60_000);
+    try {
+      await expect(sendEmails(failing)).rejects.toThrow("email jobs failed: digest");
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(sends.map((send) => send.to)).toEqual(["maya@example.com"]);
+    expect(console.error).toHaveBeenCalledWith("digest: run failed", expect.any(Error));
   });
 });

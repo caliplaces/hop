@@ -68,6 +68,21 @@ app.onError((error, c) => {
   return fail(c, 500, "internal_error", "Something went wrong on our side.");
 });
 
+/**
+ * The five-minute email jobs, side by side, so one failing can't hold up the
+ * other. A failure is logged, and fails the run, so it shows up.
+ */
+export async function sendEmails(env: Env): Promise<void> {
+  const jobs = { digest: announceNewClips(env), launch: announceLaunch(env) };
+  const results = await Promise.allSettled(Object.values(jobs));
+  const failed = Object.keys(jobs).filter((_, i) => results[i]?.status === "rejected");
+  results.forEach((result, i) => {
+    if (result.status === "rejected")
+      console.error(`${Object.keys(jobs)[i]}: run failed`, result.reason);
+  });
+  if (failed.length) throw new Error(`email jobs failed: ${failed.join(", ")}`);
+}
+
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     // The one file outside /api: Apple reads it to tie this site to the app.
@@ -77,12 +92,7 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(
-      controller.cron === CLEANUP_CRON
-        ? cleanup(env)
-        : // Separately, so one failing can't hold up the other.
-          Promise.allSettled([announceNewClips(env), announceLaunch(env)]),
-    );
+    ctx.waitUntil(controller.cron === CLEANUP_CRON ? cleanup(env) : sendEmails(env));
   },
 } satisfies ExportedHandler<Env>;
 
