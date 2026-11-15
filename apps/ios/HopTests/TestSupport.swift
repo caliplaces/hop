@@ -62,7 +62,11 @@ final class StubProtocol: URLProtocol {
             headerFields: ["Content-Type": "application/json"]
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(json.utf8))
+        // "base64:…" replies carry binary bodies, such as images.
+        let body = json.hasPrefix("base64:")
+            ? Data(base64Encoded: String(json.dropFirst(7))) ?? Data()
+            : Data(json.utf8)
+        client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)
     }
 
@@ -97,22 +101,36 @@ struct StubServer: Sendable {
         nonmutating set { StubProtocol.lock.withLock { StubProtocol.hosts[host, default: .init()].held = newValue } }
     }
 
-    /// Lets every held reply through.
-    func release() {
+    /// Lets held replies through: all of them, or those matching `matching`.
+    func release(where matching: @escaping (URLRequest) -> Bool = { _ in true }) {
         let waiting = StubProtocol.lock.withLock {
-            defer { StubProtocol.hosts[host]?.pending = [] }
-            return StubProtocol.hosts[host]?.pending ?? []
+            let pending = StubProtocol.hosts[host]?.pending ?? []
+            StubProtocol.hosts[host]?.pending = pending.filter { !matching($0.request) }
+            return pending.filter { matching($0.request) }
         }
         for stub in waiting {
             stub.perform(#selector(StubProtocol.deliver), on: stub.loadingThread!, with: nil, waitUntilDone: false)
         }
     }
 
+    /// Waits until `count` requests matching `matching` have reached the stub.
+    func waitForRequests(count: Int = 1, where matching: (URLRequest) -> Bool) async throws {
+        for _ in 0..<400 {
+            if requests.filter({ matching($0.request) }).count >= count { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        throw URLError(.timedOut)
+    }
+
     /// A URL session whose requests all go to stubs.
     func urlSession() -> URLSession {
+        URLSession(configuration: configuration())
+    }
+
+    func configuration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubProtocol.self]
-        return URLSession(configuration: configuration)
+        return configuration
     }
 
     func client(token: String? = nil) -> APIClient {
