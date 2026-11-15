@@ -57,6 +57,12 @@ struct ClipViewer: View {
             try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             showing = clip
         }
+        // A refresh (as clips land in Event mode) drops later pages: load
+        // them again up to the clip showing, so swiping on still works.
+        .task(id: model.clips[hopId]?.refreshes) {
+            guard let showing else { return }
+            await model.load(upTo: showing, in: hopId, api: session.api)
+        }
         .onChange(of: current) {
             showing = clip
             transfer.reset()

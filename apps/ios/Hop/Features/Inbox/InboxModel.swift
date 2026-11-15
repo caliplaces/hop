@@ -17,6 +17,8 @@ final class InboxModel {
         var loadedOnce = false
         var isLoading = false
         var failed: String?
+        /// How many refreshes have brought a new first page.
+        var refreshes = 0
 
         var hasMore: Bool { !loadedOnce || nextCursor != nil }
     }
@@ -77,6 +79,7 @@ final class InboxModel {
             // A page can overlap the last if clips arrived meanwhile.
             list.items = known + page.files.filter { clip in !known.contains { $0.id == clip.id } }
             list.nextCursor = page.nextCursor
+            if replacing { list.refreshes += 1 }
             list.loadedOnce = true
             list.failed = nil
             list.isLoading = false
@@ -85,6 +88,21 @@ final class InboxModel {
             guard generations[hopId, default: 0] == generation else { return }
             clips[hopId, default: ClipList()].isLoading = false
             clips[hopId, default: ClipList()].failed = error.localizedDescription
+        }
+    }
+
+    /// Loads an event's next pages until `clip` is among its clips again, as
+    /// after a refresh dropped the page it was on while someone watched it.
+    /// Stops at the end, on a failure, or after `maxPages`.
+    func load(upTo clip: Clip, in hopId: String, api: APIClient, maxPages: Int = 20) async {
+        for _ in 0..<maxPages {
+            guard let list = clips[hopId],
+                  !list.items.contains(where: { $0.id == clip.id }),
+                  list.hasMore, list.failed == nil
+            else { return }
+            await loadMore(in: hopId, api: api)
+            // Another load was already under way, or nothing changed: stop.
+            guard clips[hopId]?.nextCursor != list.nextCursor else { return }
         }
     }
 

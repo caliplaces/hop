@@ -196,8 +196,20 @@ struct InboxModelTests {
         let items = model.clips["jam"]?.items ?? []
         #expect(items.map(\.id) == ["n", "a"])
 
-        // ...while the viewer keeps "d", the clip being watched, in its place.
+        // ...while the viewer keeps "d", the clip being watched, in its place,
         #expect(InboxModel.clips(items, keeping: watched).map(\.id) == ["n", "a", "d"])
+        #expect(model.clips["jam"]?.refreshes == 2)
+
+        // ...and loads the pages up to it again, so swiping on still works.
+        await model.load(upTo: watched, in: "jam", api: api)
+        #expect(model.clips["jam"]?.items.map(\.id) == ["n", "a", "c", "d"])
+
+        // A clip that's gone for good: it pages to the end, then stops.
+        let gone = try clip("zz", at: 0)
+        let requests = server.requests.count
+        await model.load(upTo: gone, in: "jam", api: api)
+        #expect(server.requests.count == requests)
+        #expect(model.clips["jam"]?.hasMore == false)
     }
 
     @Test func keepsTheClipShowingInTheAPIsOrder() throws {
