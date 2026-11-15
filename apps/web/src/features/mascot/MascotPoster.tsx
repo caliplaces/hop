@@ -51,15 +51,16 @@ export function MascotPoster({
           <span className="absolute top-[58%] left-[14%] h-[9%] w-[16%] rounded-full bg-[#ff8a9e] opacity-70" />
           <span className="absolute top-[58%] right-[14%] h-[9%] w-[16%] rounded-full bg-[#ff8a9e] opacity-70" />
         </div>
-        {/* paws */}
-        <span
-          className="absolute bottom-[10%] left-[30%] h-[7%] w-[14%] rounded-full"
-          style={{ background: color }}
-        />
-        <span
-          className="absolute right-[30%] bottom-[10%] h-[7%] w-[14%] rounded-full"
-          style={{ background: color }}
-        />
+        {/* sneakers: a toe box a shade deeper than the body, on a white rubber sole */}
+        {["left-[29%]", "right-[29%]"].map((side) => (
+          <span key={side} className={cx("absolute bottom-[9%] h-[9%] w-[16%]", side)}>
+            <span
+              className="absolute inset-x-[6%] top-0 bottom-[30%] rounded-t-full"
+              style={{ background: `color-mix(in oklab, ${color} 86%, black)` }}
+            />
+            <span className="absolute inset-x-0 bottom-0 h-[38%] rounded-full bg-[#f6f3ec] shadow-[0_1px_3px_rgb(0_0_0/0.18)]" />
+          </span>
+        ))}
       </div>
     </div>
   );

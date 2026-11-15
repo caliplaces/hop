@@ -21,20 +21,21 @@ export type Rig = {
   paint: {
     coat: THREE.MeshStandardMaterial[];
     undercoat: THREE.MeshPhysicalMaterial;
-    paws: THREE.MeshPhysicalMaterial;
+    shoes: THREE.MeshPhysicalMaterial; // the sneakers' uppers and the antenna stem
     accent: THREE.MeshPhysicalMaterial; // the play icon on the clip card
+    eyeGlow: THREE.MeshBasicMaterial; // the athlete's colour reflected low in each eye
   };
   fur: FurUniforms;
   eyes: {
     group: THREE.Group;
     open: THREE.Group;
-    happy: THREE.Mesh;
-    closed: THREE.Mesh;
+    happy: THREE.Object3D;
+    closed: THREE.Object3D;
     squeeze: THREE.Group;
   }[];
   mouths: Record<MouthMode, THREE.Object3D>;
   arms: THREE.Group[]; // pivots at the shoulder
-  feet: THREE.Mesh[];
+  feet: THREE.Group[]; // sneakers, origin at the sole
   antenna: THREE.Group; // spring-driven
   clip: THREE.Group; // the clip card balanced on the pompom while busy
   clipRestY: number;
@@ -114,27 +115,110 @@ function surfacePoint(profile: THREE.Vector2[], angle: number, y: number, lift: 
   return { position: holder.position.clone(), normal };
 }
 
-function arc(radius: number, tube: number, material: THREE.Material, up: boolean) {
-  const mesh = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 10, 28, Math.PI), material);
-  if (!up) mesh.rotation.z = Math.PI; // open side up = smile / closed lid
-  return mesh;
+/** An arc of a circle in the XY plane, from angle `from` to `to` (radians). */
+class ArcCurve extends THREE.Curve<THREE.Vector3> {
+  constructor(
+    private radius: number,
+    private from: number,
+    private to: number,
+  ) {
+    super();
+  }
+  override getPoint(t: number, target = new THREE.Vector3()) {
+    const a = this.from + (this.to - this.from) * t;
+    return target.set(Math.cos(a) * this.radius, Math.sin(a) * this.radius, 0);
+  }
 }
 
-function buildEye(size: number, ink: THREE.Material, white: THREE.Material) {
+/**
+ * A line drawn like a felt-tip stroke along an arc, with round ends: smiles,
+ * squinting and sleeping eyes. 0 → π is ∩, π → 2π is ∪.
+ */
+function stroke(radius: number, thickness: number, from: number, to: number, ink: THREE.Material) {
+  const curve = new ArcCurve(radius, from, to);
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 32, thickness, 12, false), ink));
+  const cap = new THREE.SphereGeometry(thickness, 14, 10);
+  for (const t of [0, 1]) {
+    const end = new THREE.Mesh(cap, ink);
+    end.position.copy(curve.getPoint(t));
+    group.add(end);
+  }
+  return group;
+}
+
+/**
+ * An alpha map from a radial falloff: white (opaque) at the centre to black
+ * (clear) at `radius`. Alpha maps read brightness, not the canvas's alpha.
+ */
+function falloff(cx: number, cy: number, radius: number, stops: [number, number][]) {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, 128, 128);
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  for (const [at, level] of stops) {
+    const v = Math.round(level * 255);
+    g.addColorStop(at, `rgb(${v},${v},${v})`);
+  }
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(canvas);
+}
+
+/** Airbrushed blush: strongest in the middle, melting into the fur. */
+const blushMap = () =>
+  falloff(64, 64, 64, [
+    [0, 1],
+    [0.4, 0.8],
+    [1, 0],
+  ]);
+
+/**
+ * The glow low in each eye: brightest at the bottom centre, fading up and out.
+ * The canvas's top is the cap's top edge, its bottom the cap's bottom.
+ */
+const eyeGlowMap = () =>
+  falloff(64, 150, 135, [
+    [0, 1],
+    [0.5, 0.75],
+    [1, 0],
+  ]);
+
+function buildEye(size: number, ink: THREE.Material, white: THREE.Material, glow: THREE.Material) {
   const group = new THREE.Group();
   const open = new THREE.Group();
+  // A glossy dome, set into the face rather than stuck on it.
+  const depth = 0.42;
   const ball = new THREE.Mesh(new THREE.SphereGeometry(size, 32, 24), ink);
-  ball.scale.set(1, 1.12, 0.55);
-  const big = new THREE.Mesh(new THREE.SphereGeometry(size * 0.34, 16, 12), white);
-  big.position.set(-size * 0.32, size * 0.38, size * 0.45);
-  const small = new THREE.Mesh(new THREE.SphereGeometry(size * 0.15, 12, 10), white);
-  small.position.set(size * 0.36, -size * 0.3, size * 0.47);
-  open.add(ball, big, small);
+  ball.scale.set(1, 1.12, depth);
+  // The athlete's colour reflected low in the eye: a thin cap over the lower front.
+  const cap = new THREE.Mesh(
+    new THREE.SphereGeometry(
+      size * 1.012,
+      32,
+      16,
+      Math.PI * 0.22,
+      Math.PI * 0.56,
+      Math.PI * 0.58,
+      Math.PI * 0.32,
+    ),
+    glow,
+  );
+  cap.scale.copy(ball.scale);
+  const big = new THREE.Mesh(new THREE.SphereGeometry(size * 0.3, 16, 12), white);
+  big.position.set(-size * 0.3, size * 0.4, size * depth * 0.82);
+  big.scale.z = 0.6;
+  const small = new THREE.Mesh(new THREE.SphereGeometry(size * 0.13, 12, 10), white);
+  small.position.set(size * 0.36, -size * 0.28, size * depth * 0.86);
+  small.scale.z = 0.6;
+  open.add(ball, cap, big, small);
 
-  const happy = arc(size * 0.72, size * 0.15, ink, true); // ∩ squint
-  happy.position.y = -size * 0.15;
-  const closed = arc(size * 0.7, size * 0.13, ink, false); // ︶ asleep
-  closed.position.y = size * 0.05;
+  const happy = stroke(size * 0.7, size * 0.13, Math.PI * 0.12, Math.PI * 0.88, ink); // ∩ squint
+  happy.position.y = -size * 0.32;
+  const closed = stroke(size * 0.7, size * 0.12, Math.PI * 1.14, Math.PI * 1.86, ink); // ︶ asleep
+  closed.position.y = size * 0.22;
   const squeeze = new THREE.Group(); // > <
   for (const sign of [1, -1]) {
     const stroke = new THREE.Mesh(new THREE.CapsuleGeometry(size * 0.15, size * 0.85, 6, 12), ink);
@@ -143,9 +227,106 @@ function buildEye(size: number, ink: THREE.Material, white: THREE.Material) {
     squeeze.add(stroke);
   }
   // Line-style eyes sit slightly proud so the fur doesn't swallow them.
-  for (const lines of [happy, closed, squeeze]) lines.position.z = size * 0.32;
+  for (const lines of [happy, closed, squeeze]) lines.position.z = size * 0.24;
   group.add(open, happy, closed, squeeze);
   return { group, open, happy, closed, squeeze };
+}
+
+/**
+ * A happy open mouth, like a "D" on its side: a gently smiling top edge over a
+ * deep round bowl, with the tongue resting inside it.
+ */
+function buildOpenMouth(inside: THREE.Material, tongueMaterial: THREE.Material) {
+  const w = 0.105;
+  const h = 0.105;
+  const right = new THREE.CubicBezierCurve(
+    new THREE.Vector2(w, 0),
+    new THREE.Vector2(w * 1.02, -h * 0.72),
+    new THREE.Vector2(w * 0.58, -h),
+    new THREE.Vector2(0, -h),
+  );
+  const left = new THREE.CubicBezierCurve(
+    new THREE.Vector2(0, -h),
+    new THREE.Vector2(-w * 0.58, -h),
+    new THREE.Vector2(-w * 1.02, -h * 0.72),
+    new THREE.Vector2(-w, 0),
+  );
+  const mouth = new THREE.Shape();
+  mouth.moveTo(-w, 0);
+  mouth.quadraticCurveTo(0, -h * 0.2, w, 0);
+  for (const { v1, v2, v3 } of [right, left])
+    mouth.bezierCurveTo(v1.x, v1.y, v2.x, v2.y, v3.x, v3.y);
+
+  // The tongue follows the bottom of the bowl, inset so the mouth frames it,
+  // and bulges up in the middle.
+  const inset = 0.016;
+  const bowl = [...right.getPoints(24), ...left.getPoints(24).slice(1)]
+    .filter((p) => p.y < -h * 0.46)
+    .map((p) =>
+      p
+        .clone()
+        .multiplyScalar(1 - inset / Math.max(w, h))
+        .setY(p.y + inset * 0.6),
+    );
+  const tongue = new THREE.Shape();
+  const first = bowl[0] as THREE.Vector2;
+  const last = bowl[bowl.length - 1] as THREE.Vector2;
+  tongue.moveTo(first.x, first.y);
+  for (const p of bowl.slice(1)) tongue.lineTo(p.x, p.y);
+  tongue.bezierCurveTo(last.x * 0.5, -h * 0.36, first.x * 0.5, -h * 0.36, first.x, first.y);
+
+  const extrude = (shape: THREE.Shape, depth: number, bevel: number) =>
+    new THREE.ExtrudeGeometry(shape, {
+      depth,
+      bevelEnabled: true,
+      bevelThickness: bevel,
+      bevelSize: bevel,
+      bevelSegments: 3,
+      curveSegments: 24,
+    });
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(extrude(mouth, 0.006, 0.01), inside));
+  const tongueMesh = new THREE.Mesh(extrude(tongue, 0.004, 0.006), tongueMaterial);
+  tongueMesh.position.z = 0.012;
+  group.add(tongueMesh);
+  return group;
+}
+
+/**
+ * A little sneaker: a low, rounded toe box in the athlete's colour on a white
+ * rubber sole that shows as a thin rim all round. Origin at the sole.
+ */
+function buildShoe(upper: THREE.Material, rubber: THREE.Material) {
+  const shoe = new THREE.Group();
+  const width = 0.18;
+  const length = 0.25;
+  const footprint = new THREE.Shape();
+  footprint.absellipse(0, 0, width, length, 0, Math.PI * 2, false, 0);
+  const bevel = 0.012;
+  const soleHeight = 0.05;
+  const sole = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(footprint, {
+      depth: soleHeight - bevel * 2,
+      bevelEnabled: true,
+      bevelThickness: bevel,
+      bevelSize: bevel,
+      bevelSegments: 4,
+      curveSegments: 48,
+    }),
+    rubber,
+  );
+  // Extruded along z; stand it on the ground, toe towards +z.
+  sole.rotation.x = -Math.PI / 2;
+  sole.position.y = bevel;
+  // The upper is widest where it meets the sole, so only the rubber rim shows.
+  const body = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 40, 28, 0, Math.PI * 2, 0, Math.PI / 2),
+    upper,
+  );
+  body.scale.set(width * 0.97, 0.13, length * 0.97);
+  body.position.y = soleHeight - 0.004;
+  shoe.add(sole, body);
+  return shoe;
 }
 
 export function makeStar(material: THREE.Material) {
@@ -176,11 +357,25 @@ export function buildRig({ color, shells }: RigOptions): Rig {
   const base = new THREE.Color(color);
 
   const undercoat = new THREE.MeshPhysicalMaterial({ color: base, roughness: 0.9 });
-  const paws = new THREE.MeshPhysicalMaterial({
+  // Soft woven uppers with a faint sheen, unlike the glossy eyes.
+  const shoes = new THREE.MeshPhysicalMaterial({
     color: base,
-    roughness: 0.5,
-    clearcoat: 0.3,
-    clearcoatRoughness: 0.4,
+    roughness: 0.6,
+    sheen: 0.35,
+    sheenRoughness: 0.45,
+    sheenColor: new THREE.Color("#ffffff"),
+  });
+  const rubber = new THREE.MeshPhysicalMaterial({
+    color: "#f6f3ec",
+    roughness: 0.55,
+    clearcoat: 0.25,
+    clearcoatRoughness: 0.5,
+  });
+  const eyeGlow = new THREE.MeshBasicMaterial({
+    color: base,
+    alphaMap: eyeGlowMap(),
+    transparent: true,
+    depthWrite: false,
   });
   const inkMaterial = new THREE.MeshPhysicalMaterial({
     color: INK,
@@ -189,14 +384,21 @@ export function buildRig({ color, shells }: RigOptions): Rig {
     clearcoatRoughness: 0.06,
   });
   const whiteMaterial = new THREE.MeshBasicMaterial({ color: "#ffffff" });
+  // Airbrushed: strongest in the middle, fading into the fur.
   const blushMaterial = new THREE.MeshBasicMaterial({
     color: BLUSH,
+    alphaMap: blushMap(),
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.92,
     depthWrite: false,
   });
-  const mouthMaterial = new THREE.MeshPhysicalMaterial({ color: "#3a1d24", roughness: 0.4 });
-  const tongueMaterial = new THREE.MeshPhysicalMaterial({ color: "#ff8fa0", roughness: 0.5 });
+  const mouthMaterial = new THREE.MeshPhysicalMaterial({
+    color: "#3a1d24",
+    roughness: 0.35,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.2,
+  });
+  const tongueMaterial = new THREE.MeshPhysicalMaterial({ color: "#ff8fa0", roughness: 0.45 });
 
   const eyeY = HEIGHT * 0.43; // low-set eyes
   const faceCenter = new THREE.Vector3(0, eyeY - 0.06, radiusAt(profile, eyeY - 0.06));
@@ -208,7 +410,8 @@ export function buildRig({ color, shells }: RigOptions): Rig {
   squash.add(body);
   const coat = furMaterial(base, fur, {
     shells,
-    shortAround: { center: faceCenter, inner: 0.42, outer: 0.72, amount: 1 - shortFur },
+    // Short over the eyes, mouth and cheeks, so the blush isn't speckled with strands.
+    shortAround: { center: faceCenter, inner: 0.6, outer: 0.88, amount: 1 - shortFur },
   });
   addFur(body, coat, shells);
 
@@ -217,7 +420,7 @@ export function buildRig({ color, shells }: RigOptions): Rig {
   squash.add(face);
   const eyeSize = 0.215;
   const eyes = [-1, 1].map((side) => {
-    const eye = buildEye(eyeSize, inkMaterial, whiteMaterial);
+    const eye = buildEye(eyeSize, inkMaterial, whiteMaterial, eyeGlow);
     const anchor = new THREE.Group();
     onSurface(profile, anchor, side * 0.34, eyeY, faceLift);
     anchor.add(eye.group);
@@ -225,29 +428,35 @@ export function buildRig({ color, shells }: RigOptions): Rig {
     return eye;
   });
   for (const side of [-1, 1]) {
-    const blush = new THREE.Mesh(new THREE.CircleGeometry(0.13, 32), blushMaterial);
-    blush.scale.set(1.35, 0.8, 1);
+    const blush = new THREE.Mesh(new THREE.CircleGeometry(0.17, 32), blushMaterial);
+    blush.scale.set(1.3, 0.78, 1);
     onSurface(profile, blush, side * 0.6, eyeY - 0.17, faceLift + 0.01);
     face.add(blush);
   }
   const mouthAnchor = new THREE.Group();
   onSurface(profile, mouthAnchor, 0, eyeY - 0.16, faceLift);
   face.add(mouthAnchor);
-  const smile = arc(0.075, 0.019, mouthMaterial, false);
-  const frown = arc(0.07, 0.018, mouthMaterial, true);
-  frown.position.y = -0.04;
-  const open = new THREE.Group();
-  const openShell = new THREE.Mesh(
-    new THREE.SphereGeometry(0.11, 24, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+  const smile = stroke(0.1, 0.017, Math.PI * 1.2, Math.PI * 1.8, mouthMaterial); // ‿
+  smile.position.y = 0.04;
+  const frown = stroke(0.085, 0.016, Math.PI * 0.2, Math.PI * 0.8, mouthMaterial); // ⌒
+  frown.position.y = -0.1;
+  const open = buildOpenMouth(mouthMaterial, tongueMaterial);
+  open.position.y = 0.03;
+  // A small round "o", filled like the open mouth rather than a ring.
+  const oShape = new THREE.Shape();
+  oShape.absellipse(0, 0, 0.034, 0.042, 0, Math.PI * 2, false, 0);
+  const o = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(oShape, {
+      depth: 0.006,
+      bevelEnabled: true,
+      bevelThickness: 0.008,
+      bevelSize: 0.008,
+      bevelSegments: 3,
+      curveSegments: 32,
+    }),
     mouthMaterial,
   );
-  openShell.rotation.x = -Math.PI / 2;
-  openShell.scale.set(1.15, 1, 0.5);
-  const tongue = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), tongueMaterial);
-  tongue.scale.set(1.2, 0.7, 0.6);
-  tongue.position.set(0, -0.055, 0.02);
-  open.add(openShell, tongue);
-  const o = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.014, 8, 20), mouthMaterial);
+  o.position.y = -0.02;
   for (const m of [smile, frown, open, o]) mouthAnchor.add(m);
 
   // Arms: fluffy nubs on the sides, pivoting at the shoulder.
@@ -267,19 +476,20 @@ export function buildRig({ color, shells }: RigOptions): Rig {
     return pivot;
   });
 
-  // Feet: smooth little paw pads that stay planted while the body squashes.
+  // Feet: little sneakers, tucked under the body and toed out a touch. They
+  // stay planted while the body squashes.
   const feet = [-1, 1].map((side) => {
-    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.2, 24, 16), paws);
-    foot.scale.set(1.05, 0.55, 1.35);
-    foot.position.set(side * 0.42, 0.08, 0.5);
-    root.add(foot);
-    return foot;
+    const shoe = buildShoe(shoes, rubber);
+    shoe.position.set(side * 0.42, 0, 0.36);
+    shoe.rotation.y = side * 0.16;
+    root.add(shoe);
+    return shoe;
   });
 
   // Antenna with a fluffy pompom, spring-driven so it wobbles behind every move.
   const antenna = new THREE.Group();
   antenna.position.set(0, HEIGHT - 0.04, 0);
-  const stem = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.36, 6, 12), paws);
+  const stem = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.36, 6, 12), shoes);
   stem.position.y = 0.2;
   const ball = new THREE.Mesh(new THREE.SphereGeometry(0.13, 28, 20), undercoat);
   ball.position.y = 0.47;
@@ -387,7 +597,7 @@ export function buildRig({ color, shells }: RigOptions): Rig {
   return {
     root,
     squash,
-    paint: { coat: coatParts, undercoat, paws, accent },
+    paint: { coat: coatParts, undercoat, shoes, accent, eyeGlow },
     fur,
     eyes,
     mouths: { smile, open, frown, o },
