@@ -1,12 +1,15 @@
 import SwiftUI
 import UIKit
 
-/// The athlete's link: what to say, show or send at an event.
+/// The athlete's link: their Hop pass with the QR code, and ways to share it.
 struct MyHopView: View {
     @Environment(Session.self) private var session
     @Environment(EventMode.self) private var eventMode
     @State private var copied = false
     @State private var settingUpEvent = false
+    @State private var stats: PassStats?
+    /// The pass as a story-sized image, ready to share.
+    @State private var story: Image?
     /// Set when the setup sheet started Event mode, to go on stage once
     /// the sheet is gone.
     @State private var startedEvent = false
@@ -42,34 +45,14 @@ struct MyHopView: View {
 
     private func content(me: Me, link: URL) -> some View {
         VStack(spacing: 20) {
-            VStack(spacing: 16) {
-                HStack(spacing: 12) {
-                    me.paletteColor.bobble
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 52, height: 52)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Upload it on my Hop")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.muted)
-                        Text(verbatim: link.spoken)
-                            .font(.title3.weight(.semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                            .textSelection(.enabled)
-                    }
-                    Spacer(minLength: 0)
-                }
-                QRCodeView(text: link.absoluteString)
-                    .frame(maxWidth: 260)
-                Text("Anyone can scan this or open the link to send you their clips. No app or account needed.")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.muted)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(20)
-            .glassEffect(.regular, in: .rect(cornerRadius: 32))
+            TurningPass(me: me, link: link, stats: stats)
+                .padding(.horizontal, 12)
+
+            Text("Anyone can scan this or open the link to send you their clips. No app or account needed.")
+                .font(.footnote)
+                .foregroundStyle(Theme.muted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
 
             eventModeButton(color: me.paletteColor)
 
@@ -83,7 +66,16 @@ struct MyHopView: View {
                             .contentTransition(.symbolEffect(.replace))
                             .frame(maxWidth: .infinity)
                     }
-                    ShareLink(item: link) {
+                    Menu {
+                        ShareLink("Share link", item: link)
+                        if let story {
+                            ShareLink(
+                                "Share pass image",
+                                item: story,
+                                preview: SharePreview("My Hop pass", image: story)
+                            )
+                        }
+                    } label: {
                         Label("Share", systemImage: "square.and.arrow.up")
                             .frame(maxWidth: .infinity)
                     }
@@ -104,6 +96,22 @@ struct MyHopView: View {
             try? await Task.sleep(for: .seconds(2))
             copied = false
         }
+        .task(id: me) { await loadStats() }
+        .task(id: StoryKey(me: me, stats: stats)) {
+            story = PassStory.image(me: me, link: link, stats: stats).map(Image.init(uiImage:))
+        }
+    }
+
+    /// Clips and events, for the pass's footer.
+    private func loadStats() async {
+        struct Reply: Decodable { let hops: [Hop] }
+        guard let reply: Reply = try? await session.api.get("api/me/hops") else { return }
+        stats = PassStats(hops: reply.hops)
+    }
+
+    private struct StoryKey: Equatable {
+        let me: Me
+        let stats: PassStats?
     }
 
     /// Starts Event mode, or goes back to the one that's running.
@@ -127,5 +135,39 @@ struct MyHopView: View {
         .buttonStyle(.glassProminent)
         .controlSize(.extraLarge)
         .tint(color.color)
+    }
+}
+
+/// The Hop pass, turning with the phone and under a finger. Its own view, so
+/// motion updates (60 a second) redraw the pass alone.
+private struct TurningPass: View {
+    let me: Me
+    let link: URL
+    let stats: PassStats?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var tilt = Tilt()
+    /// How far a finger has turned the pass.
+    @State private var drag = CGSize.zero
+
+    var body: some View {
+        let turn = reduceMotion ? .zero : CGPoint(
+            x: max(-1, min(1, tilt.value.x + drag.width / 140)),
+            y: max(-1, min(1, tilt.value.y + drag.height / 140))
+        )
+        HopPass(me: me, link: link, stats: stats, tilt: turn)
+            .frame(maxWidth: 340)
+            .rotation3DEffect(.degrees(turn.x * 14), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+            .rotation3DEffect(.degrees(turn.y * -12), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+            .gesture(
+                DragGesture(minimumDistance: 6)
+                    .onChanged { drag = $0.translation }
+                    .onEnded { _ in
+                        withAnimation(.spring(response: 0.55, dampingFraction: 0.5)) { drag = .zero }
+                    },
+                isEnabled: !reduceMotion
+            )
+            .onAppear { if !reduceMotion { tilt.start() } }
+            .onDisappear { tilt.stop() }
     }
 }
