@@ -2,8 +2,13 @@
 
 The native iOS app, built with SwiftUI and Liquid Glass. In so far: the welcome
 bubble, Sign in with Caliplaces, claiming a Hop link, the inbox (events, clips,
-a full-screen player, saving to Photos and sharing), the My Hop tab (link and
-QR code) and Event mode. The Hop pass and "Share to Hop" come next.
+a full-screen player, saving to Photos and sharing), the Hop pass and Event
+mode. Widgets for the QR code, the Wallet pass and "Share to Hop" come next.
+
+The Hop pass, on the My Hop tab, is the athlete's card: their colour with a
+holographic foil (a Metal shader) that shifts as the phone tilts or a finger
+turns it, Bobble peeking over the top, the QR code on white so it always
+scans, and their clips and events. It can be shared as a story-sized image.
 
 Event mode puts the QR code full screen, keeps the screen on, and counts the
 clips that come in, in the app and as a Live Activity on the Lock Screen and in
@@ -50,7 +55,7 @@ so run the tests from a full checkout of the repository.
 | `Hop/Features/Welcome` | The welcome bubble: geometry, Metal shaders, haptics         |
 | `Hop/Features/Account` | Claiming a handle and picking a colour                       |
 | `Hop/Features/Inbox`   | Events, clip grids, the player, save and share               |
-| `Hop/Features/MyHop`   | The athlete's link and QR code                               |
+| `Hop/Features/MyHop`   | The Hop pass: link, QR code, foil shader, tilt, story image  |
 | `Hop/Features/Event`   | Event mode: setup, the full-screen QR code, the clip count   |
 | `Hop/Features/Home`    | The signed-in tabs                                           |
 | `Hop/Networking`       | The API client and Keychain token storage                    |
