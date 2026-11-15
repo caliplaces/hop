@@ -150,11 +150,13 @@ struct ClaimHopView: View {
     private func claim() async {
         guard model.canClaim else { return }
         editing = false
+        // The claim belongs to this session, even if they sign out meanwhile.
+        let asked = session.token
         guard let me = await model.claim() else { return }
         celebrating = true
         // Let Bobble celebrate before the app takes over.
         try? await Task.sleep(for: .milliseconds(900))
-        session.update(me)
+        session.update(me, from: asked)
     }
 }
 

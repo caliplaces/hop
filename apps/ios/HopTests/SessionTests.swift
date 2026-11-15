@@ -127,6 +127,30 @@ struct SessionTests {
         #expect(session.me?.handle == "alex")
     }
 
+    @Test func dropsAProfileFromASessionThatWasReplaced() async throws {
+        server.reply = { request in
+            switch request.url?.path {
+            case "/api/auth/app/start":
+                (200, #"{"authorizeUrl":"https://auth.test/authorize","flow":"f"}"#)
+            case "/api/auth/app/session":
+                (200, #"{"token":"tok_new","expiresAt":1,"me":\#(me)}"#)
+            default: (200, #"{"ok":true}"#)
+            }
+        }
+        let session = makeSession(store: MemoryTokenStore("tok_old"))
+        let asked = session.token
+        await session.signOut()
+        try await session.signIn { _ in URL(string: "com.onmyhop.app:/auth/callback?code=c&state=s")! }
+
+        let stale = try JSONDecoder().decode(Me.self, from: Data(meJSON(handle: "someoneelse").utf8))
+        session.update(stale, from: asked)
+        #expect(session.me?.handle == "alex")
+        session.update(stale, from: nil)
+        #expect(session.me?.handle == "alex")
+        session.update(stale, from: session.token)
+        #expect(session.me?.handle == "someoneelse")
+    }
+
     @Test func storesTokensPerServerIncludingThePort() {
         let keys = [
             "https://onmyhop.com",
