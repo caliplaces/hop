@@ -6,7 +6,18 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		89F2506326AE818965ADE464 /* HopWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E71A4C124A299FD5F859FB1E /* HopWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
+		6921210EF4A2E5DB33AB5C57 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2FED190865A756C0695606FF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 56E93340A0ED4A1F487E73DA;
+			remoteInfo = HopWidgets;
+		};
 		D20BB72D27883D050202B057 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 2FED190865A756C0695606FF /* Project object */;
@@ -16,11 +27,27 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		71DBB5222F4DFC0110B004AE /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				89F2506326AE818965ADE464 /* HopWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		2B73C58EFD155FDBF3279C3C /* Hop.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Hop.xcconfig; sourceTree = "<group>"; };
+		A4C7F508C50350A250D7A2EE /* HopWidgets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = HopWidgets.xcconfig; sourceTree = "<group>"; };
 		B76EB08FBBECCCF421DC0A7F /* Hop.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Hop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B8CABA8F7D958E780A75E41F /* HopTests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = HopTests.xcconfig; sourceTree = "<group>"; };
 		DC51AD5366767DDF9D66EE64 /* HopTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = HopTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E71A4C124A299FD5F859FB1E /* HopWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = HopWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -31,6 +58,24 @@
 			explicitFolders = (
 			);
 			path = HopTests;
+			sourceTree = "<group>";
+		};
+		93C3FABBCD4B1513C1E9B178 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		DCDA640E85A9DB137F8F0CCC /* HopWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = HopWidgets;
 			sourceTree = "<group>";
 		};
 		F1E6AEE72652E3AA70CE8F12 /* Hop */ = {
@@ -50,6 +95,7 @@
 			children = (
 				B76EB08FBBECCCF421DC0A7F /* Hop.app */,
 				DC51AD5366767DDF9D66EE64 /* HopTests.xctest */,
+				E71A4C124A299FD5F859FB1E /* HopWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -60,6 +106,8 @@
 				F39E2A09465B2961542DCD6C /* Config */,
 				F1E6AEE72652E3AA70CE8F12 /* Hop */,
 				89C623768EE00738E1439EAF /* HopTests */,
+				DCDA640E85A9DB137F8F0CCC /* HopWidgets */,
+				93C3FABBCD4B1513C1E9B178 /* Shared */,
 				145C147B91587805BDF8D7F5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -69,6 +117,7 @@
 			children = (
 				2B73C58EFD155FDBF3279C3C /* Hop.xcconfig */,
 				B8CABA8F7D958E780A75E41F /* HopTests.xcconfig */,
+				A4C7F508C50350A250D7A2EE /* HopWidgets.xcconfig */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -82,13 +131,16 @@
 			buildPhases = (
 				8B10FD0746211FB2DEA877E8 /* Sources */,
 				916A1BD40E726824B3AD9283 /* Resources */,
+				71DBB5222F4DFC0110B004AE /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C48F0D3073CAA22437974575 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				F1E6AEE72652E3AA70CE8F12 /* Hop */,
+				93C3FABBCD4B1513C1E9B178 /* Shared */,
 			);
 			name = Hop;
 			packageProductDependencies = (
@@ -96,6 +148,28 @@
 			productName = Hop;
 			productReference = B76EB08FBBECCCF421DC0A7F /* Hop.app */;
 			productType = "com.apple.product-type.application";
+		};
+		56E93340A0ED4A1F487E73DA /* HopWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4000B7DAFF4AC31E4FF76200 /* Build configuration list for PBXNativeTarget "HopWidgets" */;
+			buildPhases = (
+				E2B0A23EACE37828F572ED79 /* Sources */,
+				851F7953F9FE8251CF39726C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DCDA640E85A9DB137F8F0CCC /* HopWidgets */,
+				93C3FABBCD4B1513C1E9B178 /* Shared */,
+			);
+			name = HopWidgets;
+			packageProductDependencies = (
+			);
+			productName = HopWidgets;
+			productReference = E71A4C124A299FD5F859FB1E /* HopWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		B54F497D6BB1E1850276CCBF /* HopTests */ = {
 			isa = PBXNativeTarget;
@@ -129,10 +203,15 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					1ACE8AE088B1FAB246636BF8 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = XH66L5M6JJ;
+						ProvisioningStyle = Automatic;
+					};
+					56E93340A0ED4A1F487E73DA = {
+						DevelopmentTeam = XH66L5M6JJ;
+						ProvisioningStyle = Automatic;
 					};
 					B54F497D6BB1E1850276CCBF = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = XH66L5M6JJ;
 					};
 				};
 			};
@@ -152,11 +231,19 @@
 			targets = (
 				1ACE8AE088B1FAB246636BF8 /* Hop */,
 				B54F497D6BB1E1850276CCBF /* HopTests */,
+				56E93340A0ED4A1F487E73DA /* HopWidgets */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		851F7953F9FE8251CF39726C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		916A1BD40E726824B3AD9283 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -188,6 +275,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E2B0A23EACE37828F572ED79 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -195,6 +289,11 @@
 			isa = PBXTargetDependency;
 			target = 1ACE8AE088B1FAB246636BF8 /* Hop */;
 			targetProxy = D20BB72D27883D050202B057 /* PBXContainerItemProxy */;
+		};
+		C48F0D3073CAA22437974575 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 56E93340A0ED4A1F487E73DA /* HopWidgets */;
+			targetProxy = 6921210EF4A2E5DB33AB5C57 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -308,6 +407,22 @@
 			};
 			name = Release;
 		};
+		842413E210F69FA6A5168B23 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A4C7F508C50350A250D7A2EE /* HopWidgets.xcconfig */;
+			buildSettings = {
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		94C5C43DF4CC584DB22FE4D8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A4C7F508C50350A250D7A2EE /* HopWidgets.xcconfig */;
+			buildSettings = {
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
 		EC4DD04B5B6D1DA02F85F2E8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -378,6 +493,15 @@
 			buildConfigurations = (
 				083629897C20501BECB25B93 /* Debug */,
 				4DD3C100AFC7FF37348305E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4000B7DAFF4AC31E4FF76200 /* Build configuration list for PBXNativeTarget "HopWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				94C5C43DF4CC584DB22FE4D8 /* Debug */,
+				842413E210F69FA6A5168B23 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
