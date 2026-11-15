@@ -445,6 +445,28 @@ struct EventPushTests {
         ])
     }
 
+    @Test func endWaitsForEveryRegistrationUnderWay() async throws {
+        serve()
+        let mode = eventMode()
+        let api = server.client(token: "hs_t")
+        try await mode.start(.existing(jam()), me: me(), api: api)
+
+        // The first registration hangs; a check meanwhile registers again, and that one lands.
+        server.held = ["/api/me/live-activities/\(tokenA)"]
+        activity.issue(tokenA)
+        try await server.waitForRequests { $0.httpMethod == "PUT" }
+        server.held = []
+        await mode.poll(api: api)
+        #expect(registrations(tokenA).count == 2)
+
+        // End still waits for the first, so it can't register the token again afterwards.
+        await mode.end()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!server.requests.contains { $0.request.httpMethod == "DELETE" })
+        server.release()
+        try await server.waitForRequests { $0.httpMethod == "DELETE" }
+    }
+
     @Test func aFailedRegistrationIsTriedAgainOnTheNextCheck() async throws {
         let register = Locked((503, "{}"))
         serve(register: register)

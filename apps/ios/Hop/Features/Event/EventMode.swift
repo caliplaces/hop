@@ -76,8 +76,10 @@ final class EventMode {
     private var registeredToken: String?
     /// Every push token this run was issued, so End can forget them all.
     private var issuedTokens: Set<String> = []
-    /// The registration request under way, which End lets finish first.
-    private var registering: Task<Void, Error>?
+    /// Registration requests under way, which End lets land first. A check
+    /// can retry while the token follower's request is still out, so there
+    /// may be more than one.
+    private var registering: [UUID: Task<Void, Error>] = [:]
     /// Follows the Live Activity's push tokens as Apple issues and rotates them.
     private var pushTokens: Task<Void, Never>?
     /// The client Event mode last used, to forget the push token on End.
@@ -193,10 +195,10 @@ final class EventMode {
         // outlives it. If this doesn't get through, registrations expire on
         // their own and Apple drops the ended activity.
         let tokens = issuedTokens
-        let inFlight = registering
+        let inFlight = Array(registering.values)
         if !tokens.isEmpty, let api {
             Task {
-                _ = await inFlight?.result
+                for request in inFlight { _ = await request.result }
                 for token in tokens.sorted() {
                     try? await api.delete("api/me/live-activities/\(token)")
                 }
@@ -205,7 +207,7 @@ final class EventMode {
         pushToken = nil
         registeredToken = nil
         issuedTokens = []
-        registering = nil
+        registering = [:]
         await activity.end()
     }
 
@@ -293,7 +295,9 @@ final class EventMode {
         let request = Task {
             let _: Ack = try await api.put("api/me/live-activities/\(token)", body: body)
         }
-        registering = request
+        let id = UUID()
+        registering[id] = request
+        defer { registering[id] = nil }
         do {
             try await request.value
             guard asked == generation else { return }
