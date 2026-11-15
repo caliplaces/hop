@@ -98,11 +98,17 @@ struct ClaimHopView: View {
     /// What's being claimed can't change until the server has answered.
     private var isLocked: Bool { model.isClaiming || celebrating }
 
+    /// Like an address bar: the domain small on top, the handle large below,
+    /// so it fits any domain on any phone without wrapping.
     private var handleField: some View {
-        HStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(verbatim: "\(HopServer.baseURL.spoken)/")
+                .font(.footnote.weight(.medium))
                 .foregroundStyle(Theme.muted)
+                .lineLimit(1)
+                .accessibilityHidden(true)
             TextField("yourname", text: $model.input)
+                .font(.title2.weight(.semibold))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.asciiCapable)
@@ -111,12 +117,14 @@ struct ClaimHopView: View {
                 .focused($editing)
                 .onSubmit { Task { await claim() } }
                 .accessibilityLabel("Handle")
+                .accessibilityHint(Text(verbatim: "\(HopServer.baseURL.spoken)/…"))
         }
-        .font(.title3.weight(.medium))
         .multilineTextAlignment(.leading)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .contentShape(.rect(cornerRadius: 26))
         .onTapGesture { editing = true }
     }
 
