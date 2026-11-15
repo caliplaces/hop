@@ -1,0 +1,156 @@
+import StoreKit
+import SwiftUI
+
+/// The athlete's account: who they are, their plan and storage, and signing out.
+struct AccountView: View {
+    @Environment(Session.self) private var session
+    @Environment(HopPlus.self) private var hopPlus
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingHopPlus = false
+    @State private var managingSubscription = false
+    @State private var restoring = false
+    @State private var restoreFailure: String?
+
+    private var color: PaletteColor { session.me?.paletteColor ?? Palette.brand }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let me = session.me {
+                    Section { profile(me) }
+                }
+
+                Section("Plan") {
+                    if let status = hopPlus.status {
+                        PlanSummary(status: status, color: color)
+                        if status.plan == .plus {
+                            Button("Manage Subscription", systemImage: "creditcard") {
+                                managingSubscription = true
+                            }
+                        } else {
+                            Button {
+                                showingHopPlus = true
+                            } label: {
+                                Label("Get Hop+", systemImage: "plus.circle.fill")
+                                    .font(.headline)
+                            }
+                        }
+                    } else if let error = hopPlus.loadError {
+                        Label(error, systemImage: "wifi.exclamationmark")
+                            .foregroundStyle(Theme.muted)
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+
+                if let problem = hopPlus.problem, hopPlus.status?.plan != .plus {
+                    Section {
+                        Label(explanation(problem), systemImage: "info.circle")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
+
+                Section {
+                    Button {
+                        Task { await restore() }
+                    } label: {
+                        HStack {
+                            Label("Restore Purchases", systemImage: "arrow.clockwise")
+                            if restoring {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(restoring)
+                } footer: {
+                    Text("Bought Hop+ on another device? Restoring brings it here.")
+                }
+
+                Section {
+                    Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                        dismiss()
+                        Task { await session.signOut() }
+                    }
+                }
+            }
+            .tint(color.color)
+            .navigationTitle("Account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showingHopPlus) { HopPlusView() }
+            .manageSubscriptionsSheet(isPresented: $managingSubscription)
+            // Changes made in the App Store's sheet reach the API through
+            // StoreKit's updates; the numbers are reloaded when it closes.
+            .onChange(of: managingSubscription) { _, managing in
+                guard !managing else { return }
+                Task { await hopPlus.refresh(api: session.api) }
+            }
+            .task { await hopPlus.refresh(api: session.api) }
+            .alert(
+                "Couldn’t restore purchases",
+                isPresented: Binding(get: { restoreFailure != nil }, set: { if !$0 { restoreFailure = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(restoreFailure ?? "")
+            }
+        }
+    }
+
+    private func profile(_ me: Me) -> some View {
+        HStack(spacing: 14) {
+            Circle()
+                .fill(me.paletteColor.color.gradient)
+                .frame(width: 48, height: 48)
+                .overlay {
+                    Text(initial(me))
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(me.paletteColor.onColor)
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(me.name ?? me.email ?? String(localized: "Signed in"))
+                    .font(.headline)
+                if let link = me.link {
+                    Text(verbatim: link.spoken)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.muted)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func initial(_ me: Me) -> String {
+        String((me.name ?? me.handle ?? me.email ?? "?").prefix(1)).uppercased()
+    }
+
+    private func explanation(_ problem: HopPlus.Problem) -> String {
+        switch problem {
+        case .otherAccount:
+            String(localized: "Hop+ on this Apple Account belongs to another Hop account.")
+        case .testPurchase:
+            String(localized: "Purchases in test builds don’t unlock Hop+.")
+        case .unverified:
+            String(localized: "Hop couldn’t verify a purchase from this Apple Account.")
+        }
+    }
+
+    private func restore() async {
+        restoring = true
+        defer { restoring = false }
+        do {
+            try await hopPlus.restore(api: session.api)
+        } catch StoreKitError.userCancelled {
+            // They closed the App Store's sign-in: nothing to say.
+        } catch {
+            restoreFailure = error.localizedDescription
+        }
+    }
+}

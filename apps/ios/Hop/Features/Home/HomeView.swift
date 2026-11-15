@@ -78,25 +78,14 @@ struct HomeView: View {
     }
 }
 
-/// Who's signed in, and signing out.
-struct AccountMenu: ToolbarContent {
-    @Environment(Session.self) private var session
+/// Opens the athlete's account: their plan, storage and signing out.
+struct AccountButton: ToolbarContent {
+    @State private var showingAccount = false
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Menu("Account", systemImage: "person.crop.circle") {
-                if let me = session.me {
-                    Section {
-                        Text(me.name ?? me.email ?? String(localized: "Signed in"))
-                        if let link = me.link {
-                            Text(verbatim: link.spoken)
-                        }
-                    }
-                }
-                Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                    Task { await session.signOut() }
-                }
-            }
+            Button("Account", systemImage: "person.crop.circle") { showingAccount = true }
+                .sheet(isPresented: $showingAccount) { AccountView() }
         }
     }
 }
@@ -105,4 +94,5 @@ struct AccountMenu: ToolbarContent {
     HomeView()
         .environment(Session())
         .environment(EventMode())
+        .environment(HopPlus())
 }
