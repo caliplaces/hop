@@ -78,6 +78,21 @@ While `pnpm dev` runs, open [localhost:5173/email-lab.html](http://localhost:517
 
 The Bobble images in emails are rendered per colour by `pnpm --filter @hop/web mascot:assets email` into `apps/web/public/email/`.
 
+## Launch waitlist
+
+Until launch (December 1, 2026), the landing page collects a waitlist. `POST /api/waitlist` takes `{ email, turnstileToken }` (`joinWaitlistSchema` in `packages/shared/src/waitlist.ts`) and stores the email in the `waitlist` table, lowercased and once (`src/routes/waitlist.ts`).
+
+- It always answers `{ ok: true }`, whether or not the email was already on the list, so nobody can probe it for addresses.
+- Turnstile is required, minted with the `waitlist` action, so a token from the upload form doesn't count. Locally, a missing token is allowed.
+- Each IP gets 10 tries a minute (`WAITLIST_LIMITER`).
+
+The list is only for the launch email; `notified_at` records who has had it. To read it:
+
+```sh
+wrangler d1 execute hop-production --remote --env production \
+  --command "select email, created_at from waitlist order by created_at"
+```
+
 ## Live Activity pushes
 
 The iPhone app's Event mode shows a Live Activity counting the clips that come in. The API keeps it counting with the phone locked, by pushing an update through Apple's push service (APNs) each time an upload completes (`src/live.ts`).

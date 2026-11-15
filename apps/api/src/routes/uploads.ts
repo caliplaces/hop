@@ -88,7 +88,7 @@ export const uploadRoutes = new Hono<AppEnv>()
     if (hop.status !== "open")
       return fail(c, 403, "hop_closed", "This Hop isn't accepting uploads.");
 
-    if (!(await verifyTurnstile(c.env, c.req.valid("json").turnstileToken, ip))) {
+    if (!(await verifyTurnstile(c.env, c.req.valid("json").turnstileToken, ip, "upload"))) {
       return fail(c, 403, "turnstile_failed", "We couldn't verify you're human. Please try again.");
     }
     const exp = Date.now() + HOP_PASS_TTL_MS;
