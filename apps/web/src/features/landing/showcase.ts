@@ -18,3 +18,21 @@ export function showcaseAt(i: number) {
     SHOWCASE[i % SHOWCASE.length] ?? { handle: "you", name: "You", color: "indigo" as ColorId }
   );
 }
+
+/** The athlete whose Hop the product stage shows, and the people filming her. */
+export const STAGE_ATHLETE = { handle: "maya", name: "Maya", color: "coral" as ColorId };
+export const STAGE_EVENT = "Prague Open";
+
+export const FILMERS: { name: string; color: ColorId; file: string; size: string }[] = [
+  { name: "Coach Tomas", color: "sky", file: "IMG_4821.MOV", size: "1.2 GB" },
+  { name: "SmokyMonkey441", color: "mint", file: "PXL_20261201.mp4", size: "486 MB" },
+  { name: "Ines", color: "bubblegum", file: "IMG_0937.MOV", size: "2.4 GB" },
+];
+
+export type Filmer = (typeof FILMERS)[number];
+
+/** Wraps around in both directions, so any index is valid. */
+export function filmerAt(i: number): Filmer {
+  const n = FILMERS.length;
+  return FILMERS[((i % n) + n) % n] as Filmer;
+}

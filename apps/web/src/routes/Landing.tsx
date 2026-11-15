@@ -1,18 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { ArrowRight, CircleAlert } from "lucide-react";
-import { Logo } from "../components/Logo";
-import { buttonClass } from "../components/ui/Button";
+import { CircleAlert } from "lucide-react";
 import { AmbientBackground } from "../features/landing/AmbientBackground";
 import { CursorGlow } from "../features/landing/CursorGlow";
+import { Faq } from "../features/landing/Faq";
+import { Features } from "../features/landing/Features";
+import { FinalCta } from "../features/landing/FinalCta";
+import { Footer } from "../features/landing/Footer";
+import { Hero } from "../features/landing/Hero";
 import { HowItWorks } from "../features/landing/HowItWorks";
-import { RotatingHandle } from "../features/landing/RotatingHandle";
-import { SHOWCASE, showcaseHex } from "../features/landing/showcase";
-import { useCycle } from "../features/landing/useCycle";
-import { Mascot } from "../features/mascot/Mascot";
-import { signInUrl } from "../lib/api";
+import { useLaunched } from "../features/landing/launch";
+import { Marquee } from "../features/landing/Marquee";
+import { Nav } from "../features/landing/Nav";
+import { ProductStage } from "../features/landing/stage/ProductStage";
+import { useSpotlight } from "../features/landing/useSpotlight";
+import { useWaitlist } from "../features/landing/useWaitlist";
+import { usePageTheme } from "../lib/pageTheme";
 import { queries } from "../lib/queries";
-import { useMediaQuery } from "../lib/useMediaQuery";
+import "../features/landing/landing.css";
 
 const AUTH_ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled.",
@@ -21,92 +25,48 @@ const AUTH_ERRORS: Record<string, string> = {
 };
 
 export function Landing() {
+  usePageTheme("dark");
   const { data: me } = useQuery(queries.me());
-  const index = useCycle(SHOWCASE.length, 2400);
-  const large = useMediaQuery("(min-width: 1024px)");
-  const medium = useMediaQuery("(min-width: 640px)");
-  const mascotSize = large ? 400 : medium ? 300 : 220;
-  const authError = new URLSearchParams(window.location.search).get("authError");
   const signedIn = Boolean(me?.handle);
+  const launched = useLaunched();
+  const waitlist = useWaitlist();
+  const spotlightSteps = useSpotlight();
+  const spotlightTiles = useSpotlight();
+  const authError = new URLSearchParams(window.location.search).get("authError");
 
   return (
-    <div className="relative isolate">
+    <div className="lp relative isolate overflow-x-clip">
+      <div aria-hidden="true" className="lp-grain pointer-events-none fixed inset-0 -z-10" />
+      <div
+        aria-hidden="true"
+        className="lp-gridlines pointer-events-none absolute inset-x-0 top-0 -z-10 h-[56rem]"
+      />
       <AmbientBackground />
-      <CursorGlow color={showcaseHex(index)} />
+      <CursorGlow color="#7C4DFF" />
+
+      <Nav launched={launched} signedIn={signedIn} joined={waitlist.status.kind === "joined"} />
+
+      {authError && (
+        <p
+          role="alert"
+          className="mx-auto mt-4 flex max-w-md items-center justify-center gap-2 rounded-full bg-danger/10 px-4 py-2.5 text-sm text-danger"
+        >
+          <CircleAlert className="size-4" /> {AUTH_ERRORS[authError] ?? AUTH_ERRORS.failed}
+        </p>
+      )}
+
+      <main className="mx-auto max-w-6xl px-4 sm:px-6">
+        <Hero launched={launched} signedIn={signedIn} waitlist={waitlist} />
+        <ProductStage />
+        <Marquee />
+        <HowItWorks spotlight={spotlightSteps} />
+        <Features spotlight={spotlightTiles} />
+        <Faq />
+        <FinalCta launched={launched} signedIn={signedIn} waitlist={waitlist} />
+      </main>
+
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
-        <header className="flex h-16 items-center justify-between">
-          <Logo />
-          {signedIn ? (
-            <Link to="/app" className={buttonClass({ variant: "soft", size: "sm" })}>
-              Open inbox
-            </Link>
-          ) : (
-            <a
-              href={signInUrl("/app")}
-              className="text-sm font-medium text-muted transition hover:text-fg"
-            >
-              Sign in
-            </a>
-          )}
-        </header>
-
-        {authError && (
-          <p
-            role="alert"
-            className="mx-auto mt-4 flex max-w-md items-center justify-center gap-2 rounded-full bg-danger/10 px-4 py-2.5 text-sm text-danger"
-          >
-            <CircleAlert className="size-4" /> {AUTH_ERRORS[authError] ?? AUTH_ERRORS.failed}
-          </p>
-        )}
-
-        <main>
-          <section className="relative grid items-center gap-6 pt-2 pb-4 sm:gap-12 sm:pt-20 sm:pb-8 lg:grid-cols-[1.15fr_1fr] lg:gap-8">
-            <div className="animate-fade-up text-center lg:text-left">
-              <span className="badge bg-surface-2 text-muted">For athletes at events</span>
-              <h1 className="mt-5 text-[44px] leading-[1.04] font-bold tracking-tighter text-balance sm:text-6xl lg:text-7xl">
-                Every clip of you.
-                <span className="mt-2 block text-[0.62em] tracking-tight sm:mt-3">
-                  <RotatingHandle index={index} />
-                </span>
-              </h1>
-              <p className="mx-auto mt-6 max-w-lg text-lg text-muted text-balance lg:mx-0">
-                At the comp, just say “upload it on my Hop”. Everyone who filmed you sends their
-                videos straight to your link. No app, no account, no chasing DMs.
-              </p>
-              <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start">
-                {signedIn ? (
-                  <Link to="/app" className={buttonClass({ size: "lg" })}>
-                    Open your Hop <ArrowRight className="size-4" />
-                  </Link>
-                ) : (
-                  <a href={signInUrl("/app")} className={buttonClass({ size: "lg" })}>
-                    Get your Hop <ArrowRight className="size-4" />
-                  </a>
-                )}
-                <span className="text-sm text-muted">Free · Continue with Caliplaces</span>
-              </div>
-            </div>
-            {/* First on phones (above the headline), beside the copy on desktop. */}
-            <div className="order-first flex justify-center lg:order-none">
-              <Mascot
-                color={showcaseHex(index)}
-                size={mascotSize}
-                follow
-                interactive
-                label="Bobble, Hop’s mascot. Poke it!"
-              />
-            </div>
-          </section>
-
-          <HowItWorks />
-        </main>
-
-        <footer className="flex flex-col items-center justify-between gap-2 border-t border-line py-8 text-sm text-muted sm:flex-row">
-          <span>Hop by Caliplaces</span>
-          <a className="transition hover:text-fg" href="https://github.com/caliplaces/hop">
-            Open source on GitHub
-          </a>
-        </footer>
+        <Footer />
       </div>
     </div>
   );

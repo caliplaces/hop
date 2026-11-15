@@ -15,7 +15,7 @@ export function AmbientBackground() {
       {BLOBS.map((blob) => (
         <div
           key={blob.color}
-          className={`animate-drift absolute rounded-full opacity-[0.16] blur-3xl dark:opacity-[0.12] ${blob.className}`}
+          className={`animate-drift absolute rounded-full opacity-[0.13] blur-3xl ${blob.className}`}
           style={{ backgroundColor: hexOf(blob.color), animationDelay: blob.delay }}
         />
       ))}
