@@ -166,6 +166,8 @@ export type PlanStatus = {
    * the app sets it on every purchase, and the API only credits matching ones.
    */
   appAccountToken: string;
+  /** What each plan includes, so the app's comparison always matches the server. */
+  plans: Record<"free" | "plus", { storageBytes: number; retentionDays: number | null }>;
 };
 
 /** Making a hop live: when it happened, by the server's clock. */

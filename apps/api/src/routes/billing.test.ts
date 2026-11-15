@@ -136,6 +136,7 @@ describe("the plan", () => {
     expect(first.subscription).toBeNull();
     expect(first.appAccountToken).toMatch(/^[0-9a-f-]{36}$/);
     expect((await plan()).appAccountToken).toBe(first.appAccountToken);
+    expect(first.plans).toEqual(PLANS);
   });
 });
 

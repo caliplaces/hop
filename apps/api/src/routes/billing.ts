@@ -209,6 +209,7 @@ async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
         }
       : null,
     appAccountToken: token,
+    plans: PLANS,
   };
 }
 
