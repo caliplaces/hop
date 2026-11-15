@@ -38,7 +38,8 @@ struct PlanSummary: View {
 
     private var gaugeTint: Color {
         if status.isFull { return .red }
-        if status.isNearlyFull { return .orange }
+        // On either plan; only the inbox's nudge is for the free one.
+        if status.usedFraction >= 0.8 { return .orange }
         return color.color
     }
 

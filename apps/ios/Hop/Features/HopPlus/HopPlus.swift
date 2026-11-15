@@ -33,8 +33,13 @@ final class HopPlus {
     private(set) var loadError: String?
 
     private let source: any PurchaseSource
-    /// Bumped when the athlete signs out, so late replies are dropped.
+    /// Bumped when the athlete signs out. Work started for them stops, and
+    /// its late replies are dropped.
     private var generation = 0
+    /// Each plan request is numbered as it starts. A reply older than the
+    /// one on show is dropped, so a slow read can't undo a purchase.
+    private var lastRequest = 0
+    private var shownRequest = 0
 
     init(source: any PurchaseSource = StoreKitPurchases()) {
         self.source = source
@@ -43,53 +48,64 @@ final class HopPlus {
     /// Loads the plan, sends what this Apple ID has, then follows new
     /// transactions until cancelled. Runs while someone is signed in.
     func run(api: APIClient) async {
+        let asked = generation
         await refresh(api: api)
-        await sync(api: api)
+        await sync(api: api, for: asked)
         for await purchase in source.updates() {
-            await send(purchase, api: api)
+            guard asked == generation else { return }
+            await send(purchase, api: api, for: asked)
         }
     }
 
     /// Reloads the plan, for fresh storage numbers.
     func refresh(api: APIClient) async {
         let asked = generation
+        let request = startRequest()
         do {
             let status: PlanStatus = try await api.get("api/me/plan")
-            guard asked == generation else { return }
-            self.status = status
-            loadError = nil
+            if show(status, from: request, for: asked) { loadError = nil }
         } catch {
-            guard asked == generation else { return }
+            guard asked == generation, request > shownRequest else { return }
             loadError = error.localizedDescription
         }
     }
 
     /// Sends every Hop+ transaction this Apple ID has to the API.
     func sync(api: APIClient) async {
-        for purchase in await source.current() {
-            await send(purchase, api: api)
-        }
+        await sync(api: api, for: generation)
     }
 
     /// Asks the App Store for this Apple ID's purchases, then sends them.
     func restore(api: APIClient) async throws {
+        let asked = generation
         try await source.restore()
-        await sync(api: api)
+        await sync(api: api, for: asked)
     }
 
     /// Hands a transaction to the API, which decides what it's worth.
     @discardableResult
     func send(_ purchase: Purchase, api: APIClient) async -> Outcome {
-        let asked = generation
+        await send(purchase, api: api, for: generation)
+    }
+
+    /// Sends what the Apple ID has, for whoever was signed in at `asked`.
+    private func sync(api: APIClient, for asked: Int) async {
+        for purchase in await source.current() {
+            // Signed out meanwhile: the next athlete's sync sends them.
+            guard asked == generation else { return }
+            await send(purchase, api: api, for: asked)
+        }
+    }
+
+    private func send(_ purchase: Purchase, api: APIClient, for asked: Int) async -> Outcome {
+        let request = startRequest()
         do {
             let status: PlanStatus = try await api.post(
                 "api/me/subscriptions/apple",
                 body: TransactionBody(transaction: purchase.jws)
             )
             await purchase.finish()
-            guard asked == generation else { return .counted }
-            self.status = status
-            problem = nil
+            if show(status, from: request, for: asked) { problem = nil }
             return .counted
         } catch let error as APIError where [400, 403].contains(error.status) {
             // A definite no. StoreKit keeps the subscription either way; it
@@ -107,6 +123,20 @@ final class HopPlus {
             // moment: StoreKit keeps it unfinished, and it's sent again.
             return .later
         }
+    }
+
+    private func startRequest() -> Int {
+        lastRequest += 1
+        return lastRequest
+    }
+
+    /// Shows `status` unless the athlete has signed out since `asked`, or a
+    /// reply to a newer request is already on show. Returns whether it did.
+    private func show(_ status: PlanStatus, from request: Int, for asked: Int) -> Bool {
+        guard asked == generation, request > shownRequest else { return false }
+        shownRequest = request
+        self.status = status
+        return true
     }
 
     /// Forgets the plan when the athlete signs out.

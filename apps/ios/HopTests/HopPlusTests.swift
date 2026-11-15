@@ -19,6 +19,8 @@ nonisolated final class FakePurchases: PurchaseSource, @unchecked Sendable {
     private var held: [Purchase] = []
     private var done: [UInt64] = []
     private var restores = 0
+    private var gateClosed = false
+    private var gateWaiters: [CheckedContinuation<Void, Never>] = []
     private let stream: AsyncStream<Purchase>
     let continuation: AsyncStream<Purchase>.Continuation
 
@@ -28,6 +30,34 @@ nonisolated final class FakePurchases: PurchaseSource, @unchecked Sendable {
 
     var finished: [UInt64] { lock.withLock { done } }
     var restored: Int { lock.withLock { restores } }
+
+    /// How many `current()` and `restore()` calls are held at the gate.
+    var waitingAtGate: Int { lock.withLock { gateWaiters.count } }
+
+    /// Holds `current()` and `restore()` until `openGate()`, to stage races.
+    func closeGate() {
+        lock.withLock { gateClosed = true }
+    }
+
+    func openGate() {
+        let waiters = lock.withLock {
+            gateClosed = false
+            defer { gateWaiters = [] }
+            return gateWaiters
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func pass() async {
+        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+            let held = lock.withLock {
+                guard gateClosed else { return false }
+                gateWaiters.append(waiter)
+                return true
+            }
+            if !held { waiter.resume() }
+        }
+    }
 
     func make(_ id: UInt64) -> Purchase {
         Purchase(id: id, productID: "hop_plus", jws: "jws-\(id)") { [weak self] in
@@ -41,9 +71,17 @@ nonisolated final class FakePurchases: PurchaseSource, @unchecked Sendable {
         lock.withLock { held = purchases }
     }
 
-    func current() async -> [Purchase] { lock.withLock { held } }
+    func current() async -> [Purchase] {
+        await pass()
+        return lock.withLock { held }
+    }
+
     func updates() -> AsyncStream<Purchase> { stream }
-    func restore() async throws { lock.withLock { restores += 1 } }
+
+    func restore() async throws {
+        await pass()
+        lock.withLock { restores += 1 }
+    }
 }
 
 @MainActor
@@ -158,6 +196,51 @@ struct HopPlusTests {
         #expect(purchases.restored == 1)
         #expect(sent == ["jws-5"])
         #expect(hopPlus.status?.plan == .plus)
+    }
+
+    @Test func aSlowReadCantUndoAPurchase() async throws {
+        serve()
+        let hopPlus = HopPlus(source: purchases)
+        // Back from the App Store, the plan is reloaded while the purchase
+        // is on its way: the read says free, and is slow to arrive.
+        server.held = ["/api/me/plan"]
+        let reading = Task { await hopPlus.refresh(api: api) }
+        try await server.waitForRequests { $0.url?.path == "/api/me/plan" }
+        #expect(await hopPlus.send(purchases.make(1), api: api) == .counted)
+        #expect(hopPlus.status?.plan == .plus)
+
+        server.release()
+        await reading.value
+        #expect(hopPlus.status?.plan == .plus)
+
+        // A read started after the purchase is shown as usual.
+        server.held = []
+        await hopPlus.refresh(api: api)
+        #expect(hopPlus.status?.plan == .free)
+    }
+
+    @Test func workStartedBeforeSignOutStops() async throws {
+        serve()
+        purchases.have(1)
+        let hopPlus = HopPlus(source: purchases)
+
+        // Signed out while the App Store is still answering a sync, and a restore.
+        purchases.closeGate()
+        let syncing = Task { await hopPlus.sync(api: api) }
+        let restoring = Task { try await hopPlus.restore(api: api) }
+        for _ in 0..<200 where purchases.waitingAtGate < 2 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(purchases.waitingAtGate == 2)
+        hopPlus.reset()
+        purchases.openGate()
+        await syncing.value
+        try await restoring.value
+
+        // Nothing is sent for the athlete who left, and nothing of theirs shows.
+        #expect(sent.isEmpty)
+        #expect(purchases.finished.isEmpty)
+        #expect(hopPlus.status == nil)
     }
 
     @Test func aReplyForSomeoneWhoSignedOutIsDropped() async throws {
