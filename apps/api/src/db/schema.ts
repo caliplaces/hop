@@ -177,7 +177,7 @@ export const subscriptions = sqliteTable(
     expiresAt: integer("expires_at").notNull(),
     /**
      * While Apple retries a failed renewal, Hop+ carries on until this. Only
-     * renewal info (from notifications) sets it.
+     * renewal info (from notifications) sets it; a newer purchase clears it.
      */
     graceExpiresAt: integer("grace_expires_at"),
     /** Set when Apple refunded or revoked it: Hop+ ends at once. */
@@ -191,6 +191,11 @@ export const subscriptions = sqliteTable(
      */
     purchasedAt: integer("purchased_at").notNull(),
     signedAt: integer("signed_at").notNull(),
+    /**
+     * When the newest renewal info applied (grace period, auto-renew) was
+     * signed. It's ordered on its own, apart from the transaction's.
+     */
+    renewalSignedAt: integer("renewal_signed_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

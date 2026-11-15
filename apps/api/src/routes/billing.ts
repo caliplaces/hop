@@ -1,5 +1,5 @@
 import { appleTransactionSchema, HOP_PLUS_PRODUCT_IDS, PLANS, type PlanStatus } from "@hop/shared";
-import { and, eq, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
@@ -107,22 +107,9 @@ async function apply(
 
   const now = Date.now();
   const purchasedAt = transaction.purchaseDate;
-  const signedAt = Math.max(transaction.signedDate, renewal?.signedDate ?? 0);
+  const signedAt = transaction.signedDate;
   const revokedAt = transaction.revocationDate ?? null;
-  // Only renewal info knows about grace periods and auto-renew; without it,
-  // both stay, except that a newer purchase ends any grace period.
-  const fromRenewal = renewal
-    ? {
-        graceExpiresAt: renewal.gracePeriodExpiresDate ?? null,
-        autoRenew: renewal.autoRenewStatus === 1,
-      }
-    : {};
-  const graceUpdate = renewal
-    ? {}
-    : {
-        graceExpiresAt: sql`case when ${subscriptions.purchasedAt} < ${purchasedAt}
-          then null else ${subscriptions.graceExpiresAt} end`,
-      };
+  const sameKind = eq(subscriptions.environment, environment);
   const newer = or(
     lt(subscriptions.purchasedAt, purchasedAt),
     and(eq(subscriptions.purchasedAt, purchasedAt), lte(subscriptions.signedAt, signedAt)),
@@ -130,7 +117,7 @@ async function apply(
   const mayWrite = owner.byToken
     ? or(eq(subscriptions.userId, owner.userId), lt(subscriptions.purchasedAt, purchasedAt))
     : eq(subscriptions.userId, owner.userId);
-  await db
+  const upsert = db
     .insert(subscriptions)
     .values({
       originalTransactionId: transaction.originalTransactionId,
@@ -139,7 +126,6 @@ async function apply(
       environment,
       expiresAt: transaction.expiresDate,
       revokedAt,
-      ...fromRenewal,
       purchasedAt,
       signedAt,
       createdAt: now,
@@ -152,15 +138,44 @@ async function apply(
         productId: transaction.productId,
         expiresAt: transaction.expiresDate,
         revokedAt,
-        ...fromRenewal,
-        ...graceUpdate,
+        // A newer purchase ends any grace period; renewal info may start another.
+        graceExpiresAt: sql`case when ${subscriptions.purchasedAt} < ${purchasedAt}
+          then null else ${subscriptions.graceExpiresAt} end`,
         purchasedAt,
         signedAt,
         updatedAt: now,
       },
       // Sandbox and production purchases never stand in for each other.
-      setWhere: and(newer, mayWrite, eq(subscriptions.environment, environment)),
+      setWhere: and(newer, mayWrite, sameKind),
     });
+  if (!renewal) {
+    await upsert;
+    return;
+  }
+
+  // Renewal info (grace period, auto-renew) keeps its own clock. The app
+  // syncing the transaction mustn't hold back a grace period that Apple
+  // signed earlier but delivered later.
+  const renewalUpdate = db
+    .update(subscriptions)
+    .set({
+      graceExpiresAt: renewal.gracePeriodExpiresDate ?? null,
+      autoRenew: renewal.autoRenewStatus === 1,
+      renewalSignedAt: renewal.signedDate,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(subscriptions.originalTransactionId, transaction.originalTransactionId),
+        eq(subscriptions.userId, owner.userId),
+        sameKind,
+        or(
+          isNull(subscriptions.renewalSignedAt),
+          lte(subscriptions.renewalSignedAt, renewal.signedDate),
+        ),
+      ),
+    );
+  await db.batch([upsert, renewalUpdate]);
 }
 
 async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {

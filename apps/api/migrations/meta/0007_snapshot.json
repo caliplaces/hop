@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "03d1985d-085a-40f2-8c0d-4ea973f3df89",
+  "id": "8b760ab1-6671-4b50-9106-1c2ba419b4ac",
   "prevId": "b47c0e35-9ec0-4d26-8644-71646a9ff4f6",
   "tables": {
     "files": {
@@ -619,6 +619,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "renewal_signed_at": {
+          "name": "renewal_signed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {

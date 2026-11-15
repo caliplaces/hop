@@ -218,9 +218,20 @@ describe("a purchase from the app", () => {
     expect(((await response.json()) as PlanStatus).plan).toBe("plus");
     const row = await db.select().from(subscriptions).get();
     expect(row?.userId).toBe("usr_a");
-    // And B's old purchase, arriving late, can't take it back.
-    await notify("EXPIRED", await appData({ ...old, signedDate: now + 1000 }));
-    expect((await db.select().from(subscriptions).get())?.userId).toBe("usr_a");
+    // And B's old purchase, arriving late, can't take it back, or bring its renewal info.
+    const oldRenewal = {
+      originalTransactionId: "2000000000",
+      autoRenewStatus: 0,
+      gracePeriodExpiresDate: now + 3 * DAY,
+      environment: "Production",
+      signedDate: now + 1000,
+    };
+    await notify("EXPIRED", await appData({ ...old, signedDate: now + 1000 }, oldRenewal));
+    expect(await db.select().from(subscriptions).get()).toMatchObject({
+      userId: "usr_a",
+      graceExpiresAt: null,
+      autoRenew: true,
+    });
   });
 
   it("ignores an upgraded transaction, so a refunded upgrade can't bring Hop+ back", async () => {
@@ -365,6 +376,50 @@ describe("App Store notifications", () => {
       await appData({ ...lapsed, signedDate: now + 1000 }, over),
     );
     expect((await plan()).plan).toBe("free");
+  });
+
+  it("start a grace period Apple signed before an app sync, but delivered after", async () => {
+    const { appAccountToken } = await plan();
+    const now = Date.now();
+    const lapsed = transaction(appAccountToken, { expiresDate: now - DAY, signedDate: now });
+    // The phone syncs the lapsed transaction first, signed a moment later...
+    await send({ ...lapsed, signedDate: now + 2000 });
+    expect((await plan()).plan).toBe("free");
+    // ...then Apple's notification, signed earlier, arrives with the grace period.
+    const grace = {
+      originalTransactionId: "2000000000",
+      autoRenewStatus: 1,
+      gracePeriodExpiresDate: now + 3 * DAY,
+      environment: "Production",
+      signedDate: now,
+    };
+    await notify("DID_FAIL_TO_RENEW", await appData(lapsed, grace));
+    expect((await plan()).plan).toBe("plus");
+  });
+
+  it("never let older renewal info undo newer", async () => {
+    const { appAccountToken } = await plan();
+    const now = Date.now();
+    const lapsed = transaction(appAccountToken, { expiresDate: now - DAY, signedDate: now });
+    const renewal = { originalTransactionId: "2000000000", environment: "Production" };
+    // Grace over, then a delayed notification from when it began.
+    await notify(
+      "GRACE_PERIOD_EXPIRED",
+      await appData(lapsed, { ...renewal, autoRenewStatus: 0, signedDate: now + 1000 }),
+    );
+    await notify(
+      "DID_FAIL_TO_RENEW",
+      await appData(lapsed, {
+        ...renewal,
+        autoRenewStatus: 1,
+        gracePeriodExpiresDate: now + 3 * DAY,
+        signedDate: now,
+      }),
+    );
+    const status = await plan();
+    expect(status.plan).toBe("free");
+    const row = await db.select().from(subscriptions).get();
+    expect(row).toMatchObject({ graceExpiresAt: null, autoRenew: false });
   });
 
   it("end a grace period when the next renewal comes in, with or without renewal info", async () => {

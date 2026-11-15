@@ -108,7 +108,7 @@ How a subscription's state is kept right:
 
 - **Newest wins.** Data applies only when it's for a later purchase (a renewal, upgrade or resubscription), or for the same purchase signed later. Retries, late notifications and old transactions signed again can't roll a subscription back. Transactions superseded by an upgrade (`isUpgraded`) are ignored, as in Apple's sample code.
 - **Ownership.** A subscription belongs to the account whose token is on its newest purchase. Restoring someone else's purchase is refused. If the same Apple ID later subscribes again from another Hop account, the subscription moves there, since only that Apple ID can make a new purchase for it.
-- **Billing grace.** While Apple retries a failed renewal, Hop+ continues until the grace period ends. Only renewal info, which comes with notifications, sets or ends it.
+- **Billing grace.** While Apple retries a failed renewal, Hop+ continues until the grace period ends. Only renewal info, which comes with notifications, starts it, and a newer purchase ends it. Renewal info is ordered by its own signing time, apart from the transaction's, so the app syncing a purchase can't hold back a grace period Apple delivers late.
 
 Upload quota checks use the plan at the moment of the upload (`src/lib/plans.ts`). Retention isn't enforced yet: no clip is deleted for being older than 30 days.
 
