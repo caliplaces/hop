@@ -166,6 +166,14 @@ export type PlanStatus = {
    * the app sets it on every purchase, and the API only credits matching ones.
    */
   appAccountToken: string;
+  /** What each plan includes, so the app's comparison always matches the server. */
+  plans: Record<"free" | "plus", { storageBytes: number; retentionDays: number | null }>;
+  /**
+   * Goes up whenever the athlete's subscriptions change, and is read before
+   * the rest, so the rest is at least this new. A reply with a lower revision
+   * than one already shown is stale: it read the plan before a change.
+   */
+  revision: number;
 };
 
 /** Making a hop live: when it happened, by the server's clock. */

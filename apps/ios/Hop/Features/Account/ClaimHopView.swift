@@ -17,7 +17,7 @@ struct ClaimHopView: View {
         // with the wrong account can sign out instead of claiming a handle.
         NavigationStack {
             form
-                .toolbar { AccountMenu() }
+                .toolbar { AccountButton() }
         }
     }
 

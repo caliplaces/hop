@@ -5,7 +5,9 @@ import SwiftUI
 struct InboxView: View {
     @Environment(Session.self) private var session
     @Environment(EventMode.self) private var eventMode
+    @Environment(HopPlus.self) private var hopPlus
     @State private var model = InboxModel()
+    @State private var showingHopPlus = false
 
     private var color: PaletteColor { session.me?.paletteColor ?? Palette.brand }
     private var totalClips: Int { model.hops.reduce(0) { $0 + $1.fileCount } }
@@ -14,11 +16,12 @@ struct InboxView: View {
         NavigationStack {
             content
                 .navigationTitle("Inbox")
-                .toolbar { AccountMenu() }
+                .toolbar { AccountButton() }
                 .navigationDestination(for: Hop.self) { hop in
                     HopView(hopId: hop.id, model: model)
                 }
                 .background(Theme.canvas)
+                .sheet(isPresented: $showingHopPlus) { HopPlusView() }
         }
         // Reloads when the link moves to another event, and as clips land
         // during Event mode.
@@ -46,6 +49,9 @@ struct InboxView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 16) {
+                    if let status = hopPlus.status, status.isNearlyFull {
+                        StorageNudge(status: status, color: color) { showingHopPlus = true }
+                    }
                     ForEach(model.hops) { hop in
                         NavigationLink(value: hop) {
                             EventCard(
@@ -66,7 +72,10 @@ struct InboxView: View {
     }
 
     private func refresh() async {
+        // Storage numbers move with the clips.
+        async let plan: Void = hopPlus.refresh(api: session.api)
         await model.refresh(api: session.api, activeHopId: session.me?.activeHopId)
+        await plan
     }
 
     private struct Reload: Equatable {

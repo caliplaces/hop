@@ -29,7 +29,7 @@ struct MyHopView: View {
                     .ignoresSafeArea()
             }
             .navigationTitle("My Hop")
-            .toolbar { AccountMenu() }
+            .toolbar { AccountButton() }
             .sheet(isPresented: $settingUpEvent, onDismiss: {
                 if startedEvent {
                     startedEvent = false
