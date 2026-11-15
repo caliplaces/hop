@@ -268,6 +268,17 @@ describe("a purchase from the app", () => {
 describe("sandbox purchases", () => {
   const sandbox = (token: string) => transaction(token, { environment: "Sandbox" });
 
+  it("never overwrite a production subscription, whatever its ID", async () => {
+    const tokenB = await tokenFor("usr_b");
+    await notify("SUBSCRIBED", await appData(transaction(tokenB)));
+    env.APPLE_SANDBOX_USERS = "usr_a";
+    const { appAccountToken } = await plan();
+    const clash = { ...sandbox(appAccountToken), purchaseDate: Date.now() + 1000 };
+    expect((await send(clash)).status).toBe(403);
+    const row = await db.select().from(subscriptions).get();
+    expect(row).toMatchObject({ userId: "usr_b", environment: "Production" });
+  });
+
   it("don't unlock Hop+ in production, except for listed accounts", async () => {
     const { appAccountToken } = await plan();
     const refused = await send(sandbox(appAccountToken));
@@ -278,6 +289,12 @@ describe("sandbox purchases", () => {
     env.APPLE_SANDBOX_USERS = "usr_x, usr_a";
     expect((await send(sandbox(appAccountToken))).status).toBe(200);
     expect((await plan()).plan).toBe("plus");
+  });
+
+  it("don't count when the environment isn't set", async () => {
+    (env as Partial<Env>).ENVIRONMENT = undefined;
+    const { appAccountToken } = await plan();
+    expect((await send(sandbox(appAccountToken))).status).toBe(403);
   });
 
   it("always count on staging", async () => {
@@ -348,6 +365,31 @@ describe("App Store notifications", () => {
       await appData({ ...lapsed, signedDate: now + 1000 }, over),
     );
     expect((await plan()).plan).toBe("free");
+  });
+
+  it("end a grace period when the next renewal comes in, with or without renewal info", async () => {
+    const { appAccountToken } = await plan();
+    const now = Date.now();
+    const lapsed = transaction(appAccountToken, { expiresDate: now - DAY, signedDate: now });
+    const grace = {
+      originalTransactionId: "2000000000",
+      autoRenewStatus: 1,
+      gracePeriodExpiresDate: now + 40 * DAY,
+      environment: "Production",
+      signedDate: now,
+    };
+    await notify("DID_FAIL_TO_RENEW", await appData(lapsed, grace));
+    // The payment went through; the app sends the renewal before Apple notifies.
+    const renewed = transaction(appAccountToken, {
+      transactionId: "2000000004",
+      purchaseDate: now + 1000,
+      expiresDate: now + 30 * DAY,
+      signedDate: now + 1000,
+    });
+    expect((await send(renewed)).status).toBe(200);
+    const row = await db.select().from(subscriptions).get();
+    expect(row?.graceExpiresAt).toBeNull();
+    expect((await plan()).subscription?.expiresAt).toBe(renewed.expiresDate);
   });
 
   it("never let older data roll a subscription back", async () => {

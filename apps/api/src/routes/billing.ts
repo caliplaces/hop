@@ -51,9 +51,9 @@ async function appAccountToken(db: Db, user: UserRow): Promise<string> {
   return row.token;
 }
 
-/** Whether sandbox purchases count for this athlete: everywhere but production, only for some. */
+/** Whether sandbox purchases count for this athlete: on staging and locally; elsewhere only for some. */
 function sandboxCounts(env: Env, userId: string): boolean {
-  if (env.ENVIRONMENT !== "production") return true;
+  if (env.ENVIRONMENT === "staging" || env.ENVIRONMENT === "development") return true;
   return (env.APPLE_SANDBOX_USERS ?? "").split(",").some((id) => id.trim() === userId);
 }
 
@@ -109,13 +109,20 @@ async function apply(
   const purchasedAt = transaction.purchaseDate;
   const signedAt = Math.max(transaction.signedDate, renewal?.signedDate ?? 0);
   const revokedAt = transaction.revocationDate ?? null;
-  // Only renewal info knows about grace periods and auto-renew; without it, both stay.
+  // Only renewal info knows about grace periods and auto-renew; without it,
+  // both stay, except that a newer purchase ends any grace period.
   const fromRenewal = renewal
     ? {
         graceExpiresAt: renewal.gracePeriodExpiresDate ?? null,
         autoRenew: renewal.autoRenewStatus === 1,
       }
     : {};
+  const graceUpdate = renewal
+    ? {}
+    : {
+        graceExpiresAt: sql`case when ${subscriptions.purchasedAt} < ${purchasedAt}
+          then null else ${subscriptions.graceExpiresAt} end`,
+      };
   const newer = or(
     lt(subscriptions.purchasedAt, purchasedAt),
     and(eq(subscriptions.purchasedAt, purchasedAt), lte(subscriptions.signedAt, signedAt)),
@@ -146,11 +153,13 @@ async function apply(
         expiresAt: transaction.expiresDate,
         revokedAt,
         ...fromRenewal,
+        ...graceUpdate,
         purchasedAt,
         signedAt,
         updatedAt: now,
       },
-      setWhere: and(newer, mayWrite),
+      // Sandbox and production purchases never stand in for each other.
+      setWhere: and(newer, mayWrite, eq(subscriptions.environment, environment)),
     });
 }
 
