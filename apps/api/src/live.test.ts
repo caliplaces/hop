@@ -268,6 +268,34 @@ describe("pushing arrivals", () => {
     expect(pushes[2]?.body.aps.alert).toEqual({ title: "New clip", body: "A clip just landed" });
   });
 
+  it("alerts once when a burst of uploads completes at the same time", async () => {
+    await watching(TOKEN_A);
+    await clip("hop_jam", T0 + MIN, "@mia");
+    await clip("hop_jam", T0 + MIN, "@leo");
+    await clip("hop_jam", T0 + MIN, "@kai");
+    await Promise.all([
+      pushArrivals(env, "hop_jam", T0 + MIN),
+      pushArrivals(env, "hop_jam", T0 + MIN + 1),
+      pushArrivals(env, "hop_jam", T0 + MIN + 2),
+    ]);
+    expect(pushes).toHaveLength(3);
+    expect(pushes.filter((p) => p.body.aps.alert)).toHaveLength(1);
+  });
+
+  it("hands the alert back when the push that claimed it fails", async () => {
+    await watching(TOKEN_A);
+    await clip("hop_jam", T0 + MIN);
+    apnsReply = () => new Response(JSON.stringify({ reason: "TooManyRequests" }), { status: 429 });
+    await pushArrivals(env, "hop_jam", T0 + MIN);
+    expect(pushes[0]?.body.aps.alert).toBeDefined();
+
+    apnsReply = () => new Response(null, { status: 200 });
+    await pushArrivals(env, "hop_jam", T0 + 2 * MIN);
+    expect(pushes[1]?.body.aps.alert).toBeDefined();
+    const row = await db.select().from(liveActivities).get();
+    expect(row?.alertedAt).toBe(T0 + 2 * MIN);
+  });
+
   it("forgets tokens Apple no longer accepts, and keeps the rest after a hiccup", async () => {
     await watching(TOKEN_A);
     await watching(TOKEN_B);

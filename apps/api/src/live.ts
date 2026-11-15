@@ -1,4 +1,4 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, or } from "drizzle-orm";
 import { getDb } from "./db";
 import { liveActivities } from "./db/schema";
 import type { Env } from "./env";
@@ -29,8 +29,24 @@ export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
     watching.map(async (activity) => {
       const { count, latest } = await arrivalsSince(db, hopId, activity.since, 1);
       const sender = latest[0]?.contributorName ?? null;
+      // Claim the alert before sending, in one conditional update: when a
+      // burst of uploads completes at once, only one of them wins it.
       const alerting =
-        count > 0 && (activity.alertedAt === null || activity.alertedAt <= now - ALERT_EVERY_MS);
+        count > 0 &&
+        (await db
+          .update(liveActivities)
+          .set({ alertedAt: now })
+          .where(
+            and(
+              eq(liveActivities.token, activity.token),
+              or(
+                isNull(liveActivities.alertedAt),
+                lte(liveActivities.alertedAt, now - ALERT_EVERY_MS),
+              ),
+            ),
+          )
+          .returning({ token: liveActivities.token })
+          .get()) !== undefined;
       const outcome = await pushLiveActivity(
         env,
         activity.token,
@@ -47,11 +63,13 @@ export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
       });
       if (outcome === "gone") {
         await db.delete(liveActivities).where(eq(liveActivities.token, activity.token));
-      } else if (outcome === "sent" && alerting) {
+      } else if (outcome === "failed" && alerting) {
+        // It didn't reach the phone: hand the alert back for the next clip,
+        // unless a later claim has replaced this one meanwhile.
         await db
           .update(liveActivities)
-          .set({ alertedAt: now })
-          .where(eq(liveActivities.token, activity.token));
+          .set({ alertedAt: activity.alertedAt })
+          .where(and(eq(liveActivities.token, activity.token), eq(liveActivities.alertedAt, now)));
       }
     }),
   );

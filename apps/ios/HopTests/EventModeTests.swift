@@ -430,6 +430,34 @@ struct EventPushTests {
         #expect(registrations(tokenA).count == 2)
     }
 
+    @Test func aSlowRegistrationNeverHoldsUpTheLockScreen() async throws {
+        let register = Locked((503, "{}"))
+        let arrived = Locked(arrivalsJSON(0, []))
+        server.reply = { request in
+            switch (request.httpMethod, request.url?.path ?? "") {
+            case ("POST", "/api/me/hops/jam/activate"): return (200, activated)
+            case ("GET", "/api/me/hops/jam/arrivals"): return (200, arrived.value)
+            case ("PUT", let path) where path.hasPrefix("/api/me/live-activities/"): return register.value
+            default: return (404, "{}")
+            }
+        }
+        let mode = eventMode()
+        let api = server.client(token: "hs_t")
+        try await mode.start(.existing(jam()), me: me(), api: api)
+        activity.issue(tokenA)
+        try await server.waitForRequests { $0.httpMethod == "PUT" }
+
+        // The retry hangs; the new count still reaches the Lock Screen first.
+        register.value = (200, #"{"ok":true}"#)
+        server.held = ["/api/me/live-activities/\(tokenA)"]
+        arrived.value = arrivalsJSON(1, [("c1", "@mia")])
+        let polling = Task { await mode.poll(api: api) }
+        try await server.waitForRequests(count: 2) { $0.httpMethod == "PUT" }
+        #expect(activity.updates == [.init(clips: 1, latest: "@mia")])
+        server.release()
+        await polling.value
+    }
+
     @Test func aServerForTheOtherEnvironmentIsNotAskedAgain() async throws {
         let register = Locked((409, #"{"error":"wrong_environment","message":"Push updates aren't available for this build."}"#))
         serve(register: register)

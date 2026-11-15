@@ -223,12 +223,14 @@ final class EventMode {
                 arrival = Arrival(count: clips - previous, senders: fresh.map(\.contributor))
             }
 
-            // A registration that failed earlier, offline perhaps, goes again.
-            await registerPushToken(api: api)
             let state = EventActivityAttributes.ContentState(clips: clips, latest: latest)
-            guard state != shown else { return }
-            shown = state
-            await activity.update(state)
+            if state != shown {
+                shown = state
+                await activity.update(state)
+            }
+            // Then a registration that failed earlier, offline perhaps, goes
+            // again; the Lock Screen never waits for it.
+            await registerPushToken(api: api)
         } catch let error as APIError where error.status == 404 {
             // The event was deleted, on the website perhaps.
             guard asked == generation else { return }
