@@ -40,12 +40,16 @@ struct SessionTests {
         }
         let session = makeSession()
         var shown: URL?
-        try await session.signIn { url in
+        var awaited: SignInCallback?
+        try await session.signIn { url, callback in
             shown = url
+            awaited = callback
             return URL(string: "com.onmyhop.app:/auth/callback?code=c&state=s")!
         }
 
         #expect(shown?.absoluteString == "https://auth.test/authorize?state=s")
+        // A server that doesn't name a callback uses the custom scheme.
+        #expect(awaited == .scheme("com.onmyhop.app"))
         #expect(session.isSignedIn)
         #expect(session.me?.handle == "alex")
         #expect(store.token == "tok_123")
@@ -60,13 +64,63 @@ struct SessionTests {
         ])
     }
 
+    @Test func waitsForTheHTTPSCallbackTheAPINames() async throws {
+        let host = server.baseURL.host() ?? ""
+        let callback = Locked(#"{"host":"\#(host)","path":"/api/auth/app/callback"}"#)
+        server.reply = { request in
+            switch request.url?.path {
+            case "/api/auth/app/start":
+                (200, #"{"authorizeUrl":"https://auth.test/authorize","flow":"f","callback":\#(callback.value)}"#)
+            case "/api/auth/app/session":
+                (200, #"{"token":"tok_123","expiresAt":1,"me":\#(me)}"#)
+            default:
+                (404, "{}")
+            }
+        }
+        let session = makeSession()
+        var awaited: SignInCallback?
+        try await session.signIn { _, expected in
+            awaited = expected
+            return URL(string: "https://\(host)/api/auth/app/callback?code=c&state=s")!
+        }
+        #expect(awaited == .https(host: host, path: "/api/auth/app/callback"))
+        #expect(session.isSignedIn)
+    }
+
+    @Test func onlyWaitsForHopsOwnCallbacks() async {
+        let callback = Locked(#"{"host":"evil.example","path":"/callback"}"#)
+        server.reply = { request in
+            request.url?.path == "/api/auth/app/start"
+                ? (200, #"{"authorizeUrl":"https://auth.test/authorize","flow":"f","callback":\#(callback.value)}"#)
+                : (404, "{}")
+        }
+        let session = makeSession()
+        let host = server.baseURL.host() ?? ""
+        for other in [
+            #"{"host":"evil.example","path":"/api/auth/app/callback"}"#,
+            #"{"host":"\#(host)","path":"/somewhere/else"}"#,
+            #"{"scheme":"com.evil.app"}"#,
+        ] {
+            callback.value = other
+            var asked = false
+            await #expect(throws: URLError(.badServerResponse)) {
+                try await session.signIn { url, _ in
+                    asked = true
+                    return url
+                }
+            }
+            #expect(!asked)
+        }
+        #expect(!session.isSignedIn)
+    }
+
     @Test func passesOnTheAPIsExplanation() async {
         server.reply = { _ in
             (400, #"{"error":"expired","message":"Signing in took too long."}"#)
         }
         let session = makeSession()
         await #expect(throws: APIError(status: 400, code: "expired", message: "Signing in took too long.")) {
-            try await session.signIn { $0 }
+            try await session.signIn { url, _ in url }
         }
         #expect(!session.isSignedIn)
         #expect(store.token == nil)
@@ -118,7 +172,7 @@ struct SessionTests {
         let refreshing = Task { await session.refresh() }
         try await server.waitForRequest("/api/me")
         await session.signOut()
-        try await session.signIn { _ in URL(string: "com.onmyhop.app:/auth/callback?code=c&state=s")! }
+        try await session.signIn { _, _ in URL(string: "com.onmyhop.app:/auth/callback?code=c&state=s")! }
         server.release()
         await refreshing.value
 
@@ -140,7 +194,7 @@ struct SessionTests {
         let session = makeSession(store: MemoryTokenStore("tok_old"))
         let asked = session.token
         await session.signOut()
-        try await session.signIn { _ in URL(string: "com.onmyhop.app:/auth/callback?code=c&state=s")! }
+        try await session.signIn { _, _ in URL(string: "com.onmyhop.app:/auth/callback?code=c&state=s")! }
 
         let stale = try JSONDecoder().decode(Me.self, from: Data(meJSON(handle: "someoneelse").utf8))
         session.update(stale, from: asked)

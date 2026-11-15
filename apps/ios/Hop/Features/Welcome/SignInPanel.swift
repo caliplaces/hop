@@ -56,10 +56,10 @@ struct SignInPanel: View {
         problem = nil
         defer { isSigningIn = false }
         do {
-            try await session.signIn { url in
+            try await session.signIn { url, callback in
                 try await webAuthenticationSession.authenticate(
                     using: url,
-                    callback: .customScheme(HopServer.callbackScheme),
+                    callback: callback.webAuthentication,
                     preferredBrowserSession: .shared,
                     additionalHeaderFields: [:]
                 )
@@ -126,5 +126,15 @@ struct SignInPanel: View {
         .foregroundStyle(Theme.ink)
         .multilineTextAlignment(.center)
         .padding(.bottom, layout.insets.bottom + 16)
+    }
+}
+
+extension SignInCallback {
+    /// The same callback, as a web authentication session waits for it.
+    var webAuthentication: ASWebAuthenticationSession.Callback {
+        switch self {
+        case let .scheme(scheme): .customScheme(scheme)
+        case let .https(host, path): .https(host: host, path: path)
+        }
     }
 }

@@ -17,6 +17,12 @@ export type Env = {
   OIDC_CLIENT_SECRET: string;
   /** The iPhone app's own (Native, public) Caliplaces developer app. Empty disables app sign-in. */
   OIDC_APP_CLIENT_ID: string;
+  /**
+   * How the app is sent back after signing in: "https" to this site's
+   * callback page, which only Hop can catch, or "scheme" for the older
+   * custom scheme. See appRedirectUri.
+   */
+  OIDC_APP_REDIRECT: "https" | "scheme";
   SESSION_SECRET: string;
   TURNSTILE_SITE_KEY: string;
   TURNSTILE_SECRET_KEY: string;

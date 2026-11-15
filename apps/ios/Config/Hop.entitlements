@@ -7,6 +7,14 @@
 	     TestFlight and the App Store. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Signing in comes back to an https page on these sites, which only
+	     Hop can catch: each lists the app in its
+	     apple-app-site-association file. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:onmyhop.com</string>
+		<string>webcredentials:staging.onmyhop.com</string>
+	</array>
 	<!-- Shared with the widgets: the athlete's link for the QR code widget. -->
 	<key>com.apple.security.application-groups</key>
 	<array>

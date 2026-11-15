@@ -16,13 +16,26 @@ Without R2 S3 credentials in `.dev.vars`, upload parts and downloads go through 
 
 To sign in locally, register your own **web** app at [developer.caliplaces.com/apps](https://developer.caliplaces.com/apps) with the redirect URI `http://localhost:5173/api/auth/callback`, and put its client ID and secret in `.dev.vars`. Each environment (local, staging, production) uses a separate developer app, so production credentials never reach dev machines.
 
-The iPhone app signs in through its own developer app, `OIDC_APP_CLIENT_ID` in `wrangler.jsonc`. It's a **Native** app: a public client with PKCE and no secret, whose redirect URI is the custom scheme `com.onmyhop.app:/auth/callback`. Because nothing about it is secret or tied to a host, every environment, including local development, uses the same one.
+The iPhone app signs in through its own developer app, `OIDC_APP_CLIENT_ID` in `wrangler.jsonc`. It's a **Native** app: a public client with PKCE and no secret, and every environment, including local development, uses the same one. Its redirect URIs are registered there: `https://onmyhop.com/api/auth/app/callback`, `https://staging.onmyhop.com/api/auth/app/callback`, and, until every environment has moved off it, the custom scheme `com.onmyhop.app:/auth/callback`.
 
 ## How the app signs in
 
-1. `POST /api/auth/app/start` returns Caliplaces' authorization URL and a signed `flow` holding its state, nonce and PKCE verifier.
-2. The app opens the URL in a web authentication session. Caliplaces redirects back to `com.onmyhop.app:/auth/callback?code=…&state=…`.
+1. `POST /api/auth/app/start` returns Caliplaces' authorization URL, a signed `flow` holding its state, nonce, PKCE verifier and redirect URI, and the `callback` the app should wait for.
+2. The app opens the URL in a web authentication session. Caliplaces redirects back to that callback with `?code=…&state=…`, and the session catches it.
 3. `POST /api/auth/app/session` with the `flow` and that URL checks the redirect and state, exchanges the code with the verifier, and returns a session token. Someone who intercepts the redirect gets a code they can't use without the verifier.
+
+`OIDC_APP_REDIRECT` in `wrangler.jsonc` picks the callback per environment. Any other value, or none, turns app sign-in off rather than falling back to the scheme:
+
+- `"https"`: `<APP_URL>/api/auth/app/callback`. Only Hop can catch it, because the app's `webcredentials` associated domains name this site, and the site lists the app in `/.well-known/apple-app-site-association`, which the Worker serves. If the page ever loads in a browser, it only says to go back to the app.
+- `"scheme"`: the custom scheme `com.onmyhop.app:/auth/callback`, which another app could also claim. It's kept only while moving to https, and local development uses it.
+
+A flow remembers its redirect URI, so changing the setting doesn't break a sign-in already under way, and only this environment's own redirects are accepted.
+
+Moving off the custom scheme, which any app could claim:
+
+1. Register both https callbacks on the Native app.
+2. Switch staging, then production, to `"https"`. Do production before the first App Store build: older builds only know the scheme and can't sign in once it's gone.
+3. Give local development its own Native app with the scheme, since the https callback may not work in the simulator. Then remove the scheme from the shared app, so nothing can sign in as Hop through it.
 4. The app sends the token as `Authorization: Bearer <token>`. App sessions last 90 days from last use. They're stored as `kind = "app"`, and the website's cookie sessions as `"web"`, so neither kind is accepted in place of the other.
 
 ## How uploads work

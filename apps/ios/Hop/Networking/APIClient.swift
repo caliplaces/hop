@@ -33,8 +33,8 @@ nonisolated enum HopServer {
         return "\(url.scheme ?? "https")://\(url.host() ?? "")\(port)"
     }
 
-    /// The custom scheme Caliplaces redirects to after sign-in. It matches the
-    /// bundle id and the redirect URI registered on the app's developer app.
+    /// The custom scheme Caliplaces used to redirect to after sign-in, before
+    /// the https callback. It matches the bundle id.
     static let callbackScheme = "com.onmyhop.app"
 }
 
