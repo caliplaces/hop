@@ -133,6 +133,8 @@ struct EventStage: View {
                 Group {
                     if let latest = eventMode.latest {
                         Text("Latest from \(latest)")
+                    } else if eventMode.clips > 0 {
+                        Text("The latest just landed.")
                     } else {
                         Text("They show up here as they land.")
                     }

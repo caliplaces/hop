@@ -13,7 +13,8 @@ ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES
 
 GENERATE_INFOPLIST_FILE = YES
 // Adds what generated keys can't express: the app's URL scheme, which
-// Event mode's Live Activity opens the app with.
+// Event mode's Live Activity opens the app with, and frequent Live Activity
+// updates.
 INFOPLIST_FILE = Config/Hop.plist
 INFOPLIST_KEY_CFBundleDisplayName = Hop
 INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.photography
@@ -22,7 +23,8 @@ INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES
 INFOPLIST_KEY_UILaunchScreen_Generation = YES
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait
 INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = Hop saves the clips you choose to your photo library.
-// Event mode shows a Live Activity.
+// Event mode shows a Live Activity, which the API updates by push.
 INFOPLIST_KEY_NSSupportsLiveActivities = YES
+CODE_SIGN_ENTITLEMENTS = Config/Hop.entitlements
 
 CODE_SIGN_STYLE = Automatic

@@ -7,8 +7,10 @@ QR code) and Event mode. The Hop pass and "Share to Hop" come next.
 
 Event mode puts the QR code full screen, keeps the screen on, and counts the
 clips that come in, in the app and as a Live Activity on the Lock Screen and in
-the Dynamic Island. For now the app updates the count while it's open. Push
-updates, which keep it counting with the phone locked, come later.
+the Dynamic Island. While the app is open it checks for clips itself; with the
+phone locked, the API pushes each update to the Live Activity through APNs.
+Debug builds get sandbox push tokens, which staging can push to. See "Live
+Activity pushes" in apps/api/README.md.
 
 ## Running it
 
