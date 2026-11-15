@@ -1,0 +1,313 @@
+/*
+ * Motion and effects for the landing page. All of it is decoration: with
+ * reduced motion the looping animations stop and reveals show at once.
+ */
+
+.lp {
+  --lp-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --lp-spring: cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+/* ---------- Entrances ---------- */
+
+/* Hero pieces rise in one after another on load (delay set inline). */
+.lp-rise {
+  animation: lp-rise 1s var(--lp-ease) both;
+}
+@keyframes lp-rise {
+  from {
+    opacity: 0;
+    translate: 0 18px;
+    filter: blur(10px);
+  }
+}
+
+/* Sections fade up once as they scroll into view (see useReveal). */
+[data-reveal] {
+  opacity: 0;
+  translate: 0 28px;
+  filter: blur(6px);
+  transition:
+    opacity 0.9s var(--lp-ease),
+    translate 0.9s var(--lp-ease),
+    filter 0.9s var(--lp-ease);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+[data-reveal][data-shown] {
+  opacity: 1;
+  translate: 0 0;
+  filter: none;
+}
+
+/* ---------- Text ---------- */
+
+/* Numbers that change roll in from above. */
+.lp-digit {
+  display: inline-block;
+  animation: lp-digit 0.5s var(--lp-ease) both;
+}
+@keyframes lp-digit {
+  from {
+    opacity: 0;
+    translate: 0 -0.45em;
+    filter: blur(3px);
+  }
+}
+
+/* ---------- Backgrounds ---------- */
+
+/* Film grain over the whole page, so the dark gradients don't band. */
+.lp-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+}
+
+/* A faint grid that fades out towards the edges. */
+.lp-gridlines {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
+}
+
+/* Stage lights sweeping over the product stage, tinted with --beam. */
+.lp-beam {
+  position: absolute;
+  top: -10%;
+  width: 46%;
+  height: 130%;
+  background: conic-gradient(
+    from 180deg at 50% 0%,
+    transparent 163deg,
+    color-mix(in oklab, var(--beam) 34%, transparent) 180deg,
+    transparent 197deg
+  );
+  transform-origin: 50% 0;
+  filter: blur(14px);
+  animation: lp-sweep 10s ease-in-out infinite alternate;
+  transition: background 0.8s;
+}
+@keyframes lp-sweep {
+  from {
+    rotate: -16deg;
+  }
+  to {
+    rotate: 16deg;
+  }
+}
+
+/* ---------- Product stage ---------- */
+
+.lp-progress {
+  transform-origin: left;
+  animation: lp-fill var(--lp-fill, 2s) cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@keyframes lp-fill {
+  from {
+    transform: scaleX(0.04);
+  }
+}
+
+/*
+ * A clip travelling from a filmer's card into the inbox along its inline
+ * offset-path. No scale here: scale applies on top of the offset and would
+ * pull the clip off its path.
+ */
+.lp-travel {
+  offset-anchor: center;
+  offset-rotate: 0deg;
+  animation: lp-travel 1.1s var(--lp-ease) 1.5s both;
+}
+@keyframes lp-travel {
+  from {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  15%,
+  80% {
+    opacity: 1;
+  }
+  to {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+/* A newly arrived clip pops in with a ring that fades. */
+.lp-arrive {
+  animation: lp-arrive 0.7s var(--lp-spring) both;
+}
+@keyframes lp-arrive {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+.lp-arrive::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--ring, #fff);
+  animation: lp-ring 2.2s ease-out both;
+}
+@keyframes lp-ring {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.lp-float {
+  animation: lp-float 7s ease-in-out infinite;
+}
+@keyframes lp-float {
+  50% {
+    translate: 0 -10px;
+  }
+}
+
+/* ---------- Strip ---------- */
+
+.lp-marquee {
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+}
+.lp-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: lp-marquee 48s linear infinite;
+}
+.lp-marquee:hover .lp-marquee-track {
+  animation-play-state: paused;
+}
+@keyframes lp-marquee {
+  to {
+    translate: -50% 0;
+  }
+}
+
+/* ---------- Cards ---------- */
+
+/* A soft light and a brighter border that follow the pointer (see useSpotlight). */
+.lp-spot {
+  position: relative;
+  isolation: isolate;
+}
+.lp-spot::before,
+.lp-spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.lp-spot::before {
+  z-index: -1;
+  background: radial-gradient(
+    560px circle at var(--mx, 50%) var(--my, 0%),
+    rgb(255 255 255 / 0.06),
+    transparent 45%
+  );
+}
+.lp-spot::after {
+  padding: 1px;
+  background: radial-gradient(
+    320px circle at var(--mx, 50%) var(--my, 0%),
+    rgb(255 255 255 / 0.35),
+    transparent 60%
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+.lp-spot:hover::before,
+.lp-spot:hover::after {
+  opacity: 1;
+}
+
+/* Sound waves next to the speech bubble. */
+.lp-wave {
+  transform-origin: bottom;
+  animation: lp-wave 1.1s ease-in-out infinite alternate;
+}
+@keyframes lp-wave {
+  from {
+    scale: 1 0.35;
+  }
+}
+
+/* ---------- Waitlist ---------- */
+
+/* Confetti from the button when someone joins (offsets set inline). */
+.lp-confetti {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: lp-burst 1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes lp-burst {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(var(--r)) scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* The pill around the email field shows focus (border and ring), not the field itself. */
+.lp-field input:focus-visible {
+  outline: none;
+}
+
+/* ---------- FAQ ---------- */
+
+/* Answers slide open where the browser can animate to height: auto. */
+.lp-faq {
+  interpolate-size: allow-keywords;
+}
+.lp-faq details::details-content {
+  block-size: 0;
+  overflow: hidden;
+  transition:
+    block-size 0.45s var(--lp-ease),
+    content-visibility 0.45s allow-discrete;
+}
+.lp-faq details[open]::details-content {
+  block-size: auto;
+}
+.lp-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-beam,
+  .lp-float,
+  .lp-wave,
+  .lp-marquee-track,
+  .lp .animate-drift,
+  .lp .animate-ping {
+    animation: none;
+  }
+  .lp-travel,
+  .lp-confetti {
+    display: none;
+  }
+  [data-reveal] {
+    opacity: 1;
+    translate: none;
+    filter: none;
+  }
+}
