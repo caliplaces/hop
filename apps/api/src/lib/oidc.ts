@@ -20,5 +20,16 @@ export function redirectUri(env: Env): string {
   return `${env.APP_URL}/api/auth/callback`;
 }
 
+/** The iPhone app's client: public, so it proves itself with PKCE instead of a secret. */
+export function appOidcClient(env: Env): oauth.Client {
+  return { client_id: env.OIDC_APP_CLIENT_ID };
+}
+
+/**
+ * Where Caliplaces sends the iPhone app back to. A custom scheme matching the
+ * app's bundle id, registered on its developer app; must match exactly.
+ */
+export const APP_REDIRECT_URI = "com.onmyhop.app:/auth/callback";
+
 /** Caliplaces only allows these scopes for third-party apps. */
 export const OIDC_SCOPES = "openid profile email";

@@ -2,7 +2,7 @@
 #include "Shared.xcconfig"
 
 PRODUCT_NAME = Hop
-PRODUCT_BUNDLE_IDENTIFIER = com.caliplaces.hop
+PRODUCT_BUNDLE_IDENTIFIER = com.onmyhop.app
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 1
 

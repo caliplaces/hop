@@ -25,6 +25,9 @@
     // Each environment has its own Caliplaces developer app. For local dev, set
     // OIDC_CLIENT_ID and OIDC_CLIENT_SECRET in .dev.vars from your own dev app.
     "OIDC_CLIENT_ID": "",
+    // The iPhone app's Caliplaces developer app (Native, no secret). Its redirect
+    // URI is a custom scheme, so one app serves every environment.
+    "OIDC_APP_CLIENT_ID": "399623629245054982",
     "R2_BUCKET_NAME": "hop-dev",
     // Cloudflare's always-pass Turnstile test key.
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
@@ -38,9 +41,11 @@
     }
   ],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "hop-dev" }],
-  // Per IP. Generous on purpose: a whole venue can share one Wi-Fi IP.
+  // Per IP. Generous on purpose: a whole venue can share one Wi-Fi IP. Signing
+  // in is rarer, so its limit is lower, but still allows a crowded venue.
   "ratelimits": [
-    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } }
+    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
+    { "name": "AUTH_LIMITER", "namespace_id": "1011", "simple": { "limit": 20, "period": 60 } }
   ],
 
   "env": {
@@ -55,6 +60,7 @@
         "EMAIL_FROM": "Hop (staging) <hello@onmyhop.com>",
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "399581759521488902",
+        "OIDC_APP_CLIENT_ID": "399623629245054982",
         "R2_BUCKET_NAME": "hop-staging",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzxw0pDT6tjGB4"
       },
@@ -72,6 +78,11 @@
           "name": "UPLOAD_LIMITER",
           "namespace_id": "1002",
           "simple": { "limit": 300, "period": 60 }
+        },
+        {
+          "name": "AUTH_LIMITER",
+          "namespace_id": "1012",
+          "simple": { "limit": 20, "period": 60 }
         }
       ]
     },
@@ -86,6 +97,7 @@
         "EMAIL_FROM": "Hop <hello@onmyhop.com>",
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "399569698213068806",
+        "OIDC_APP_CLIENT_ID": "399623629245054982",
         "R2_BUCKET_NAME": "hop-production",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzsqAA1kSjsSnQ"
       },
@@ -103,6 +115,11 @@
           "name": "UPLOAD_LIMITER",
           "namespace_id": "1003",
           "simple": { "limit": 300, "period": 60 }
+        },
+        {
+          "name": "AUTH_LIMITER",
+          "namespace_id": "1013",
+          "simple": { "limit": 20, "period": 60 }
         }
       ]
     }

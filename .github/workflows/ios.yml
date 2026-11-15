@@ -60,6 +60,8 @@ jobs:
           fi
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
+      # Signed ad hoc, with no team or certificate: the simulator still needs a
+      # signature carrying the app's entitlements, or the Keychain refuses it.
       - name: Build and test
         working-directory: apps/ios
         run: |
@@ -67,4 +69,6 @@ jobs:
             -project Hop.xcodeproj \
             -scheme Hop \
             -destination "id=${{ steps.simulator.outputs.udid }}" \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM=""

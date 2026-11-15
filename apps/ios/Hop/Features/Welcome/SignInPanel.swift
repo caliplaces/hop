@@ -1,10 +1,10 @@
+import AuthenticationServices
 import SwiftUI
 
 /// The sign-in screen's foreground, shown once the welcome bubble has opened.
 /// Its background (the aura and Bobble) is the inside of the bubble itself.
 struct SignInPanel: View {
     let layout: BubbleLayout
-    var onContinue: () -> Void
     var onClose: () -> Void
     /// Reports how far the content is scrolled, for Bobble, who is drawn by
     /// the bubble behind this panel.
@@ -12,6 +12,11 @@ struct SignInPanel: View {
 
     /// The colours inside the bubble, and so behind sign-in.
     static let auraColors = [Palette.grape.color, Palette.indigo.color, Palette.bubblegum.color]
+
+    @Environment(Session.self) private var session
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @State private var isSigningIn = false
+    @State private var problem: String?
 
     var body: some View {
         // Fills the screen when it fits; with large text sizes it scrolls
@@ -44,6 +49,28 @@ struct SignInPanel: View {
         }
     }
 
+    /// Shows Caliplaces' sign-in page in a web authentication session, which
+    /// shares Safari's cookies, so anyone already signed in there just confirms.
+    private func signIn() async {
+        isSigningIn = true
+        problem = nil
+        defer { isSigningIn = false }
+        do {
+            try await session.signIn { url in
+                try await webAuthenticationSession.authenticate(
+                    using: url,
+                    callback: .customScheme(HopServer.callbackScheme),
+                    preferredBrowserSession: .shared,
+                    additionalHeaderFields: [:]
+                )
+            }
+        } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            // They closed the sign-in sheet; nothing went wrong.
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
     private var content: some View {
         VStack(spacing: 0) {
             Color.clear
@@ -62,20 +89,39 @@ struct SignInPanel: View {
 
             Spacer(minLength: 24)
 
-            Button(action: onContinue) {
-                Text("Continue with Caliplaces")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
+            Button {
+                Task { await signIn() }
+            } label: {
+                ZStack {
+                    Text("Continue with Caliplaces")
+                        .opacity(isSigningIn ? 0 : 1)
+                    if isSigningIn {
+                        ProgressView()
+                            .tint(.white)
+                            .accessibilityLabel("Signing in")
+                    }
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.glassProminent)
             .controlSize(.extraLarge)
             .tint(Palette.brand.color)
+            .disabled(isSigningIn)
             .padding(.horizontal, 24)
 
-            Text("New here? You’ll claim your Hop link next.")
-                .font(.footnote)
-                .foregroundStyle(Theme.muted)
-                .padding(.top, 14)
+            Group {
+                if let problem {
+                    Text(problem)
+                        .foregroundStyle(Color(light: 0xD92D20, dark: 0xFF6369))
+                } else {
+                    Text("New here? You’ll claim your Hop link next.")
+                        .foregroundStyle(Theme.muted)
+                }
+            }
+            .font(.footnote)
+            .padding(.top, 14)
+            .padding(.horizontal, 32)
         }
         .foregroundStyle(Theme.ink)
         .multilineTextAlignment(.center)
