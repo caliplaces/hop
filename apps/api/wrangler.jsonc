@@ -75,7 +75,7 @@
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "399581759521488902",
         "OIDC_APP_CLIENT_ID": "399623629245054982",
-        "OIDC_APP_REDIRECT": "scheme",
+        "OIDC_APP_REDIRECT": "https",
         "R2_BUCKET_NAME": "hop-staging",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzxw0pDT6tjGB4",
         "APPLE_TEAM_ID": "XH66L5M6JJ",
