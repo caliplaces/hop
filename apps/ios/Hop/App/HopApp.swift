@@ -41,8 +41,16 @@ struct RootView: View {
         .animation(.smooth(duration: 0.45), value: session.me?.handle)
         .task { await session.refresh() }
         .onChange(of: session.isSignedIn) { _, signedIn in
-            // Thumbnails are private to whoever was signed in.
-            if !signedIn { Thumbnails.shared.removeAll() }
+            guard !signedIn else { return }
+            // Thumbnails and the widgets' card are private to whoever was
+            // signed in. The card is cleared here too because a session that
+            // expired before the profile loaded never changes `me`.
+            Thumbnails.shared.removeAll()
+            HopCard.publish(nil)
+        }
+        // The widgets show this athlete's QR code, and nobody's once they sign out.
+        .onChange(of: session.me, initial: true) { _, me in
+            if me != nil || !session.isSignedIn { HopCard.publish(me) }
         }
         // Carries on with an event that was running when the app quit, or
         // ends it: it belongs to whoever is signed in, and only to them.

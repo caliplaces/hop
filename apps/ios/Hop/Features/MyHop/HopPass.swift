@@ -149,6 +149,44 @@ struct HopPass: View {
     }
 }
 
+/// The Hop pass, turning with the phone and under a finger. Its own view, so
+/// motion updates (60 a second) redraw the pass alone.
+struct TurningPass: View {
+    let me: Me
+    let link: URL
+    let stats: PassStats?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var tilt = Tilt()
+    /// How far a finger has turned the pass.
+    @State private var drag = CGSize.zero
+
+    var body: some View {
+        let turn = reduceMotion ? .zero : CGPoint(
+            x: max(-1, min(1, tilt.value.x + drag.width / 140)),
+            y: max(-1, min(1, tilt.value.y + drag.height / 140))
+        )
+        HopPass(me: me, link: link, stats: stats, tilt: turn)
+            .frame(maxWidth: 340)
+            .rotation3DEffect(.degrees(turn.x * 14), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+            .rotation3DEffect(.degrees(turn.y * -12), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+            .gesture(
+                DragGesture(minimumDistance: 6)
+                    .onChanged { drag = $0.translation }
+                    .onEnded { _ in
+                        withAnimation(.spring(response: 0.55, dampingFraction: 0.5)) { drag = .zero }
+                    },
+                isEnabled: !reduceMotion
+            )
+            .onAppear { if !reduceMotion { tilt.start() } }
+            .onDisappear { tilt.stop() }
+            // Turning Reduce Motion on or off while the pass is showing.
+            .onChange(of: reduceMotion) { _, reduce in
+                if reduce { tilt.stop() } else { tilt.start() }
+            }
+    }
+}
+
 /// The pass on a story-sized backdrop (9:16), for sharing to Instagram
 /// stories and the like: the link, and an invitation to send clips.
 struct PassStory: View {
