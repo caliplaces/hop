@@ -80,16 +80,17 @@ final class ClaimHopModel {
         isClaiming = true
         problem = nil
         defer { isClaiming = false }
+        let submitted = handle
         do {
             let reply: Claimed = try await api.put(
                 "api/me/handle",
-                body: ClaimRequest(handle: handle, color: color.id)
+                body: ClaimRequest(handle: submitted, color: color.id)
             )
             return reply.me
-        } catch let error as APIError where error.code == "handle_taken" {
-            status = .unavailable(Reason.taken)
         } catch let error as APIError where error.code.hasPrefix("handle_") {
-            status = .unavailable(error.message ?? Reason.invalid)
+            // Only about the handle that was sent, if it's still the one typed.
+            guard handle == submitted else { return nil }
+            status = .unavailable(error.code == "handle_taken" ? Reason.taken : error.message ?? Reason.invalid)
         } catch {
             problem = error.localizedDescription
         }

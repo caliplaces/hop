@@ -109,6 +109,24 @@ struct ClaimHopModelTests {
         #expect(body == ["handle": "alexrider", "color": "coral"])
     }
 
+    @Test func aLateTakenReplyDoesNotMarkANewHandle() async throws {
+        server.held = ["/api/me/handle"]
+        server.reply = { request in
+            request.httpMethod == "PUT"
+                ? (409, #"{"error":"handle_taken","message":"That handle is taken."}"#)
+                : (200, #"{"handle":"x","available":true,"problem":null}"#)
+        }
+        let model = try makeModel()
+        await settle(model)
+        let claiming = Task { await model.claim() }
+        try await server.waitForRequest("/api/me/handle")
+        model.input = "somethingelse"
+        await settle(model)
+        server.release()
+        #expect(await claiming.value == nil)
+        #expect(model.status == .available)
+    }
+
     @Test func reportsAHandleTakenAtTheLastMoment() async throws {
         server.reply = { request in
             request.httpMethod == "PUT"

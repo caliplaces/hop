@@ -13,6 +13,15 @@ struct ClaimHopView: View {
     }
 
     var body: some View {
+        // In a navigation stack for the account menu, so someone signed in
+        // with the wrong account can sign out instead of claiming a handle.
+        NavigationStack {
+            form
+                .toolbar { AccountMenu() }
+        }
+    }
+
+    private var form: some View {
         ScrollView {
             VStack(spacing: 0) {
                 model.color.bobble
@@ -37,6 +46,7 @@ struct ClaimHopView: View {
                     .padding(.top, 6)
 
                 handleField
+                    .disabled(isLocked)
                     .padding(.top, 28)
                 statusLine
                     .padding(.top, 10)
@@ -47,6 +57,7 @@ struct ClaimHopView: View {
                         .font(.subheadline)
                         .foregroundStyle(Theme.muted)
                     ColorChooser(selection: $model.color)
+                        .disabled(isLocked)
                         .padding(.top, 12)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -83,6 +94,9 @@ struct ClaimHopView: View {
         .sensoryFeedback(.selection, trigger: model.color)
         .sensoryFeedback(.success, trigger: celebrating) { _, now in now }
     }
+
+    /// What's being claimed can't change until the server has answered.
+    private var isLocked: Bool { model.isClaiming || celebrating }
 
     private var handleField: some View {
         HStack(spacing: 0) {
