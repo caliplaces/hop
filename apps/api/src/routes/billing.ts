@@ -155,7 +155,8 @@ async function apply(
 
   // Renewal info (grace period, auto-renew) keeps its own clock. The app
   // syncing the transaction mustn't hold back a grace period that Apple
-  // signed earlier but delivered later.
+  // signed earlier but delivered later. It only applies alongside the current
+  // purchase, though: an older one's grace period is over.
   const renewalUpdate = db
     .update(subscriptions)
     .set({
@@ -169,6 +170,7 @@ async function apply(
         eq(subscriptions.originalTransactionId, transaction.originalTransactionId),
         eq(subscriptions.userId, owner.userId),
         sameKind,
+        lte(subscriptions.purchasedAt, purchasedAt),
         or(
           isNull(subscriptions.renewalSignedAt),
           lte(subscriptions.renewalSignedAt, renewal.signedDate),

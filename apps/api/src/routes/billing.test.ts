@@ -442,9 +442,17 @@ describe("App Store notifications", () => {
       signedDate: now + 1000,
     });
     expect((await send(renewed)).status).toBe(200);
-    const row = await db.select().from(subscriptions).get();
+    let row = await db.select().from(subscriptions).get();
     expect(row?.graceExpiresAt).toBeNull();
     expect((await plan()).subscription?.expiresAt).toBe(renewed.expiresDate);
+
+    // A late notification about the old purchase can't bring its grace back.
+    await notify(
+      "DID_CHANGE_RENEWAL_STATUS",
+      await appData(lapsed, { ...grace, autoRenewStatus: 0, signedDate: now + 500 }),
+    );
+    row = await db.select().from(subscriptions).get();
+    expect(row).toMatchObject({ graceExpiresAt: null, autoRenew: true });
   });
 
   it("never let older data roll a subscription back", async () => {
