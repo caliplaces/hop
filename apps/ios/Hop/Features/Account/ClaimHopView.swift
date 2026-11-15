@@ -107,7 +107,6 @@ struct ClaimHopView: View {
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
-                    .accessibilityHidden(true)
                 TextField("yourname", text: $model.input)
                     .font(.title2.weight(.semibold))
                     .textInputAutocapitalization(.never)
@@ -118,7 +117,6 @@ struct ClaimHopView: View {
                     .focused($editing)
                     .onSubmit { Task { await claim() } }
                     .accessibilityLabel("Handle")
-                    .accessibilityHint(Text(verbatim: "\(HopServer.baseURL.spoken)/…"))
             }
             statusMark
         }
