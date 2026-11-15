@@ -1,8 +1,9 @@
 # Hop for iPhone
 
-The native iOS app, built with SwiftUI and Liquid Glass. It's early: the welcome
-bubble, Sign in with Caliplaces, claiming a Hop link and the My Hop tab (link and
-QR code) are in. The inbox, the Hop pass, Event mode and "Share to Hop" come next.
+The native iOS app, built with SwiftUI and Liquid Glass. In so far: the welcome
+bubble, Sign in with Caliplaces, claiming a Hop link, the inbox (events, clips,
+a full-screen player, saving to Photos and sharing) and the My Hop tab (link and
+QR code). The Hop pass, Event mode and "Share to Hop" come next.
 
 ## Running it
 
@@ -41,6 +42,7 @@ so run the tests from a full checkout of the repository.
 | `Hop/DesignSystem`     | Palette, light and dark theme, aura, shimmering text |
 | `Hop/Features/Welcome` | The welcome bubble: geometry, Metal shaders, haptics |
 | `Hop/Features/Account` | Claiming a handle and picking a colour               |
+| `Hop/Features/Inbox`   | Events, clip grids, the player, save and share       |
 | `Hop/Features/MyHop`   | The athlete's link and QR code                       |
 | `Hop/Features/Home`    | The signed-in tabs                                   |
 | `Hop/Networking`       | The API client and Keychain token storage            |

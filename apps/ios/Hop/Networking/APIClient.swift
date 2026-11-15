@@ -56,8 +56,19 @@ nonisolated struct APIClient: Sendable {
     var token: String?
     var session: URLSession = .shared
 
-    func get<Response: Decodable>(_ path: String) async throws -> Response {
-        try await decode(send("GET", path, body: nil))
+    func get<Response: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> Response {
+        try await decode(send("GET", path, query: query, body: nil))
+    }
+
+    /// The raw bytes of a GET, such as an image.
+    func data(_ path: String) async throws -> Data {
+        try await send("GET", path, body: nil)
+    }
+
+    /// Resolves a URL the API returned, which may be relative to the API
+    /// (local development serves files through the API itself).
+    func resolve(_ reference: String) -> URL? {
+        URL(string: reference, relativeTo: baseURL)?.absoluteURL
     }
 
     func post<Response: Decodable>(_ path: String, body: some Encodable) async throws -> Response {
@@ -81,8 +92,12 @@ nonisolated struct APIClient: Sendable {
         _ = try await send("DELETE", path, body: nil)
     }
 
-    private func send(_ method: String, _ path: String, body: Data?) async throws -> Data {
-        var request = URLRequest(url: baseURL.appending(path: path))
+    private func send(
+        _ method: String, _ path: String, query: [URLQueryItem] = [], body: Data?
+    ) async throws -> Data {
+        var url = baseURL.appending(path: path)
+        if !query.isEmpty { url.append(queryItems: query) }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if method != "GET" {

@@ -32,5 +32,9 @@ struct RootView: View {
         .animation(.smooth(duration: 0.45), value: session.isSignedIn)
         .animation(.smooth(duration: 0.45), value: session.me?.handle)
         .task { await session.refresh() }
+        .onChange(of: session.isSignedIn) { _, signedIn in
+            // Thumbnails are private to whoever was signed in.
+            if !signedIn { Thumbnails.shared.removeAll() }
+        }
     }
 }
