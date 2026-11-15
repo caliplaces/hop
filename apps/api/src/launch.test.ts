@@ -185,6 +185,20 @@ describe("the launch email", () => {
     const left = (await db.select().from(waitlist)).map((entry) => entry.email).sort();
     expect(left).toEqual(["ana@example.com", "leo@example.com"]);
   });
+
+  it("leaves the waitlist a week after the first try if it never got through", async () => {
+    await join("maya@example.com", "leo@example.com", "ana@example.com");
+    const tried = (email: string, days: number) =>
+      db
+        .update(waitlist)
+        .set({ launchFirstAttemptAt: Date.now() - days * DAY, launchAttempts: 5 })
+        .where(eq(waitlist.email, email));
+    await tried("maya@example.com", 8);
+    await tried("leo@example.com", 2);
+    await cleanup(env);
+    const left = (await db.select().from(waitlist)).map((entry) => entry.email).sort();
+    expect(left).toEqual(["ana@example.com", "leo@example.com"]);
+  });
 });
 
 describe("its content", () => {

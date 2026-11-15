@@ -25,6 +25,8 @@ const RUN_BUDGET_MS = 3.5 * 60 * 1000;
 const PAGE = 25;
 /** Sent addresses stay a day, so someone joining again meanwhile isn't emailed twice. */
 export const KEEP_SENT_MS = 24 * 60 * 60 * 1000;
+/** Addresses the email never got through to go a week after the first try. */
+export const KEEP_UNSENT_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** When the launch email goes out: LAUNCH_AT, or the environment's override. */
 export function launchAt(env: Env): number {
