@@ -5,10 +5,15 @@ import Testing
 private let token = "c2a116f4-3b55-4213-83ec-d9218d028acb"
 private let gib: Int64 = 1024 * 1024 * 1024
 
-private func planJSON(plan: String = "free", used: Int64 = 0, subscription: String = "null") -> String {
+/// A plan reply. Purchases bump the server's revision, so a Hop+ reply
+/// defaults to one after the free plan's.
+private func planJSON(
+    plan: String = "free", used: Int64 = 0, subscription: String = "null", revision: Int64? = nil
+) -> String {
     let limit = plan == "free" ? 15 * gib : 200 * gib
     let retention = plan == "free" ? "30" : "null"
-    return #"{"plan":"\#(plan)","storage":{"usedBytes":\#(used),"limitBytes":\#(limit)},"retentionDays":\#(retention),"subscription":\#(subscription),"appAccountToken":"\#(token)","plans":{"free":{"storageBytes":\#(15 * gib),"retentionDays":30},"plus":{"storageBytes":\#(200 * gib),"retentionDays":null}}}"#
+    let revision = revision ?? (plan == "free" ? 1 : 2)
+    return #"{"plan":"\#(plan)","storage":{"usedBytes":\#(used),"limitBytes":\#(limit)},"retentionDays":\#(retention),"subscription":\#(subscription),"appAccountToken":"\#(token)","plans":{"free":{"storageBytes":\#(15 * gib),"retentionDays":30},"plus":{"storageBytes":\#(200 * gib),"retentionDays":null}},"revision":\#(revision)}"#
 }
 
 private let plusSubscription = #"{"productId":"hop_plus","expiresAt":4102444800000,"graceExpiresAt":null,"autoRenew":true,"environment":"Production"}"#
@@ -102,9 +107,13 @@ struct HopPlusTests {
 
     /// Answers the plan with `plan`, and purchases with `purchase`.
     private func serve(plan: String = planJSON(), purchase: Locked<(Int, String)> = Locked((200, planJSON(plan: "plus", subscription: plusSubscription)))) {
+        serve(plan: Locked(plan), purchase: purchase)
+    }
+
+    private func serve(plan: Locked<String>, purchase: Locked<(Int, String)> = Locked((200, planJSON(plan: "plus", subscription: plusSubscription)))) {
         server.reply = { request in
             switch (request.httpMethod, request.url?.path ?? "") {
-            case ("GET", "/api/me/plan"): (200, plan)
+            case ("GET", "/api/me/plan"): (200, plan.value)
             case ("POST", "/api/me/subscriptions/apple"): purchase.value
             default: (404, "{}")
             }
@@ -199,7 +208,8 @@ struct HopPlusTests {
     }
 
     @Test func aSlowReadCantUndoAPurchase() async throws {
-        serve()
+        let plan = Locked(planJSON())
+        serve(plan: plan)
         let hopPlus = HopPlus(source: purchases)
         // Back from the App Store, the plan is reloaded while the purchase
         // is on its way: the read says free, and is slow to arrive.
@@ -213,10 +223,39 @@ struct HopPlusTests {
         await reading.value
         #expect(hopPlus.status?.plan == .plus)
 
-        // A read started after the purchase is shown as usual.
+        // A later read that saw a newer change (a refund, say) shows as usual.
         server.held = []
+        plan.value = planJSON(revision: 3)
         await hopPlus.refresh(api: api)
         #expect(hopPlus.status?.plan == .free)
+    }
+
+    @Test func twoPurchasesAnsweringBackwardsKeepTheNewerPlan() async throws {
+        // An old, lapsed transaction from the launch sync reads the plan
+        // before the new purchase is saved, but answers last. Replies go out
+        // in the order they're delivered: the new purchase's first.
+        let replies = Locked([
+            planJSON(plan: "plus", subscription: plusSubscription, revision: 2),
+            planJSON(revision: 1),
+        ])
+        server.reply = { request in
+            guard request.url?.path == "/api/me/subscriptions/apple" else { return (404, "{}") }
+            let next = replies.value.first ?? "{}"
+            replies.value = Array(replies.value.dropFirst())
+            return (200, next)
+        }
+        let hopPlus = HopPlus(source: purchases)
+        server.held = ["/api/me/subscriptions/apple"]
+        let old = Task { await hopPlus.send(purchases.make(1), api: api) }
+        try await server.waitForRequests { $0.url?.path == "/api/me/subscriptions/apple" }
+
+        server.held = []
+        #expect(await hopPlus.send(purchases.make(2), api: api) == .counted)
+        #expect(hopPlus.status?.plan == .plus)
+
+        server.release()
+        #expect(await old.value == .counted)
+        #expect(hopPlus.status?.plan == .plus)
     }
 
     @Test func aPurchaseStillCountsWhenALaterReadAnswersFirst() async throws {

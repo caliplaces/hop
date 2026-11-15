@@ -40,6 +40,10 @@ nonisolated struct PlanStatus: Codable, Equatable, Sendable {
     /// Set on every purchase, so the App Store ties it to this account.
     let appAccountToken: UUID
     let plans: Plans
+    /// Goes up whenever the athlete's subscriptions change, and the server
+    /// reads it first, so the rest of the reply is at least this new. A reply
+    /// with a lower revision than the one on show read the plan before a change.
+    let revision: Int64
 
     /// How full the athlete's storage is, from 0 to 1.
     var usedFraction: Double {

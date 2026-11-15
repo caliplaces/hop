@@ -36,12 +36,12 @@ final class HopPlus {
     /// Bumped when the athlete signs out. Work started for them stops, and
     /// its late replies are dropped.
     private var generation = 0
-    /// Plan reads are numbered as they start. Reads numbered up to
-    /// `staleReads` may have read the plan before what's on show: a newer
-    /// read, or a purchase the API saved before answering. Their late
-    /// replies are dropped, so a slow read can't turn Hop+ back into Free.
-    private var lastRead = 0
-    private var staleReads = 0
+    /// Plan requests (reads and purchases) are numbered as they start.
+    /// Replies are ordered by the server's revision first, so one that read
+    /// the plan before a change never replaces one that saw it, whichever
+    /// arrives last. Among replies of one revision, the later request wins.
+    private var lastRequest = 0
+    private var shownRequest = 0
 
     init(source: any PurchaseSource = StoreKitPurchases()) {
         self.source = source
@@ -62,16 +62,13 @@ final class HopPlus {
     /// Reloads the plan, for fresh storage numbers.
     func refresh(api: APIClient) async {
         let asked = generation
-        lastRead += 1
-        let read = lastRead
+        let request = startRequest()
         do {
             let status: PlanStatus = try await api.get("api/me/plan")
-            guard asked == generation, read > staleReads else { return }
-            staleReads = read
-            self.status = status
-            loadError = nil
+            if show(status, from: request, for: asked) { loadError = nil }
         } catch {
-            guard asked == generation, read > staleReads else { return }
+            // Only worth saying while there's no plan to show.
+            guard asked == generation, self.status == nil else { return }
             loadError = error.localizedDescription
         }
     }
@@ -104,6 +101,7 @@ final class HopPlus {
     }
 
     private func send(_ purchase: Purchase, api: APIClient, for asked: Int) async -> Outcome {
+        let request = startRequest()
         do {
             let status: PlanStatus = try await api.post(
                 "api/me/subscriptions/apple",
@@ -111,10 +109,7 @@ final class HopPlus {
             )
             await purchase.finish()
             guard asked == generation else { return .counted }
-            // The API saved the purchase before answering. Every read already
-            // under way may have missed it; any read from now on sees it.
-            staleReads = lastRead
-            self.status = status
+            show(status, from: request, for: asked)
             problem = nil
             return .counted
         } catch let error as APIError where [400, 403].contains(error.status) {
@@ -133,6 +128,27 @@ final class HopPlus {
             // moment: StoreKit keeps it unfinished, and it's sent again.
             return .later
         }
+    }
+
+    private func startRequest() -> Int {
+        lastRequest += 1
+        return lastRequest
+    }
+
+    /// Shows `status` unless the athlete has signed out since `asked`, or
+    /// what's on show is newer: a higher revision, or the same revision from
+    /// a later request. Returns whether it did.
+    @discardableResult
+    private func show(_ status: PlanStatus, from request: Int, for asked: Int) -> Bool {
+        guard asked == generation else { return false }
+        if let shown = self.status {
+            let newer = status.revision > shown.revision
+                || (status.revision == shown.revision && request > shownRequest)
+            guard newer else { return false }
+        }
+        shownRequest = request
+        self.status = status
+        return true
     }
 
     /// Forgets the plan when the athlete signs out.
