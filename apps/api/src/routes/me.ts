@@ -16,13 +16,14 @@ import {
   updateHopSchema,
   updateProfileSchema,
 } from "@hop/shared";
-import { and, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDb } from "../db";
 import { type FileRow, files, hops, users } from "../db/schema";
 import { sendWelcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
+import { arrivalsSince } from "../lib/arrivals";
 import { newId } from "../lib/crypto";
 import { removeFile } from "../lib/files";
 import { fail } from "../lib/http";
@@ -224,24 +225,13 @@ export const meRoutes = new Hono<AppEnv>()
         .where(and(eq(hops.id, c.req.param("hopId")), eq(hops.ownerId, user.id)))
         .get();
       if (!hop) return fail(c, 404, "not_found");
-      const arrived = and(
-        eq(files.hopId, hop.id),
-        eq(files.status, "complete"),
-        gte(files.completedAt, c.req.valid("query").since),
+      const { count, latest } = await arrivalsSince(
+        db,
+        hop.id,
+        c.req.valid("query").since,
+        ARRIVALS_LATEST,
       );
-      const [total, latest] = await db.batch([
-        db.select({ count: sql<number>`count(*)` }).from(files).where(arrived),
-        db
-          .select()
-          .from(files)
-          .where(arrived)
-          .orderBy(desc(files.completedAt), desc(files.id))
-          .limit(ARRIVALS_LATEST),
-      ]);
-      return c.json({
-        count: total[0]?.count ?? 0,
-        latest: latest.map(toInboxFile),
-      } satisfies HopArrivals);
+      return c.json({ count, latest: latest.map(toInboxFile) } satisfies HopArrivals);
     },
   )
 

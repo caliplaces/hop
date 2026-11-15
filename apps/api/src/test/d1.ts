@@ -43,19 +43,27 @@ export function createTestD1(): D1Database {
     },
   });
 
+  // Batches run one at a time, as on D1: each is its own transaction, and
+  // SQLite can't nest them when callers batch concurrently.
+  let queue: Promise<unknown> = Promise.resolve();
+  const runBatch = async (statements: ReturnType<typeof statement>[]) => {
+    sqlite.exec("begin");
+    try {
+      const results = [];
+      for (const s of statements) results.push(await s.all());
+      sqlite.exec("commit");
+      return results;
+    } catch (error) {
+      sqlite.exec("rollback");
+      throw error;
+    }
+  };
   const d1 = {
     prepare: (query: string) => statement(query),
-    batch: async (statements: ReturnType<typeof statement>[]) => {
-      sqlite.exec("begin");
-      try {
-        const results = [];
-        for (const s of statements) results.push(await s.all());
-        sqlite.exec("commit");
-        return results;
-      } catch (error) {
-        sqlite.exec("rollback");
-        throw error;
-      }
+    batch: (statements: ReturnType<typeof statement>[]) => {
+      const run = queue.then(() => runBatch(statements));
+      queue = run.catch(() => {});
+      return run;
     },
   };
   return d1 as unknown as D1Database;

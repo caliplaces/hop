@@ -54,6 +54,7 @@ wrangler secret put R2_ACCOUNT_ID --env staging
 wrangler secret put R2_ACCESS_KEY_ID --env staging        # R2 API token, Object Read & Write, this bucket only
 wrangler secret put R2_SECRET_ACCESS_KEY --env staging
 wrangler secret put RESEND_API_KEY --env staging          # Resend API key, Sending access, onmyhop.com only
+wrangler secret put APNS_KEY --env staging < AuthKey.p8   # APNs key for this environment (see Live Activity pushes)
 ```
 
 You also need to:
@@ -76,6 +77,15 @@ The new-clips digest runs every 5 minutes. A clip counts as announced once `file
 While `pnpm dev` runs, open [localhost:5173/email-lab.html](http://localhost:5173/email-lab.html) to see every email with sample data, in each colour, at phone and desktop width, and in dark mode. Without `RESEND_API_KEY` in `.dev.vars`, emails are printed to the wrangler console instead of sent.
 
 The Bobble images in emails are rendered per colour by `pnpm --filter @hop/web mascot:assets email` into `apps/web/public/email/`.
+
+## Live Activity pushes
+
+The iPhone app's Event mode shows a Live Activity counting the clips that come in. The API keeps it counting with the phone locked, by pushing an update through Apple's push service (APNs) each time an upload completes (`src/live.ts`).
+
+- The app registers the Live Activity's push token with `PUT /api/me/live-activities/:token`. It registers again when Apple rotates the token or the app relaunches, and removes the token with `DELETE` when Event mode ends. Registrations expire after 12 hours, like the Live Activity, and each athlete keeps at most five.
+- Each update carries the clips that finished uploading since Event mode started, and who sent the latest. The first clip, and then at most one every 5 minutes, also lights up the screen, silently. Tokens Apple no longer accepts are forgotten.
+- Each environment has its own APNs key, restricted to the `com.onmyhop.app` topic: a sandbox key for staging (debug builds) and a production key for production (TestFlight and App Store builds). The key is the `APNS_KEY` secret; its ID and environment are `APNS_KEY_ID` and `APNS_ENVIRONMENT` in `wrangler.jsonc`. Without the secret, nothing is pushed.
+- `wrangler dev` can't reach APNs, so try pushes on staging. Locally, `POST /api/dev/hops/:hopId/arrivals` lands a fake clip in an event, for trying Event mode without uploading anything.
 
 ## Deploys
 
