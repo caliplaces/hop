@@ -56,11 +56,13 @@ final class Session {
 
     /// Signs in with Caliplaces.
     /// - Parameter authenticate: Shows Caliplaces' sign-in page at the given
-    ///   URL and returns the URL it redirects back to.
-    func signIn(authenticate: (URL) async throws -> URL) async throws {
+    ///   URL, waits for the callback, and returns the URL it redirects back to.
+    func signIn(authenticate: (URL, SignInCallback) async throws -> URL) async throws {
         let start: StartReply = try await api.post("api/auth/app/start", body: Empty())
         guard let url = URL(string: start.authorizeUrl) else { throw URLError(.badURL) }
-        let callback = try await authenticate(url)
+        let expected = start.callback ?? .customScheme
+        guard expected.isTrusted(for: baseURL) else { throw URLError(.badServerResponse) }
+        let callback = try await authenticate(url, expected)
         let reply: SessionReply = try await api.post(
             "api/auth/app/session",
             body: SessionRequest(flow: start.flow, callbackUrl: callback.absoluteString)
@@ -106,6 +108,8 @@ final class Session {
     private struct StartReply: Decodable {
         let authorizeUrl: String
         let flow: String
+        /// Older servers don't say, and always use the custom scheme.
+        let callback: SignInCallback?
     }
 
     private struct SessionRequest: Encodable {
@@ -120,5 +124,37 @@ final class Session {
 
     private struct MeReply: Decodable {
         let me: Me?
+    }
+}
+
+/// Where Caliplaces sends the app back to after signing in, as the API says.
+nonisolated enum SignInCallback: Equatable, Sendable, Decodable {
+    /// The app's custom scheme. Any app can claim one, so it's being retired.
+    case scheme(String)
+    /// An https page on Hop's site, which only Hop can catch: the site lists
+    /// the app in its apple-app-site-association file (webcredentials).
+    case https(host: String, path: String)
+
+    static let customScheme = SignInCallback.scheme(HopServer.callbackScheme)
+
+    /// Only Hop's own callbacks: the custom scheme, or https on the API's own host.
+    func isTrusted(for baseURL: URL) -> Bool {
+        switch self {
+        case let .scheme(scheme): scheme == HopServer.callbackScheme
+        case let .https(host, path): host == baseURL.host() && path.hasPrefix("/")
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case scheme, host, path
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let host = try container.decodeIfPresent(String.self, forKey: .host) {
+            self = .https(host: host, path: try container.decode(String.self, forKey: .path))
+        } else {
+            self = .scheme(try container.decode(String.self, forKey: .scheme))
+        }
     }
 }
