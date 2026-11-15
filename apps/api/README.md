@@ -93,8 +93,8 @@ Athletes subscribe to Hop+ in the iPhone app, through the App Store. The plans a
 
 | Plan | Storage | Clips kept |
 | ---- | ------- | ---------- |
-| Free | 20 GB   | 90 days    |
-| Hop+ | 1 TB    | Forever    |
+| Free | 15 GB   | 30 days    |
+| Hop+ | 200 GB  | Forever    |
 
 The products are `hop_plus` (monthly) and `hop_plus_annual` (yearly), in one subscription group. Prices live only in App Store Connect; the app shows what StoreKit returns.
 
@@ -110,7 +110,7 @@ How a subscription's state is kept right:
 - **Ownership.** A subscription belongs to the account whose token is on its newest purchase. Restoring someone else's purchase is refused. If the same Apple ID later subscribes again from another Hop account, the subscription moves there, since only that Apple ID can make a new purchase for it.
 - **Billing grace.** While Apple retries a failed renewal, Hop+ continues until the grace period ends. Only renewal info, which comes with notifications, sets or ends it.
 
-Upload quota checks use the plan at the moment of the upload (`src/lib/plans.ts`). Retention isn't enforced yet: no clip is deleted for being older than 90 days.
+Upload quota checks use the plan at the moment of the upload (`src/lib/plans.ts`). Retention isn't enforced yet: no clip is deleted for being older than 30 days.
 
 In App Store Connect, under the app's **App Information › App Store Server Notifications**, set Version 2 URLs:
 

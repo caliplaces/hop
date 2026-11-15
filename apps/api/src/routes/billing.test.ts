@@ -132,7 +132,7 @@ describe("the plan", () => {
     const first = await plan();
     expect(first.plan).toBe("free");
     expect(first.storage).toEqual({ usedBytes: 0, limitBytes: PLANS.free.storageBytes });
-    expect(first.retentionDays).toBe(90);
+    expect(first.retentionDays).toBe(PLANS.free.retentionDays);
     expect(first.subscription).toBeNull();
     expect(first.appAccountToken).toMatch(/^[0-9a-f-]{36}$/);
     expect((await plan()).appAccountToken).toBe(first.appAccountToken);

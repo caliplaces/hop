@@ -26,8 +26,8 @@ export const MAX_THUMBNAIL_BYTES = 512 * KiB;
  * them for good (null). Retention isn't enforced yet: see the API README.
  */
 export const PLANS = {
-  free: { storageBytes: 20 * GiB, retentionDays: 90 },
-  plus: { storageBytes: 1024 * GiB, retentionDays: null },
+  free: { storageBytes: 15 * GiB, retentionDays: 30 },
+  plus: { storageBytes: 200 * GiB, retentionDays: null },
 } as const;
 
 export type PlanId = keyof typeof PLANS;
