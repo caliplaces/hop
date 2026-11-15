@@ -71,10 +71,7 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, session.isSignedIn else { return }
             let api = session.api
-            Task {
-                await hopPlus.resendUnfinished(api: api)
-                await hopPlus.refresh(api: api)
-            }
+            Task { await hopPlus.catchUp(api: api) }
         }
         // Carries on with an event that was running when the app quit, or
         // ends it: it belongs to whoever is signed in, and only to them.

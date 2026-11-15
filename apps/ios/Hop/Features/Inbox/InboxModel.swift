@@ -73,15 +73,13 @@ final class InboxModel {
             let page: ClipPage = try await api.get("api/me/files", query: query)
             guard generations[hopId, default: 0] == generation else { return }
             var list = clips[hopId] ?? ClipList()
-            // A refresh keeps the pages already loaded, so a clip someone is
-            // watching from further down stays in the list. A page can overlap
-            // what's loaded if clips arrived meanwhile.
-            let fresh = Set(page.files.map(\.id))
-            let merged = replacing
-                ? page.files + list.items.filter { !fresh.contains($0.id) }
-                : list.items + page.files.filter { clip in !list.items.contains { $0.id == clip.id } }
-            list.items = Self.newestFirst(merged)
-            list.nextCursor = page.nextCursor
+            if replacing {
+                (list.items, list.nextCursor) = Self.refreshed(list, with: page)
+            } else {
+                // A page can overlap what's loaded if clips arrived meanwhile.
+                list.items += page.files.filter { clip in !list.items.contains { $0.id == clip.id } }
+                list.nextCursor = page.nextCursor
+            }
             list.loadedOnce = true
             list.failed = nil
             list.isLoading = false
@@ -93,15 +91,29 @@ final class InboxModel {
         }
     }
 
-    /// Newest first, as the API pages them; clips that tie keep their order.
-    private static func newestFirst(_ clips: [Clip]) -> [Clip] {
-        clips.enumerated()
-            .sorted { a, b in
-                a.element.createdAt != b.element.createdAt
-                    ? a.element.createdAt > b.element.createdAt
-                    : a.offset < b.offset
-            }
-            .map(\.element)
+    /// An event's clips after a refresh brought a new first page.
+    ///
+    /// Clips older than the page's last weren't refreshed, so when the page
+    /// joins up with what's loaded, they stay (a clip someone is watching
+    /// further down stays put) and paging carries on where it had got to.
+    /// Within the page's range, a loaded clip that's missing was deleted, so
+    /// it goes. If the page doesn't join up (more than a page of clips arrived
+    /// meanwhile), there's a gap, and the list starts again from the page.
+    static func refreshed(_ list: ClipList, with page: ClipPage) -> (items: [Clip], nextCursor: String?) {
+        guard let last = page.files.last, page.nextCursor != nil else {
+            // The whole list: nothing older exists.
+            return (page.files, nil)
+        }
+        guard list.items.contains(where: { $0.id == last.id }) else {
+            return (page.files, page.nextCursor)
+        }
+        let older = list.items.filter { isOlder($0, than: last) }
+        return (page.files + older, list.nextCursor)
+    }
+
+    /// The API's order: newest first, then by id.
+    private static func isOlder(_ clip: Clip, than other: Clip) -> Bool {
+        clip.createdAt != other.createdAt ? clip.createdAt < other.createdAt : clip.id < other.id
     }
 
     /// Deletes a clip for good, and updates its event's totals.
