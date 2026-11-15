@@ -14,6 +14,9 @@ struct ClipViewer: View {
     @State private var transfer = ClipTransfer()
     @State private var confirmingDelete = false
     @State private var sharing: SharedFile?
+    /// The file being shared, kept apart from `sharing` because SwiftUI clears
+    /// that before the sheet's dismiss callback runs.
+    @State private var shared: SharedFile?
     @State private var problem: String?
 
     init(hopId: String, startAt clipId: String, model: InboxModel) {
@@ -61,7 +64,7 @@ struct ClipViewer: View {
         } message: {
             Text("It’s removed for good, for you and from Hop.")
         }
-        .sheet(item: $sharing, onDismiss: { sharing?.removeFile() }) { file in
+        .sheet(item: $sharing, onDismiss: removeSharedFile) { file in
             ActivityView(items: [file.url])
                 .presentationDetents([.medium, .large])
                 .ignoresSafeArea()
@@ -157,8 +160,13 @@ struct ClipViewer: View {
         .padding(.bottom, 8)
     }
 
+    /// The transfer's progress, if it's about the clip showing.
+    private var transferState: ClipTransfer.State {
+        transfer.clipId == current ? transfer.state : .idle
+    }
+
     @ViewBuilder private var saveLabel: some View {
-        switch transfer.state {
+        switch transferState {
         case let .downloading(fraction):
             Label {
                 Text(fraction, format: .percent.precision(.fractionLength(0)))
@@ -178,7 +186,7 @@ struct ClipViewer: View {
     }
 
     private var failure: String? {
-        if case let .failed(message) = transfer.state { return message }
+        if case let .failed(message) = transferState { return message }
         return nil
     }
 
@@ -195,11 +203,17 @@ struct ClipViewer: View {
         do {
             let url = try await model.url(for: clip, download: true, api: session.api)
             if let file = await transfer.fileToShare(clip, from: url) {
-                sharing = SharedFile(url: file)
+                shared = SharedFile(url: file)
+                sharing = shared
             }
         } catch {
             problem = error.localizedDescription
         }
+    }
+
+    private func removeSharedFile() {
+        shared?.removeFile()
+        shared = nil
     }
 
     private func delete() async {
@@ -221,17 +235,27 @@ struct ClipViewer: View {
     }
 }
 
-/// One clip filling the screen. Its stream URL is fetched when it becomes the
-/// current page, and it only plays while it is.
+/// One clip filling the screen. Its stream link is fetched when it becomes the
+/// current page, renewed before it expires, and it only plays while current.
 private struct ClipPageView: View {
     let clip: Clip
     let isCurrent: Bool
     let model: InboxModel
 
     @Environment(Session.self) private var session
-    @State private var url: URL?
+    @State private var stream: Stream?
     @State private var failed = false
     @State private var paused = false
+    /// One fresh link per failure, so a broken clip doesn't loop forever.
+    @State private var retried = false
+
+    private struct Stream: Equatable {
+        let url: URL
+        let fetchedAt: Date
+
+        /// The server's links last 15 minutes; renew a little before.
+        var isStale: Bool { Date.now.timeIntervalSince(fetchedAt) > 12 * 60 }
+    }
 
     var body: some View {
         ZStack {
@@ -239,16 +263,20 @@ private struct ClipPageView: View {
                 .blur(radius: 40)
                 .opacity(0.45)
                 .ignoresSafeArea()
-            if let url {
+            if let stream {
                 if clip.isVideo {
-                    LoopingPlayer(url: url, isPlaying: isCurrent && !paused)
-                        .ignoresSafeArea()
-                        .contentShape(.rect)
-                        .onTapGesture { paused.toggle() }
-                        .accessibilityAddTraits(.startsMediaSession)
-                        .accessibilityLabel(paused ? "Play" : "Pause")
+                    LoopingPlayer(url: stream.url, isPlaying: isCurrent && !paused) {
+                        Task { await recover() }
+                    }
+                    // A new link builds a new player.
+                    .id(stream.url)
+                    .ignoresSafeArea()
+                    .contentShape(.rect)
+                    .onTapGesture { paused.toggle() }
+                    .accessibilityAddTraits(.startsMediaSession)
+                    .accessibilityLabel(paused ? "Play" : "Pause")
                 } else {
-                    AsyncImage(url: url) { image in
+                    AsyncImage(url: stream.url) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
                         ProgressView().tint(.white)
@@ -272,27 +300,53 @@ private struct ClipPageView: View {
         }
         .animation(.spring(duration: 0.25), value: paused)
         .task(id: isCurrent) {
-            if !isCurrent { paused = false }
-            guard isCurrent, url == nil else { return }
-            do {
-                url = try await model.url(for: clip, download: false, api: session.api)
-            } catch {
-                failed = true
+            guard isCurrent else {
+                paused = false
+                return
             }
+            if stream == nil || stream?.isStale == true { await renew() }
         }
+        .onChange(of: paused) { _, nowPaused in
+            // Resuming after a long pause may need data the old link can't fetch.
+            if !nowPaused, stream?.isStale == true { Task { await renew() } }
+        }
+    }
+
+    private func renew() async {
+        do {
+            let url = try await model.url(for: clip, download: false, api: session.api)
+            stream = Stream(url: url, fetchedAt: .now)
+            failed = false
+        } catch {
+            if stream == nil { failed = true }
+        }
+    }
+
+    /// The player gave up, most likely on an expired link: try a fresh one once.
+    private func recover() async {
+        guard !retried else {
+            stream = nil
+            failed = true
+            return
+        }
+        retried = true
+        await renew()
     }
 }
 
-/// A video that loops, drawn with its whole frame visible.
+/// A video that loops, drawn with its whole frame visible. Calls `onFailure`
+/// when it can't load or stops partway.
 private struct LoopingPlayer: UIViewRepresentable {
     let url: URL
     let isPlaying: Bool
+    let onFailure: () -> Void
 
     func makeUIView(context: Context) -> PlayerView {
         PlayerView(url: url)
     }
 
     func updateUIView(_ view: PlayerView, context: Context) {
+        view.onFailure = onFailure
         isPlaying ? view.play() : view.pause()
     }
 
@@ -303,15 +357,36 @@ private struct LoopingPlayer: UIViewRepresentable {
     final class PlayerView: UIView {
         override static var layerClass: AnyClass { AVPlayerLayer.self }
 
+        var onFailure: (() -> Void)?
+
         private let player = AVQueuePlayer()
         private var looper: AVPlayerLooper?
+        private var statusObservation: NSKeyValueObservation?
+        private var failureObserver: NSObjectProtocol?
 
         init(url: URL) {
             super.init(frame: .zero)
             let layer = layer as! AVPlayerLayer
             layer.player = player
             layer.videoGravity = .resizeAspect
-            looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+            let looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+            self.looper = looper
+
+            // Both callbacks can arrive off the main thread, so they're
+            // @Sendable and hop back before touching the view.
+            statusObservation = looper.observe(\.status) { @Sendable [weak self] looper, _ in
+                guard looper.status == .failed else { return }
+                Task { @MainActor in self?.onFailure?() }
+            }
+            failureObserver = NotificationCenter.default.addObserver(
+                forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: nil, queue: nil
+            ) { @Sendable [weak self] notification in
+                let item = (notification.object as AnyObject?).map(ObjectIdentifier.init)
+                Task { @MainActor in
+                    guard let self, self.player.items().contains(where: { ObjectIdentifier($0) == item }) else { return }
+                    self.onFailure?()
+                }
+            }
         }
 
         @available(*, unavailable)
@@ -324,6 +399,9 @@ private struct LoopingPlayer: UIViewRepresentable {
             player.pause()
             looper?.disableLooping()
             player.removeAllItems()
+            statusObservation = nil
+            if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
+            failureObserver = nil
         }
     }
 }

@@ -6,8 +6,23 @@ import UIKit
 final class Thumbnails {
     static let shared = Thumbnails()
 
+    typealias Loader = @Sendable (Clip, APIClient) async -> UIImage?
+
+    private let load: Loader
+
+    init(load: @escaping Loader = Thumbnails.fetch) {
+        self.load = load
+    }
+
+    nonisolated static func fetch(_ clip: Clip, api: APIClient) async -> UIImage? {
+        guard let data = try? await api.data("api/me/files/\(clip.id)/thumbnail") else { return nil }
+        return UIImage(data: data)
+    }
+
     private let cache = NSCache<NSString, UIImage>()
     private var loading: [String: Task<UIImage?, Never>] = [:]
+    /// Bumped by `removeAll()`, so a load that finishes afterwards is dropped.
+    private var generation = 0
 
     func cached(_ clip: Clip) -> UIImage? {
         cache.object(forKey: clip.id as NSString)
@@ -16,19 +31,19 @@ final class Thumbnails {
     func image(for clip: Clip, api: APIClient) async -> UIImage? {
         guard clip.hasThumbnail else { return nil }
         if let image = cached(clip) { return image }
-        if let task = loading[clip.id] { return await task.value }
-        let task = Task<UIImage?, Never> {
-            guard let data = try? await api.data("api/me/files/\(clip.id)/thumbnail") else { return nil }
-            return UIImage(data: data)
-        }
+        let started = generation
+        let task = loading[clip.id] ?? Task<UIImage?, Never> { [load] in await load(clip, api) }
         loading[clip.id] = task
         let image = await task.value
+        // Signed out while it loaded: it belongs to someone who's gone.
+        guard generation == started else { return nil }
         loading[clip.id] = nil
         if let image { cache.setObject(image, forKey: clip.id as NSString) }
         return image
     }
 
     func removeAll() {
+        generation += 1
         cache.removeAllObjects()
         loading.values.forEach { $0.cancel() }
         loading = [:]

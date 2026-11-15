@@ -17,10 +17,12 @@ nonisolated final class Downloader: NSObject, URLSessionDownloadDelegate, @unche
     }
 
     static func download(
-        _ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void
+        _ url: URL, to destination: URL,
+        configuration: URLSessionConfiguration = .default,
+        progress: @escaping @Sendable (Double) -> Void
     ) async throws {
         let downloader = Downloader(destination: destination, progress: progress)
-        let session = URLSession(configuration: .default, delegate: downloader, delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: downloader, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let task = session.downloadTask(with: url)
         try await withTaskCancellationHandler {
@@ -81,6 +83,24 @@ final class ClipTransfer {
     }
 
     private(set) var state = State.idle
+    /// The clip `state` is about.
+    private(set) var clipId: String?
+
+    /// Where downloads wait to be saved or shared. Everything in it is
+    /// temporary, so it's cleared at launch in case a download was cut short.
+    private let folder: URL
+    private let configuration: URLSessionConfiguration
+
+    nonisolated static let downloads = FileManager.default.temporaryDirectory.appending(path: "clip-downloads")
+
+    init(folder: URL = ClipTransfer.downloads, configuration: URLSessionConfiguration = .default) {
+        self.folder = folder
+        self.configuration = configuration
+    }
+
+    nonisolated static func removeLeftovers() {
+        try? FileManager.default.removeItem(at: downloads)
+    }
 
     var isBusy: Bool {
         switch state {
@@ -92,27 +112,32 @@ final class ClipTransfer {
     /// Downloads the clip and adds it to the photo library (add-only access).
     func saveToPhotos(_ clip: Clip, from url: URL) async {
         guard !isBusy else { return }
+        clipId = clip.id
         let access = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard access == .authorized || access == .limited else {
             state = .failed(String(localized: "Allow Hop to add to Photos in Settings, then try again."))
             return
         }
+        var file: URL?
         do {
-            let file = try await download(clip, from: url)
+            let downloaded = try await download(clip, from: url)
+            file = downloaded
             state = .saving
-            try await Self.addToLibrary(file, name: clip.name, isVideo: clip.isVideo)
-            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+            try await Self.addToLibrary(downloaded, name: clip.name, isVideo: clip.isVideo)
             state = .saved
         } catch is CancellationError {
             state = .idle
         } catch {
             state = .failed(error.localizedDescription)
         }
+        // Saved, or not: the copy isn't needed either way.
+        if let file { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
     }
 
     /// Downloads the clip to a temporary file to hand to the share sheet.
     func fileToShare(_ clip: Clip, from url: URL) async -> URL? {
         guard !isBusy else { return nil }
+        clipId = clip.id
         do {
             let file = try await download(clip, from: url)
             state = .idle
@@ -143,16 +168,23 @@ final class ClipTransfer {
         if !isBusy { state = .idle }
     }
 
+    /// Downloads into a folder of its own, which the caller removes when
+    /// it's done with the file; a failed download removes it here.
     private func download(_ clip: Clip, from url: URL) async throws -> URL {
         state = .downloading(0)
-        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let file = folder.appending(path: Self.safeFilename(clip.name))
-        try await Downloader.download(url, to: file) { [weak self] fraction in
-            Task { @MainActor in
-                guard let self, case .downloading = self.state else { return }
-                self.state = .downloading(fraction)
+        let own = folder.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        let file = own.appending(path: Self.safeFilename(clip.name))
+        do {
+            try await Downloader.download(url, to: file, configuration: configuration) { [weak self] fraction in
+                Task { @MainActor in
+                    guard let self, case .downloading = self.state else { return }
+                    self.state = .downloading(fraction)
+                }
             }
+        } catch {
+            try? FileManager.default.removeItem(at: own)
+            throw error
         }
         return file
     }

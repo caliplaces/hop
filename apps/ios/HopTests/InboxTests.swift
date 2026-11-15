@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 @testable import Hop
 
 private func hopJSON(_ id: String, title: String, createdAt: Int, files: Int, bytes: Int = 1_000_000) -> String {
@@ -123,6 +124,46 @@ struct InboxModelTests {
         #expect(download.host() == "bucket.example")
     }
 
+    @Test func aRefreshDropsAPageRequestedBeforeIt() async throws {
+        server.reply = { request in
+            let query = request.url?.query() ?? ""
+            switch request.url?.path {
+            case "/api/me/hops":
+                return (200, #"{"hops":[\#(hopJSON("jam", title: "Jam", createdAt: 1, files: 6))]}"#)
+            case "/api/me/files" where query.contains("cursor=2"):
+                return (200, #"{"files":[\#(clipJSON("c", hop: "jam")),\#(clipJSON("d", hop: "jam"))],"nextCursor":"4:d"}"#)
+            case "/api/me/files" where query.contains("cursor=4"):
+                return (200, #"{"files":[\#(clipJSON("e", hop: "jam")),\#(clipJSON("f", hop: "jam"))],"nextCursor":null}"#)
+            default:
+                return (200, #"{"files":[\#(clipJSON("a", hop: "jam")),\#(clipJSON("b", hop: "jam"))],"nextCursor":"2:b"}"#)
+            }
+        }
+        let model = InboxModel()
+        let api = server.client(token: "hs_t")
+        await model.refresh(api: api, activeHopId: nil)
+        await model.loadMore(in: "jam", api: api)
+        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b", "c", "d"])
+
+        // Page three is on its way when they pull to refresh, and the
+        // refreshed first page lands first.
+        server.held = ["/api/me/files"]
+        let pageThree = Task { await model.loadMore(in: "jam", api: api) }
+        try await server.waitForRequests { $0.url?.query()?.contains("cursor=4") == true }
+        let refreshing = Task { await model.refresh(api: api, activeHopId: nil) }
+        let firstPages = { (request: URLRequest) in
+            request.url?.path == "/api/me/files" && request.url?.query()?.contains("cursor") != true
+        }
+        try await server.waitForRequests(count: 2, where: firstPages)
+        server.release(where: firstPages)
+        await refreshing.value
+        server.release()
+        await pageThree.value
+
+        // Page three must not land after the new first page, skipping c and d.
+        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b"])
+        #expect(model.clips["jam"]?.nextCursor == "2:b")
+    }
+
     @Test func showsAFailureOnlyWhenThereIsNothingToShow() async {
         server.reply = { _ in (500, #"{"error":"internal_error"}"#) }
         let model = InboxModel()
@@ -155,5 +196,106 @@ struct InboxFormattingTests {
         #expect(safe == expected)
         #expect(!safe.contains("/"))
         #expect(!safe.hasPrefix("."))
+    }
+}
+
+/// A 1×1 PNG, so the thumbnail decodes.
+private let pixelPNG = "base64:iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
+
+@MainActor
+@Suite("Thumbnails", .serialized)
+struct ThumbnailTests {
+    let server = StubServer(host: "thumbs.test")
+
+    private func clip(_ id: String) throws -> Clip {
+        try JSONDecoder().decode(Clip.self, from: Data(clipJSON(id, hop: "jam").utf8))
+    }
+
+    @Test func cachesAfterTheFirstLoad() async throws {
+        server.reply = { _ in (200, pixelPNG) }
+        let thumbnails = Thumbnails()
+        let api = server.client(token: "hs_t")
+        let a = try clip("a")
+        #expect(await thumbnails.image(for: a, api: api) != nil)
+        #expect(await thumbnails.image(for: a, api: api) != nil)
+        #expect(server.requests.count == 1)
+    }
+
+    /// The load finishes, but whoever was waiting hasn't resumed yet when
+    /// they sign out. Cancelling can't help then; the image must still be dropped.
+    @Test func aLoadFinishingAfterSignOutIsDropped() async throws {
+        let gate = Gate()
+        let thumbnails = Thumbnails { _, _ in await gate.wait() }
+        let a = try clip("a")
+        let loading = Task { await thumbnails.image(for: a, api: server.client()) }
+        try await gate.waitUntilWaiting()
+        thumbnails.removeAll()
+        gate.open(with: UIImage(systemName: "star"))
+        #expect(await loading.value == nil)
+        #expect(thumbnails.cached(a) == nil)
+    }
+}
+
+/// Holds a load until the test lets it finish; ignores cancellation, as a
+/// load that has already finished would.
+private final class Gate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<UIImage?, Never>?
+
+    func wait() async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            lock.withLock { self.continuation = continuation }
+        }
+    }
+
+    func waitUntilWaiting() async throws {
+        for _ in 0..<400 {
+            if lock.withLock({ continuation != nil }) { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        throw URLError(.timedOut)
+    }
+
+    func open(with image: UIImage?) {
+        lock.withLock { continuation }?.resume(returning: image)
+    }
+}
+
+@MainActor
+@Suite("Clip transfers", .serialized)
+struct ClipTransferTests {
+    let server = StubServer(host: "files.test")
+    let folder = FileManager.default.temporaryDirectory.appending(path: "transfer-tests-\(UUID().uuidString)")
+
+    private func clip() throws -> Clip {
+        try JSONDecoder().decode(Clip.self, from: Data(clipJSON("a", hop: "jam").utf8))
+    }
+
+    private func leftovers() -> [String] {
+        let folders = (try? FileManager.default.contentsOfDirectory(atPath: folder.path())) ?? []
+        return folders.flatMap { name in
+            (try? FileManager.default.contentsOfDirectory(atPath: folder.appending(path: name).path())) ?? []
+        }
+    }
+
+    @Test func downloadsAFileToShareUnderItsOwnName() async throws {
+        server.reply = { _ in (200, "video bytes") }
+        let transfer = ClipTransfer(folder: folder, configuration: server.configuration())
+        let file = try #require(await transfer.fileToShare(try clip(), from: server.baseURL.appending(path: "clip")))
+        #expect(file.lastPathComponent == "IMG_1.MOV")
+        #expect(try String(contentsOf: file, encoding: .utf8) == "video bytes")
+        #expect(transfer.clipId == "a")
+        #expect(transfer.state == .idle)
+    }
+
+    @Test func aFailedDownloadLeavesNothingBehind() async throws {
+        server.reply = { _ in (500, "{}") }
+        let transfer = ClipTransfer(folder: folder, configuration: server.configuration())
+        #expect(await transfer.fileToShare(try clip(), from: server.baseURL.appending(path: "clip")) == nil)
+        guard case .failed = transfer.state else {
+            Issue.record("Expected a failure, got \(transfer.state)")
+            return
+        }
+        #expect(leftovers().isEmpty)
     }
 }

@@ -4,6 +4,11 @@ import SwiftUI
 struct HopApp: App {
     @State private var session = Session()
 
+    init() {
+        // Downloads cut short by the app quitting would otherwise linger.
+        ClipTransfer.removeLeftovers()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

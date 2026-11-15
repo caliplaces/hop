@@ -25,6 +25,10 @@ final class InboxModel {
     private(set) var phase = Phase.loading
     private(set) var clips: [String: ClipList] = [:]
 
+    /// Bumped each time an event's list starts over, so a page that was
+    /// requested before can't be appended to the new list.
+    private var generations: [String: Int] = [:]
+
     /// Reloads the events, then the first page of every event already shown.
     func refresh(api: APIClient, activeHopId: String?) async {
         if hops.isEmpty { phase = .loading }
@@ -60,11 +64,14 @@ final class InboxModel {
     }
 
     private func load(_ hopId: String, cursor: String?, replacing: Bool, api: APIClient) async {
+        if replacing { generations[hopId, default: 0] += 1 }
+        let generation = generations[hopId, default: 0]
         clips[hopId, default: ClipList()].isLoading = true
         var query = [URLQueryItem(name: "hopId", value: hopId)]
         if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
         do {
             let page: ClipPage = try await api.get("api/me/files", query: query)
+            guard generations[hopId, default: 0] == generation else { return }
             var list = clips[hopId] ?? ClipList()
             let known = replacing ? [] : list.items
             // A page can overlap the last if clips arrived meanwhile.
@@ -75,6 +82,7 @@ final class InboxModel {
             list.isLoading = false
             clips[hopId] = list
         } catch {
+            guard generations[hopId, default: 0] == generation else { return }
             clips[hopId, default: ClipList()].isLoading = false
             clips[hopId, default: ClipList()].failed = error.localizedDescription
         }
