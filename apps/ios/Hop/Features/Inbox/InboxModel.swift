@@ -87,6 +87,8 @@ final class InboxModel {
         } catch {
             guard generations[hopId, default: 0] == generation else { return }
             clips[hopId, default: ClipList()].isLoading = false
+            // Cancelled because whoever asked went away: not a failure to show.
+            guard !Self.isCancellation(error) else { return }
             clips[hopId, default: ClipList()].failed = error.localizedDescription
         }
     }
@@ -95,7 +97,10 @@ final class InboxModel {
     /// after a refresh dropped the page it was on while someone watched it.
     /// Stops at the end, on a failure, or after `maxPages`.
     func load(upTo clip: Clip, in hopId: String, api: APIClient, maxPages: Int = 20) async {
+        let started = generations[hopId, default: 0]
         for _ in 0..<maxPages {
+            // Superseded: its view went away, or a refresh started over.
+            guard !Task.isCancelled, generations[hopId, default: 0] == started else { return }
             guard let list = clips[hopId],
                   !list.items.contains(where: { $0.id == clip.id }),
                   list.hasMore, list.failed == nil
@@ -104,6 +109,10 @@ final class InboxModel {
             // Another load was already under way, or nothing changed: stop.
             guard clips[hopId]?.nextCursor != list.nextCursor else { return }
         }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
     /// An event's clips for the viewer: `items`, plus `showing` if a refresh

@@ -212,6 +212,50 @@ struct InboxModelTests {
         #expect(model.clips["jam"]?.hasMore == false)
     }
 
+    @Test func catchingUpStopsWhenARefreshStartsOverAndCancellingIsntAFailure() async throws {
+        let firstPage = Locked(#"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 5)),\#(clipJSON("b", hop: "jam", createdAt: 4))],"nextCursor":"4:b"}"#)
+        server.reply = { request in
+            let query = request.url?.query() ?? ""
+            switch request.url?.path {
+            case "/api/me/hops":
+                return (200, #"{"hops":[\#(hopJSON("jam", title: "Jam", createdAt: 1, files: 6))]}"#)
+            case "/api/me/files" where query.contains("cursor="):
+                return (200, #"{"files":[\#(clipJSON("c", hop: "jam", createdAt: 3))],"nextCursor":"3:c"}"#)
+            default:
+                return (200, firstPage.value)
+            }
+        }
+        let model = InboxModel()
+        let api = server.client(token: "hs_t")
+        await model.refresh(api: api, activeHopId: nil)
+        let watched = try clip("z", at: 1)
+        let pages = { (request: URLRequest) in request.url?.query()?.contains("cursor=") == true }
+
+        // Catching up towards "z", a page is on its way when a refresh starts over.
+        server.held = ["/api/me/files"]
+        let catchingUp = Task { await model.load(upTo: watched, in: "jam", api: api) }
+        try await server.waitForRequests(where: pages)
+        server.held = []
+        // A clip landed: the new first page pages on from somewhere else.
+        firstPage.value = #"{"files":[\#(clipJSON("n", hop: "jam", createdAt: 9)),\#(clipJSON("a", hop: "jam", createdAt: 5))],"nextCursor":"5:a"}"#
+        await model.refresh(api: api, activeHopId: nil)
+        server.release()
+        await catchingUp.value
+        // Its late page is dropped, and it asks for no more for the new list.
+        #expect(server.requests.filter { pages($0.request) }.count == 1)
+        #expect(model.clips["jam"]?.items.map(\.id) == ["n", "a"])
+
+        // A load cancelled because its view went away isn't a failure.
+        server.held = ["/api/me/files"]
+        let leaving = Task { await model.load(upTo: watched, in: "jam", api: api) }
+        try await server.waitForRequests(count: 2, where: pages)
+        leaving.cancel()
+        await leaving.value
+        server.release()
+        #expect(model.clips["jam"]?.failed == nil)
+        #expect(model.clips["jam"]?.isLoading == false)
+    }
+
     @Test func keepsTheClipShowingInTheAPIsOrder() throws {
         let items = try [clip("a", at: 6), clip("b", at: 5), clip("c", at: 3)]
         #expect(InboxModel.clips(items, keeping: nil).map(\.id) == ["a", "b", "c"])
