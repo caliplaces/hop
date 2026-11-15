@@ -73,13 +73,10 @@ final class InboxModel {
             let page: ClipPage = try await api.get("api/me/files", query: query)
             guard generations[hopId, default: 0] == generation else { return }
             var list = clips[hopId] ?? ClipList()
-            if replacing {
-                (list.items, list.nextCursor) = Self.refreshed(list, with: page)
-            } else {
-                // A page can overlap what's loaded if clips arrived meanwhile.
-                list.items += page.files.filter { clip in !list.items.contains { $0.id == clip.id } }
-                list.nextCursor = page.nextCursor
-            }
+            let known = replacing ? [] : list.items
+            // A page can overlap the last if clips arrived meanwhile.
+            list.items = known + page.files.filter { clip in !known.contains { $0.id == clip.id } }
+            list.nextCursor = page.nextCursor
             list.loadedOnce = true
             list.failed = nil
             list.isLoading = false
@@ -91,24 +88,16 @@ final class InboxModel {
         }
     }
 
-    /// An event's clips after a refresh brought a new first page.
-    ///
-    /// Clips older than the page's last weren't refreshed, so when the page
-    /// joins up with what's loaded, they stay (a clip someone is watching
-    /// further down stays put) and paging carries on where it had got to.
-    /// Within the page's range, a loaded clip that's missing was deleted, so
-    /// it goes. If the page doesn't join up (more than a page of clips arrived
-    /// meanwhile), there's a gap, and the list starts again from the page.
-    static func refreshed(_ list: ClipList, with page: ClipPage) -> (items: [Clip], nextCursor: String?) {
-        guard let last = page.files.last, page.nextCursor != nil else {
-            // The whole list: nothing older exists.
-            return (page.files, nil)
-        }
-        guard list.items.contains(where: { $0.id == last.id }) else {
-            return (page.files, page.nextCursor)
-        }
-        let older = list.items.filter { isOlder($0, than: last) }
-        return (page.files + older, list.nextCursor)
+    /// An event's clips for the viewer: `items`, plus `showing` if a refresh
+    /// dropped it (it was on a later page, which a refresh doesn't reload), in
+    /// the API's order. The clip someone is watching never vanishes from under
+    /// them; once they move on, the list follows the API again.
+    static func clips(_ items: [Clip], keeping showing: Clip?) -> [Clip] {
+        guard let showing, !items.contains(where: { $0.id == showing.id }) else { return items }
+        let index = items.firstIndex { isOlder($0, than: showing) } ?? items.endIndex
+        var clips = items
+        clips.insert(showing, at: index)
+        return clips
     }
 
     /// The API's order: newest first, then by id.

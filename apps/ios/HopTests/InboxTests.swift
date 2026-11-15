@@ -11,6 +11,10 @@ private func clipJSON(_ id: String, hop: String, size: Int = 1000, createdAt: In
     #"{"id":"\#(id)","hopId":"\#(hop)","name":"IMG_1.MOV","mime":"video/mp4","size":\#(size),"hasThumbnail":true,"contributorName":"@mia","contributorVerified":true,"note":null,"createdAt":\#(createdAt)}"#
 }
 
+private func clip(_ id: String, at createdAt: Int) throws -> Clip {
+    try JSONDecoder().decode(Clip.self, from: Data(clipJSON(id, hop: "jam", createdAt: createdAt).utf8))
+}
+
 @MainActor
 @Suite("Inbox", .serialized)
 struct InboxModelTests {
@@ -131,11 +135,11 @@ struct InboxModelTests {
             case "/api/me/hops":
                 return (200, #"{"hops":[\#(hopJSON("jam", title: "Jam", createdAt: 1, files: 6))]}"#)
             case "/api/me/files" where query.contains("cursor=2"):
-                return (200, #"{"files":[\#(clipJSON("c", hop: "jam", createdAt: 4)),\#(clipJSON("d", hop: "jam", createdAt: 3))],"nextCursor":"4:d"}"#)
+                return (200, #"{"files":[\#(clipJSON("c", hop: "jam")),\#(clipJSON("d", hop: "jam"))],"nextCursor":"4:d"}"#)
             case "/api/me/files" where query.contains("cursor=4"):
-                return (200, #"{"files":[\#(clipJSON("e", hop: "jam", createdAt: 2)),\#(clipJSON("f", hop: "jam", createdAt: 1))],"nextCursor":null}"#)
+                return (200, #"{"files":[\#(clipJSON("e", hop: "jam")),\#(clipJSON("f", hop: "jam"))],"nextCursor":null}"#)
             default:
-                return (200, #"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 6)),\#(clipJSON("b", hop: "jam", createdAt: 5))],"nextCursor":"2:b"}"#)
+                return (200, #"{"files":[\#(clipJSON("a", hop: "jam")),\#(clipJSON("b", hop: "jam"))],"nextCursor":"2:b"}"#)
             }
         }
         let model = InboxModel()
@@ -159,74 +163,52 @@ struct InboxModelTests {
         server.release()
         await pageThree.value
 
-        // Page three, requested before the refresh, is dropped. The pages
-        // already loaded stay, and paging carries on where it had got to,
-        // without fetching what's loaded again.
-        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b", "c", "d"])
-        #expect(model.clips["jam"]?.nextCursor == "4:d")
+        // Page three must not land after the new first page, skipping c and d.
+        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b"])
+        #expect(model.clips["jam"]?.nextCursor == "2:b")
     }
 
-    @Test func aRefreshKeepsLoadedPagesSoAWatchedClipStays() async throws {
+    @Test func theViewerKeepsTheClipShowingWhenARefreshDropsIt() async throws {
         let arrived = Locked(false)
         server.reply = { request in
             let query = request.url?.query() ?? ""
             switch request.url?.path {
             case "/api/me/hops":
                 return (200, #"{"hops":[\#(hopJSON("jam", title: "Jam", createdAt: 1, files: 4))]}"#)
-            case "/api/me/files" where query.contains("cursor=2"):
+            case "/api/me/files" where query.contains("cursor="):
                 return (200, #"{"files":[\#(clipJSON("c", hop: "jam", createdAt: 3)),\#(clipJSON("d", hop: "jam", createdAt: 2))],"nextCursor":null}"#)
             default:
-                // A clip lands during Event mode: the first page moves down by one.
                 return arrived.value
-                    ? (200, #"{"files":[\#(clipJSON("n", hop: "jam", createdAt: 9)),\#(clipJSON("a", hop: "jam", createdAt: 5))],"nextCursor":"2:a"}"#)
-                    : (200, #"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 5)),\#(clipJSON("b", hop: "jam", createdAt: 4))],"nextCursor":"2:b"}"#)
+                    ? (200, #"{"files":[\#(clipJSON("n", hop: "jam", createdAt: 9)),\#(clipJSON("a", hop: "jam", createdAt: 5))],"nextCursor":"5:a"}"#)
+                    : (200, #"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 5)),\#(clipJSON("b", hop: "jam", createdAt: 4))],"nextCursor":"4:b"}"#)
             }
         }
         let model = InboxModel()
         let api = server.client(token: "hs_t")
         await model.refresh(api: api, activeHopId: nil)
         await model.loadMore(in: "jam", api: api)
-        // Someone is watching "d", from the second page.
-        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b", "c", "d"])
+        let watched = try #require(model.clips["jam"]?.items.first { $0.id == "d" })
 
+        // A clip lands during Event mode: the refresh brings a new first page
+        // and drops the later ones, so it's fresh and nothing is missed...
         arrived.value = true
         await model.refresh(api: api, activeHopId: nil)
-        #expect(model.clips["jam"]?.items.map(\.id) == ["n", "a", "b", "c", "d"])
+        let items = model.clips["jam"]?.items ?? []
+        #expect(items.map(\.id) == ["n", "a"])
+
+        // ...while the viewer keeps "d", the clip being watched, in its place.
+        #expect(InboxModel.clips(items, keeping: watched).map(\.id) == ["n", "a", "d"])
     }
 
-    @Test func aRefreshDropsClipsDeletedElsewhere() {
-        func clip(_ id: String, _ at: Int) throws -> Clip {
-            try JSONDecoder().decode(Clip.self, from: Data(clipJSON(id, hop: "jam", createdAt: at).utf8))
-        }
-        func page(_ json: String) throws -> ClipPage {
-            try JSONDecoder().decode(ClipPage.self, from: Data(json.utf8))
-        }
-        do {
-            var loaded = InboxModel.ClipList()
-            loaded.items = try [clip("a", 6), clip("b", 5), clip("c", 4), clip("d", 3)]
-            loaded.nextCursor = "3:d"
-            loaded.loadedOnce = true
-
-            // "b" was deleted on another device: gone from the refreshed range,
-            // while "d", past it, stays.
-            let partial = try page(#"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 6)),\#(clipJSON("c", hop: "jam", createdAt: 4))],"nextCursor":"4:c"}"#)
-            let kept = InboxModel.refreshed(loaded, with: partial)
-            #expect(kept.items.map(\.id) == ["a", "c", "d"])
-            #expect(kept.nextCursor == "3:d")
-
-            // The whole list came back: whatever's missing was deleted.
-            let whole = try page(#"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 6))],"nextCursor":null}"#)
-            #expect(InboxModel.refreshed(loaded, with: whole).items.map(\.id) == ["a"])
-            #expect(InboxModel.refreshed(loaded, with: whole).nextCursor == nil)
-
-            // More than a page arrived: no join, so paging starts again from it.
-            let gap = try page(#"{"files":[\#(clipJSON("x", hop: "jam", createdAt: 9)),\#(clipJSON("y", hop: "jam", createdAt: 8))],"nextCursor":"8:y"}"#)
-            let restarted = InboxModel.refreshed(loaded, with: gap)
-            #expect(restarted.items.map(\.id) == ["x", "y"])
-            #expect(restarted.nextCursor == "8:y")
-        } catch {
-            Issue.record(error)
-        }
+    @Test func keepsTheClipShowingInTheAPIsOrder() throws {
+        let items = try [clip("a", at: 6), clip("b", at: 5), clip("c", at: 3)]
+        #expect(InboxModel.clips(items, keeping: nil).map(\.id) == ["a", "b", "c"])
+        #expect(InboxModel.clips(items, keeping: try clip("b", at: 5)).map(\.id) == ["a", "b", "c"])
+        #expect(InboxModel.clips(items, keeping: try clip("x", at: 9)).map(\.id) == ["x", "a", "b", "c"])
+        #expect(InboxModel.clips(items, keeping: try clip("m", at: 4)).map(\.id) == ["a", "b", "m", "c"])
+        #expect(InboxModel.clips(items, keeping: try clip("z", at: 1)).map(\.id) == ["a", "b", "c", "z"])
+        // Same time: by id, as the API breaks ties.
+        #expect(InboxModel.clips(items, keeping: try clip("bb", at: 5)).map(\.id) == ["a", "bb", "b", "c"])
     }
 
     @Test func showsAFailureOnlyWhenThereIsNothingToShow() async {
