@@ -219,6 +219,45 @@ struct HopPlusTests {
         #expect(hopPlus.status?.plan == .free)
     }
 
+    @Test func aPurchaseStillCountsWhenALaterReadAnswersFirst() async throws {
+        serve()
+        let hopPlus = HopPlus(source: purchases)
+        // The purchase is slow to come back. A reload started after it
+        // answers first, from before the purchase was saved: free.
+        server.held = ["/api/me/subscriptions/apple"]
+        let sending = Task { await hopPlus.send(purchases.make(1), api: api) }
+        try await server.waitForRequests { $0.url?.path == "/api/me/subscriptions/apple" }
+        await hopPlus.refresh(api: api)
+        #expect(hopPlus.status?.plan == .free)
+
+        server.release()
+        #expect(await sending.value == .counted)
+        #expect(hopPlus.status?.plan == .plus)
+    }
+
+    @Test func anOlderReadCantReplaceANewerOne() async throws {
+        let plan = Locked(planJSON(used: 1 * gib))
+        server.reply = { request in
+            request.url?.path == "/api/me/plan" ? (200, plan.value) : (404, "{}")
+        }
+        let hopPlus = HopPlus(source: purchases)
+        server.held = ["/api/me/plan"]
+        let older = Task { await hopPlus.refresh(api: api) }
+        try await server.waitForRequests { $0.url?.path == "/api/me/plan" }
+
+        // A newer read answers first...
+        server.held = []
+        plan.value = planJSON(used: 2 * gib)
+        await hopPlus.refresh(api: api)
+        #expect(hopPlus.status?.storage.usedBytes == 2 * gib)
+
+        // ...and the older one, answering late with what it read back then, is dropped.
+        plan.value = planJSON(used: 1 * gib)
+        server.release()
+        await older.value
+        #expect(hopPlus.status?.storage.usedBytes == 2 * gib)
+    }
+
     @Test func workStartedBeforeSignOutStops() async throws {
         serve()
         purchases.have(1)
