@@ -29,13 +29,23 @@ export type Env = {
   /**
    * Apple's push service, for Event mode's Live Activity. APNS_KEY is the .p8
    * signing key (PEM, a secret); without it nothing is pushed. The key is
-   * restricted to APNS_BUNDLE_ID and to one APNS_ENVIRONMENT.
+   * restricted to APPLE_BUNDLE_ID and to one APNS_ENVIRONMENT.
    */
   APNS_KEY?: string;
   APNS_KEY_ID: string;
   APNS_ENVIRONMENT: "sandbox" | "production";
   APPLE_TEAM_ID: string;
-  APNS_BUNDLE_ID: string;
+  /** The iPhone app: its bundle ID, for pushes and for App Store purchases. */
+  APPLE_BUNDLE_ID: string;
+  /** The app's App Store ID, which production App Store notifications carry. */
+  APPLE_APP_ID: string;
+  /**
+   * In production, the user IDs whose sandbox purchases count (comma
+   * separated): App Review's demo account and the team's. Everyone else's
+   * TestFlight purchases, which cost nothing, don't unlock Hop+. Unused
+   * elsewhere, where sandbox purchases always count.
+   */
+  APPLE_SANDBOX_USERS?: string;
 };
 
 export type AppEnv = {

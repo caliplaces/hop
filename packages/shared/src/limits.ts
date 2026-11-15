@@ -21,8 +21,19 @@ export const MAX_PARTS_PER_SIGN_REQUEST = 50;
 /** Max size of the client-generated JPEG thumbnail. */
 export const MAX_THUMBNAIL_BYTES = 512 * KiB;
 
-/** Storage an account gets until plans exist. */
-export const DEFAULT_STORAGE_QUOTA_BYTES = 50 * GiB;
+/**
+ * What each plan includes. Free keeps clips for `retentionDays`; Hop+ keeps
+ * them for good (null). Retention isn't enforced yet: see the API README.
+ */
+export const PLANS = {
+  free: { storageBytes: 20 * GiB, retentionDays: 90 },
+  plus: { storageBytes: 1024 * GiB, retentionDays: null },
+} as const;
+
+export type PlanId = keyof typeof PLANS;
+
+/** App Store product IDs that give Hop+, all in one subscription group. */
+export const HOP_PLUS_PRODUCT_IDS = ["hop_plus", "hop_plus_annual"] as const;
 
 /**
  * A pending upload only reserves quota while it's actively uploading, so

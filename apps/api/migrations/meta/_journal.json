@@ -50,6 +50,13 @@
       "when": 1794754860390,
       "tag": "0006_live_activities",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794761240731,
+      "tag": "0007_subscriptions",
+      "breakpoints": true
     }
   ]
 }

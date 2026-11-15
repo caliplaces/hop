@@ -2,7 +2,6 @@ import {
   type CreateUploadResult,
   completeUploadSchema,
   createUploadSchema,
-  DEFAULT_STORAGE_QUOTA_BYTES,
   hopPassSchema,
   isAcceptableDeclaredType,
   MAX_ACTIVE_UPLOADS_PER_PASS,
@@ -25,6 +24,7 @@ import type { AppEnv, Env } from "../env";
 import { newId, randomToken, sha256Hex, signPayload, verifyPayload } from "../lib/crypto";
 import { originalKey, removeFile, thumbnailKey } from "../lib/files";
 import { BodyTooLargeError, clientIp, fail, readBodyCapped } from "../lib/http";
+import { storageLimitSql } from "../lib/plans";
 import { SNIFF_BYTES, sniffMedia } from "../lib/sniff";
 import { normalizeEtag, presignUploadPart } from "../lib/storage";
 import { verifyTurnstile } from "../lib/turnstile";
@@ -70,7 +70,7 @@ async function holdReservation(db: Db, file: FileRow): Promise<boolean> {
         select coalesce(sum(size), 0) from ${files}
         where owner_id = ${file.ownerId} and id != ${file.id}
           and (status = 'complete' or (status = 'pending' and last_activity_at > ${activeSince}))
-      ) + ${file.size} <= ${DEFAULT_STORAGE_QUOTA_BYTES}
+      ) + ${file.size} <= ${storageLimitSql(file.ownerId, now)}
     )
   `);
   return result.meta.changes === 1;
@@ -180,7 +180,7 @@ export const uploadRoutes = new Hono<AppEnv>()
         select coalesce(sum(size), 0) from ${files}
         where owner_id = ${hop.ownerId}
           and (status = 'complete' or (status = 'pending' and last_activity_at > ${activeSince}))
-      ) + ${input.size} <= ${DEFAULT_STORAGE_QUOTA_BYTES}
+      ) + ${input.size} <= ${storageLimitSql(hop.ownerId, now)}
     `);
     if (reserved.meta.changes !== 1) {
       return fail(c, 507, "hop_full", "This Hop is full right now.");

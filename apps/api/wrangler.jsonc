@@ -36,7 +36,8 @@
     // (debug builds), production for TestFlight and App Store builds. The key
     // itself is the APNS_KEY secret (.dev.vars locally); without it nothing is pushed.
     "APPLE_TEAM_ID": "XH66L5M6JJ",
-    "APNS_BUNDLE_ID": "com.onmyhop.app",
+    "APPLE_BUNDLE_ID": "com.onmyhop.app",
+    "APPLE_APP_ID": "6834920854",
     "APNS_ENVIRONMENT": "sandbox",
     "APNS_KEY_ID": "K4TQW3FWN6"
   },
@@ -72,7 +73,8 @@
         "R2_BUCKET_NAME": "hop-staging",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzxw0pDT6tjGB4",
         "APPLE_TEAM_ID": "XH66L5M6JJ",
-        "APNS_BUNDLE_ID": "com.onmyhop.app",
+        "APPLE_BUNDLE_ID": "com.onmyhop.app",
+        "APPLE_APP_ID": "6834920854",
         "APNS_ENVIRONMENT": "sandbox",
         "APNS_KEY_ID": "K4TQW3FWN6"
       },
@@ -113,7 +115,8 @@
         "R2_BUCKET_NAME": "hop-production",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAGAzsqAA1kSjsSnQ",
         "APPLE_TEAM_ID": "XH66L5M6JJ",
-        "APNS_BUNDLE_ID": "com.onmyhop.app",
+        "APPLE_BUNDLE_ID": "com.onmyhop.app",
+        "APPLE_APP_ID": "6834920854",
         "APNS_ENVIRONMENT": "production",
         "APNS_KEY_ID": "JNYA3Z4YF6"
       },
