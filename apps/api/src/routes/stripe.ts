@@ -7,11 +7,14 @@ import { fail } from "../lib/http";
 import { activeSubscription } from "../lib/plans";
 import { currentUser, requireUser } from "../lib/session";
 import {
+  cancel,
   customerFor,
   forgetCustomer,
   hopPlusPrices,
   isMissingCustomer,
   liveMode,
+  lockCheckout,
+  OWING,
   portalUrl,
   refreshCustomer,
   StripeError,
@@ -19,6 +22,7 @@ import {
   stripeEnabled,
   subscriptionOf,
   syncById,
+  unlockCheckout,
   verifyWebhook,
 } from "../lib/stripe";
 import { validate } from "../lib/validate";
@@ -30,9 +34,9 @@ import { planStatus } from "./billing";
  * changes when Stripe's webhook says so, and is read back from Stripe.
  */
 
-/** Each call reaches Stripe, so an account gets a few a minute. */
+/** Each call reaches Stripe, whose rate limit the account's other products share. */
 async function tooManyCalls(c: Context<AppEnv>, userId: string): Promise<boolean> {
-  const { success } = await c.env.PROFILE_LIMITER.limit({ key: `billing:${userId}` });
+  const { success } = await c.env.BILLING_LIMITER.limit({ key: userId });
   return !success;
 }
 
@@ -72,15 +76,39 @@ export const stripeRoutes = new Hono<AppEnv>()
     }
     const db = getDb(c.env.DB);
     const { priceId } = c.req.valid("json");
+    const lockedAt = Date.now();
+    if (!(await lockCheckout(db, user.id, lockedAt))) {
+      return fail(
+        c,
+        409,
+        "checkout_opening",
+        "Checkout is already opening. Try again in a moment.",
+      );
+    }
     try {
       if (!(await hopPlusPrices(c.env)).some((price) => price.id === priceId)) {
         return fail(c, 400, "unknown_price", "That price isn't on sale. Reload and try again.");
       }
       // Catch up with Stripe first: a checkout paid moments ago may not have
       // reached us yet, and nobody should pay for Hop+ twice.
-      if (user.stripeCustomerId) await refreshCustomer(c.env, db, user.stripeCustomerId);
+      const live = user.stripeCustomerId
+        ? await refreshCustomer(c.env, db, user.id, user.stripeCustomerId)
+        : [];
       if (await activeSubscription(db, user.id)) {
         return fail(c, 409, "already_plus", "You already have Hop+.");
+      }
+      // Still billing, though Hop+ has lapsed: fixing the card brings it back.
+      if (live.some((subscription) => OWING.has(subscription.status))) {
+        return fail(
+          c,
+          409,
+          "payment_due",
+          "Your Hop+ subscription has a payment due. Update your card in Manage subscription to keep it.",
+        );
+      }
+      // Never paid (a payment left waiting): it mustn't go through later as well.
+      for (const subscription of live) {
+        if (subscription.status === "incomplete") await cancel(c.env, subscription.id);
       }
       let customer = await customerFor(c.env, db, user);
       try {
@@ -91,13 +119,15 @@ export const stripeRoutes = new Hono<AppEnv>()
         if (!isMissingCustomer(error)) throw error;
         // Deleted in Stripe's dashboard: start again with a new customer.
         await forgetCustomer(db, user.id, customer);
-        customer = await customerFor(c.env, db, { ...user, stripeCustomerId: null });
+        customer = await customerFor(c.env, db, user);
         return c.json<BillingRedirect>({
           url: await startCheckout(c.env, customer, user.id, priceId),
         });
       }
     } catch (error) {
       return stripeDown(c, error);
+    } finally {
+      await unlockCheckout(db, user.id, lockedAt);
     }
   })
 
@@ -114,7 +144,10 @@ export const stripeRoutes = new Hono<AppEnv>()
     try {
       return c.json<BillingRedirect>({ url: await portalUrl(c.env, user.stripeCustomerId) });
     } catch (error) {
-      return stripeDown(c, error);
+      if (!isMissingCustomer(error)) return stripeDown(c, error);
+      // Deleted in Stripe's dashboard, with whatever it had.
+      await forgetCustomer(getDb(c.env.DB), user.id, user.stripeCustomerId);
+      return fail(c, 404, "no_customer", "You haven't bought anything on the website.");
     }
   })
 
@@ -130,7 +163,7 @@ export const stripeRoutes = new Hono<AppEnv>()
         return fail(c, 429, "rate_limited", "Too many tries. Try again in a minute.");
       }
       try {
-        await refreshCustomer(c.env, db, user.stripeCustomerId);
+        await refreshCustomer(c.env, db, user.id, user.stripeCustomerId);
       } catch (error) {
         return stripeDown(c, error);
       }
@@ -156,8 +189,12 @@ export const stripeRoutes = new Hono<AppEnv>()
     } catch {
       return fail(c, 400, "invalid_event");
     }
-    // A live event on staging, or a test one in production: a misconfigured endpoint.
-    if (event?.livemode !== liveMode(c.env)) return fail(c, 400, "wrong_mode");
+    // A live event on staging, or a test one in production: a misconfigured
+    // endpoint. Answered all the same, or Stripe would retry it for days.
+    if (event?.livemode !== liveMode(c.env)) {
+      console.warn("stripe: event in the other mode", event?.type);
+      return c.json({ received: true });
+    }
     const subscriptionId = subscriptionOf(event);
     if (subscriptionId) {
       // A failure answers 500, and Stripe tries again later.

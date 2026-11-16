@@ -13,6 +13,8 @@ export type Env = {
   REPORT_LIMITER: RateLimit;
   /** Per account, on profile changes: name and photo. */
   PROFILE_LIMITER: RateLimit;
+  /** Per account, on the website's Hop+ calls that reach Stripe. */
+  BILLING_LIMITER: RateLimit;
 
   ENVIRONMENT: "development" | "staging" | "production";
   APP_URL: string;
@@ -86,6 +88,12 @@ export type Env = {
    * yearly prices are what the website sells; nothing else there counts.
    */
   STRIPE_PRODUCT_ID: string;
+  /**
+   * Hop's own customer portal settings (bpc_…): Hop+ prices only, cancelling
+   * at the period's end. Without it, the account's default is used, which
+   * its other products share.
+   */
+  STRIPE_PORTAL_CONFIGURATION?: string;
 };
 
 export type AppEnv = {

@@ -1,5 +1,5 @@
 import type { WebPrice } from "@hop/shared";
-import { and, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db";
 import { subscriptions, type UserRow, users } from "../db/schema";
 import type { Env } from "../env";
@@ -142,9 +142,13 @@ export type StripeSubscription = {
 
 /** Ended for good: nothing to cancel, nothing more to bill. */
 const ENDED = new Set<StripeSubscription["status"]>(["canceled", "incomplete_expired"]);
+/** Still billing, but not paid up: the card needs fixing, in the portal. */
+export const OWING = new Set<StripeSubscription["status"]>(["past_due", "unpaid", "paused"]);
 
-let priceCache: { productId: string; until: number; prices: WebPrice[] } | undefined;
+let priceCache: { productId: string; until: number; prices: WebPrice[] | null } | undefined;
 const PRICE_CACHE_MS = 5 * 60 * 1000;
+/** After Stripe fails to list them, how long before asking again. */
+const PRICE_RETRY_MS = 30 * 1000;
 
 /** Forgets the cached prices, as after changing them in Stripe. For tests. */
 export function clearPriceCache() {
@@ -158,14 +162,24 @@ export function clearPriceCache() {
  */
 export async function hopPlusPrices(env: Env, now = Date.now()): Promise<WebPrice[]> {
   const productId = env.STRIPE_PRODUCT_ID;
-  if (priceCache?.productId === productId && now < priceCache.until) return priceCache.prices;
-  // Newest first, as Stripe lists them.
-  const list = await stripe<{ data: StripePrice[] }>(env, "GET", "/prices", {
-    product: productId,
-    active: true,
-    type: "recurring",
-    limit: 100,
-  });
+  if (priceCache?.productId === productId && now < priceCache.until) {
+    if (!priceCache.prices) throw new StripeError(503, undefined, "Stripe failed a moment ago");
+    return priceCache.prices;
+  }
+  let list: { data: StripePrice[] };
+  try {
+    // Newest first, as Stripe lists them.
+    list = await stripe<{ data: StripePrice[] }>(env, "GET", "/prices", {
+      product: productId,
+      active: true,
+      type: "recurring",
+      limit: 100,
+    });
+  } catch (error) {
+    // Every page load asks: don't pass each one on to Stripe while it's failing.
+    priceCache = { productId, until: now + PRICE_RETRY_MS, prices: null };
+    throw error;
+  }
   const byInterval = new Map<WebPrice["interval"], WebPrice>();
   for (const price of list.data) {
     const interval = price.recurring?.interval;
@@ -200,10 +214,16 @@ export function isHopPlus(env: Env, subscription: StripeSubscription): boolean {
 
 /**
  * The athlete's Stripe customer, made the first time they check out. If two
- * checkouts race, one customer sticks and the other is left unused.
+ * checkouts race, one customer sticks and the other is left unused. Read
+ * afresh, since catching up with Stripe may have just forgotten one.
  */
 export async function customerFor(env: Env, db: Db, user: UserRow): Promise<string> {
-  if (user.stripeCustomerId) return user.stripeCustomerId;
+  const current = await db
+    .select({ customer: users.stripeCustomerId })
+    .from(users)
+    .where(and(eq(users.id, user.id), isNull(users.deletedAt)))
+    .get();
+  if (current?.customer) return current.customer;
   const customer = await stripe<{ id: string }>(env, "POST", "/customers", {
     // For receipts. An address the athlete never confirmed may not be theirs.
     email: user.emailVerified && user.email ? user.email : undefined,
@@ -270,6 +290,10 @@ export async function startCheckout(
     customer,
     client_reference_id: userId,
     line_items: [{ price: priceId, quantity: 1 }],
+    // Cards (Apple Pay and Google Pay among them) only. Bank debits mark the
+    // subscription active before the money arrives, and can still fail or
+    // be reversed weeks later, when Hop+ would already have been given.
+    payment_method_types: ["card"],
     metadata: { hop_user_id: userId },
     // On the subscription too: if the account is deleted while this is
     // open, the subscription it makes can still be traced and cancelled.
@@ -291,6 +315,9 @@ export async function startCheckout(
 export async function portalUrl(env: Env, customer: string): Promise<string> {
   const session = await stripe<{ url: string }>(env, "POST", "/billing_portal/sessions", {
     customer,
+    // Hop's own: the account's default is shared with its other products,
+    // and could let a subscription switch to one of them.
+    configuration: env.STRIPE_PORTAL_CONFIGURATION || undefined,
     return_url: `${env.APP_URL}/app/my-hop`,
   });
   return session.url;
@@ -307,31 +334,82 @@ async function liveSubscriptions(env: Env, customer: string): Promise<StripeSubs
 }
 
 /**
- * Stores the customer's Hop+ subscriptions as Stripe has them now: after a
+ * Stores the athlete's Hop+ subscriptions as Stripe has them now: after a
  * checkout, in case its webhook is slow, and before another one, so nobody
- * pays twice.
+ * pays twice. Returns those that haven't ended. A customer Stripe no longer
+ * has (deleted in its dashboard, which cancels its subscriptions) is
+ * forgotten, and has none.
  */
-export async function refreshCustomer(env: Env, db: Db, customer: string): Promise<void> {
+export async function refreshCustomer(
+  env: Env,
+  db: Db,
+  userId: string,
+  customer: string,
+): Promise<StripeSubscription[]> {
   const fetchedAt = Date.now();
-  for (const subscription of await liveSubscriptions(env, customer)) {
-    await syncSubscription(env, db, subscription, fetchedAt);
+  let live: StripeSubscription[];
+  try {
+    live = await liveSubscriptions(env, customer);
+  } catch (error) {
+    if (!isMissingCustomer(error)) throw error;
+    await forgetCustomer(db, userId, customer);
+    return [];
+  }
+  for (const subscription of live) await syncSubscription(env, db, subscription, fetchedAt);
+  return live.filter((subscription) => isHopPlus(env, subscription));
+}
+
+/**
+ * Ends every subscription the customer has, at once, as their account is
+ * deleted: nothing else would stop Stripe billing them. Hop made the
+ * customer and nothing else uses it, so whatever it has is Hop's, even a
+ * subscription switched to another product. Open checkouts go first, so
+ * none can start another. Throws if Stripe can't be reached, so the account
+ * isn't deleted while it would still be billed; a customer Stripe no longer
+ * has has nothing left to bill.
+ */
+export async function cancelForDeletion(env: Env, customer: string): Promise<void> {
+  try {
+    await expireOpenCheckouts(env, customer);
+    for (const subscription of await liveSubscriptions(env, customer)) {
+      await cancel(env, subscription.id);
+    }
+  } catch (error) {
+    if (!isMissingCustomer(error)) throw error;
   }
 }
 
 /**
- * Ends the customer's Hop+ at once, as their account is deleted: nothing
- * else would stop Stripe billing them. Open checkouts go first, so none can
- * start another subscription. Throws if Stripe can't be reached, so the
- * account isn't deleted while it would still be billed.
+ * A checkout lists the open ones, expires them and opens another: one at a
+ * time per account, or two at once could each leave theirs open. Taken for
+ * this long at most, in case a request dies holding it.
  */
-export async function cancelForDeletion(env: Env, customer: string): Promise<void> {
-  await expireOpenCheckouts(env, customer);
-  for (const subscription of await liveSubscriptions(env, customer)) {
-    if (isHopPlus(env, subscription)) await cancel(env, subscription.id);
-  }
+const CHECKOUT_LOCK_MS = 30 * 1000;
+
+/** Takes the account's checkout lock; false while another checkout is opening. */
+export async function lockCheckout(db: Db, userId: string, now: number): Promise<boolean> {
+  const taken = await db
+    .update(users)
+    .set({ stripeCheckoutAt: now })
+    .where(
+      and(
+        eq(users.id, userId),
+        or(isNull(users.stripeCheckoutAt), lt(users.stripeCheckoutAt, now - CHECKOUT_LOCK_MS)),
+      ),
+    )
+    .returning({ id: users.id });
+  return taken.length > 0;
 }
 
-async function cancel(env: Env, subscriptionId: string): Promise<void> {
+/** Lets the lock taken at `takenAt` go, unless another request has taken it since. */
+export async function unlockCheckout(db: Db, userId: string, takenAt: number): Promise<void> {
+  await db
+    .update(users)
+    .set({ stripeCheckoutAt: null })
+    .where(and(eq(users.id, userId), eq(users.stripeCheckoutAt, takenAt)));
+}
+
+export async function cancel(env: Env, subscriptionId: string): Promise<void> {
   await stripe(env, "DELETE", `/subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
 

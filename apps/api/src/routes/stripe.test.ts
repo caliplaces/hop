@@ -117,6 +117,11 @@ async function stripeApi(input: RequestInfo | URL, init?: RequestInit): Promise<
     fake.customers.add(id);
     return Response.json({ id, object: "customer" });
   }
+  // As Stripe answers for a customer it doesn't have (or deleted).
+  const customerParam = params.get("customer");
+  if (customerParam !== null && path !== "/customers" && !fake.customers.has(customerParam)) {
+    return missing("customer");
+  }
   if (method === "GET" && path === "/checkout/sessions") {
     return list(
       fake.sessions.filter(
@@ -135,7 +140,6 @@ async function stripeApi(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
   if (method === "POST" && path === "/checkout/sessions") {
     const customer = params.get("customer") ?? "";
-    if (!fake.customers.has(customer)) return missing("customer");
     const id = `cs_test_${++nextId}`;
     fake.sessions.push({ id, customer, status: "open" });
     return Response.json({ id, url: `https://checkout.stripe.com/c/pay/${id}` });
@@ -175,7 +179,7 @@ beforeEach(async () => {
     STRIPE_SECRET_KEY: "sk_test_fake",
     STRIPE_WEBHOOK_SECRET: WHSEC,
     STRIPE_PRODUCT_ID: PRODUCT,
-    PROFILE_LIMITER: { limit: async () => ({ success: !limited }) },
+    BILLING_LIMITER: { limit: async () => ({ success: !limited }) },
   } as unknown as Env;
   db = getDb(DB);
   fake = {
@@ -327,6 +331,16 @@ describe("the website's prices", () => {
     expect(stripeCalls()).toEqual(["GET /prices", "GET /prices"]);
   });
 
+  it("aren't asked again for half a minute after Stripe fails", async () => {
+    const now = Date.now();
+    fake.down = true;
+    await expect(hopPlusPrices(env, now)).rejects.toThrow();
+    fake.down = false;
+    await expect(hopPlusPrices(env, now + 20_000)).rejects.toThrow();
+    expect(stripeCalls()).toEqual(["GET /prices"]);
+    expect(await hopPlusPrices(env, now + 31_000)).toHaveLength(2);
+  });
+
   it("are none where Stripe isn't set up, and need a signed-in athlete", async () => {
     env = { ...env, STRIPE_SECRET_KEY: undefined };
     expect(await (await call("/billing/web/prices")).json()).toEqual({ prices: [] });
@@ -359,7 +373,12 @@ describe("checking out", () => {
       "subscription_data[metadata][hop_user_id]": "usr_a",
       success_url: "https://onmyhop.com/app/my-hop?hopplus=welcome",
       cancel_url: "https://onmyhop.com/app/my-hop",
+      // Cards only: a bank debit could fail after Hop+ was given.
+      "payment_method_types[0]": "card",
     });
+    expect(opened?.params.has("payment_method_types[1]")).toBe(false);
+    // Done: the next checkout can open.
+    expect((await alex())?.stripeCheckoutAt).toBeNull();
 
     // Again: the same customer, and the first checkout can't be paid any more.
     expect((await checkout(ANNUAL)).status).toBe(200);
@@ -400,6 +419,70 @@ describe("checking out", () => {
     expect(fake.sessions).toEqual([]);
   });
 
+  it("sends someone whose Hop+ has a payment due to fix it, rather than pay twice", async () => {
+    await linkAlex();
+    const longAgo = nowS() - 40 * 86400;
+    for (const status of ["past_due", "unpaid", "paused"] as const) {
+      // Past the grace period: no Hop+, but Stripe still bills it.
+      fake.subscriptions.set(
+        "sub_alex",
+        subscription({
+          status,
+          items: {
+            data: [
+              {
+                price: price(MONTHLY, "month") as never,
+                current_period_start: longAgo,
+                current_period_end: longAgo + 30 * 86400,
+              },
+            ],
+          },
+        }),
+      );
+      const response = await checkout();
+      expect(response.status).toBe(409);
+      expect(((await response.json()) as { error: string }).error).toBe("payment_due");
+    }
+    expect(fake.sessions).toEqual([]);
+  });
+
+  it("cancels a subscription left waiting for its first payment, before opening another", async () => {
+    await linkAlex();
+    fake.subscriptions.set(
+      "sub_waiting",
+      subscription({ id: "sub_waiting", status: "incomplete" }),
+    );
+    expect((await checkout()).status).toBe(200);
+    expect(fake.subscriptions.get("sub_waiting")?.status).toBe("canceled");
+  });
+
+  it("opens one checkout at a time per account", async () => {
+    const now = Date.now();
+    await db
+      .update(users)
+      .set({ stripeCheckoutAt: now - 1000 })
+      .where(eq(users.id, "usr_a"));
+    const busy = await checkout();
+    expect(busy.status).toBe(409);
+    expect(((await busy.json()) as { error: string }).error).toBe("checkout_opening");
+    expect(fake.calls).toEqual([]);
+    expect((await alex())?.stripeCheckoutAt).toBe(now - 1000);
+
+    // One that died holding it lets go after half a minute.
+    await db
+      .update(users)
+      .set({ stripeCheckoutAt: now - 31_000 })
+      .where(eq(users.id, "usr_a"));
+    expect((await checkout()).status).toBe(200);
+    expect((await alex())?.stripeCheckoutAt).toBeNull();
+  });
+
+  it("lets go of the lock when Stripe fails too", async () => {
+    fake.down = true;
+    expect((await checkout()).status).toBe(502);
+    expect((await alex())?.stripeCheckoutAt).toBeNull();
+  });
+
   it("only sells Hop+'s own prices", async () => {
     const response = await checkout("price_invoai");
     expect(response.status).toBe(400);
@@ -411,6 +494,7 @@ describe("checking out", () => {
     expect((await checkout()).status).toBe(200);
     const customer = (await alex())?.stripeCustomerId;
     expect(customer).not.toBe("cus_gone");
+    expect(customer).toMatch(/^cus_/);
     expect(fake.sessions.at(-1)?.customer).toBe(customer);
   });
 
@@ -450,6 +534,21 @@ describe("the customer portal", () => {
   it("isn't there for someone who never bought on the website", async () => {
     expect((await call("/billing/web/portal", { method: "POST" })).status).toBe(404);
     expect(fake.calls).toEqual([]);
+  });
+
+  it("uses Hop's own portal settings, where they're set", async () => {
+    await linkAlex();
+    await call("/billing/web/portal", { method: "POST" });
+    expect(fake.calls.at(-1)?.params.has("configuration")).toBe(false);
+    env = { ...env, STRIPE_PORTAL_CONFIGURATION: "bpc_hop" };
+    await call("/billing/web/portal", { method: "POST" });
+    expect(fake.calls.at(-1)?.params.get("configuration")).toBe("bpc_hop");
+  });
+
+  it("forgets a customer Stripe no longer has", async () => {
+    await linkAlex("cus_gone");
+    expect((await call("/billing/web/portal", { method: "POST" })).status).toBe(404);
+    expect((await alex())?.stripeCustomerId).toBeNull();
   });
 });
 
@@ -558,14 +657,16 @@ describe("Stripe's webhook", () => {
     expect((await plan()).plan).toBe("plus");
   });
 
-  it("refuses test-mode events in production, and isn't there without its secret", async () => {
+  it("ignores test-mode events in production, and isn't there without its secret", async () => {
     fake.subscriptions.set("sub_alex", subscription());
     const test = await webhook(
       "customer.subscription.created",
       { id: "sub_alex" },
       { livemode: false },
     );
-    expect(test.status).toBe(400);
+    // A 200 all the same, or Stripe would retry it for days.
+    expect(test.status).toBe(200);
+    expect(await db.select().from(subscriptions)).toEqual([]);
     env = { ...env, STRIPE_WEBHOOK_SECRET: undefined };
     expect((await webhook("customer.subscription.created", { id: "sub_alex" })).status).toBe(404);
     expect(fake.calls).toEqual([]);
@@ -726,6 +827,13 @@ describe("catching up with Stripe", () => {
     expect(((await response.json()) as PlanStatus).plan).toBe("plus");
   });
 
+  it("forgets a customer Stripe no longer has", async () => {
+    await linkAlex("cus_gone");
+    const response = await call("/billing/web/sync", { method: "POST" });
+    expect(response.status).toBe(200);
+    expect((await alex())?.stripeCustomerId).toBeNull();
+  });
+
   it("is just the plan for someone who never bought on the website", async () => {
     const response = await call("/billing/web/sync", { method: "POST" });
     expect(((await response.json()) as PlanStatus).plan).toBe("free");
@@ -752,8 +860,8 @@ describe("deleting an account with Hop+ from the website", () => {
     expect(response.status).toBe(200);
     expect(fake.subscriptions.get("sub_alex")?.status).toBe("canceled");
     expect(fake.sessions[0]?.status).toBe("expired");
-    // Not what else the customer may have bought.
-    expect(fake.subscriptions.get("sub_invoai")?.status).toBe("active");
+    // Everything on Hop's customer, even a subscription moved to another product.
+    expect(fake.subscriptions.get("sub_invoai")?.status).toBe("canceled");
 
     const row = await alex();
     expect(row?.deletedAt).toBeTypeOf("number");
@@ -770,6 +878,13 @@ describe("deleting an account with Hop+ from the website", () => {
     expect(row?.stripeCustomerId).toBe("cus_alex");
     // Still signed in, to try again.
     expect((await call("/me/plan")).status).toBe(200);
+  });
+
+  it("goes ahead when Stripe no longer has the customer, which can't be billed", async () => {
+    await linkAlex("cus_gone");
+    const response = await deleteMe();
+    expect(response.status).toBe(200);
+    expect((await alex())?.deletedAt).toBeTypeOf("number");
   });
 
   it("is refused where Stripe isn't set up, rather than leave it billing", async () => {

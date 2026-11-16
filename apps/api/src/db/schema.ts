@@ -44,6 +44,11 @@ export const users = sqliteTable(
      */
     stripeCustomerId: text("stripe_customer_id").unique(),
     /**
+     * When a checkout last started opening: one at a time per account, so
+     * two tabs can't open two checkouts at once (see routes/stripe.ts).
+     */
+    stripeCheckoutAt: integer("stripe_checkout_at"),
+    /**
      * The name others see, set in Hop. `name` is their Caliplaces account's,
      * refreshed at every sign-in, and stands in until they set one.
      */

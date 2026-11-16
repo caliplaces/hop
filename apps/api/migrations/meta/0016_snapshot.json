@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "69c289c1-da38-4c66-a7d6-5f6f06ee73d6",
+  "id": "eb93e61f-9f37-45a1-baa0-4980b34a3374",
   "prevId": "3618d777-5f72-4777-8889-0e5ded4dfa65",
   "tables": {
     "block_keys": {
@@ -1372,6 +1372,13 @@
         "stripe_customer_id": {
           "name": "stripe_customer_id",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stripe_checkout_at": {
+          "name": "stripe_checkout_at",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
