@@ -43,6 +43,9 @@ final class PushNotifications: NSObject {
     private let unregisterWithApple: @MainActor () -> Void
     /// The signed-in session's client, to send a token to when Apple hands one over.
     private var api: APIClient?
+    /// Bumped by each start, so a sign-out finishing late can tell someone
+    /// signed in meanwhile.
+    private var starts = 0
 
     private static let tokenKey = "push.token"
     private static let dismissedKey = "push.askDismissed"
@@ -72,6 +75,7 @@ final class PushNotifications: NSObject {
     /// change), which reaches the API through `received(_:)`.
     func start(api: APIClient) async {
         self.api = api
+        starts += 1
         authorization = await center.authorizationStatus()
         if authorization == .authorized || authorization == .provisional {
             registerWithApple()
@@ -136,12 +140,15 @@ final class PushNotifications: NSObject {
     func unregister(api: APIClient) async {
         stop()
         guard let token else { return }
+        let before = starts
         do {
             try await api.delete("api/me/devices/\(token)")
         } catch {
             // The API still has this phone for them (offline, say): Apple
             // stops taking pushes for its token instead, and the API forgets
-            // it at the next one. Signing in again asks for a new token.
+            // it at the next one. Signing in again asks for a new token. Not
+            // if someone has signed in meanwhile: the phone is theirs now.
+            guard starts == before else { return }
             unregisterWithApple()
         }
     }

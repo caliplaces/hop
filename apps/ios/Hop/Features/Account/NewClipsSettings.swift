@@ -54,10 +54,11 @@ final class NewClipsSettings {
                 if email == sent.email { email = saved.email }
                 publish(reply.me)
             } catch {
-                push = saved.push
-                email = saved.email
+                // Only what this save carried goes back; a flip made since
+                // still goes next.
+                if push == sent.push { push = saved.push }
+                if email == sent.email { email = saved.email }
                 problem = error.localizedDescription
-                return
             }
         }
     }

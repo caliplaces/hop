@@ -112,6 +112,25 @@ struct NotificationsTests {
         #expect(unregistered.value == 1)
     }
 
+    @Test func leavesTheNextSessionsNotificationsAloneWhenSignOutFailsLate() async throws {
+        server.reply = { _ in (500, #"{"error":"internal","message":"Something broke."}"#) }
+        let unregistered = Locked(0)
+        let defaults = UserDefaults(suiteName: "NotificationsTests.\(UUID().uuidString)")!
+        let push = PushNotifications(
+            defaults: defaults, center: FakeCenter(status: .authorized),
+            registerWithApple: {}, unregisterWithApple: { unregistered.value += 1 }
+        )
+        await push.received(token)
+        // The sign-out's request is slow; someone signs in before it fails.
+        server.held = ["/api/me/devices/deadbeef"]
+        let signingOut = Task { await push.unregister(api: server.client()) }
+        try await server.waitForRequest("/api/me/devices/deadbeef")
+        await push.start(api: server.client(token: "hs_next"))
+        server.release()
+        await signingOut.value
+        #expect(unregistered.value == 0)
+    }
+
     @Test func forgetsWhatWasTappedOnSignOut() {
         let defaults = UserDefaults(suiteName: "NotificationsTests.\(UUID().uuidString)")!
         let push = PushNotifications(defaults: defaults, center: FakeCenter(status: .authorized)) {}

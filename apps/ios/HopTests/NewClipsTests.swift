@@ -130,4 +130,32 @@ struct NewClipsTests {
         // Nothing sent back over it.
         #expect(server.requests.count == 1)
     }
+
+    @Test func aFailedSaveKeepsAFlipMadeMeanwhile() async throws {
+        let calls = Locked(0)
+        server.reply = { _ in
+            calls.value += 1
+            return calls.value == 1
+                ? (500, #"{"error":"internal","message":"Something broke."}"#)
+                : (200, meJSON(push: true, email: false))
+        }
+        let settings = NewClipsSettings(me: me())
+
+        // Notifications off, held (it'll fail); Email off meanwhile.
+        server.held = ["/api/me"]
+        let off = Task { await settings.setPush(false, api: server.client()) { _ in } }
+        try await server.waitForRequest("/api/me")
+        server.held = []
+        await settings.setEmail(false, api: server.client()) { _ in }
+
+        server.release()
+        await off.value
+        let bodies = try server.requests.map {
+            try #require(try JSONSerialization.jsonObject(with: $0.body) as? [String: Bool])
+        }
+        #expect(bodies == [["pushNewClips": false], ["emailNewClips": false]])
+        #expect(settings.push)
+        #expect(!settings.email)
+        #expect(settings.problem == "Something broke.")
+    }
 }
