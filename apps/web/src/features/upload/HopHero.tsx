@@ -1,4 +1,5 @@
 import { colorFor, DEFAULT_HOP_SLUG, type PublicHop } from "@hop/shared";
+import { Avatar } from "../../components/ui/Avatar";
 import { Badge } from "../../components/ui/Badge";
 import { Mascot, type MascotState } from "../mascot/Mascot";
 
@@ -24,7 +25,7 @@ export function HopHero({
   doneCount: number;
   mascot: MascotState;
 }) {
-  const { first } = ownerNames(hop);
+  const { full, first } = ownerNames(hop);
   const title = {
     ready: `Send your clips to ${first}`,
     sending: `Sending to ${first}…`,
@@ -46,8 +47,12 @@ export function HopHero({
         interactive
         label={`Bobble, ${first}’s Hop mascot`}
       />
-      <div className="mt-1 flex items-center gap-2 text-sm font-medium text-muted">
-        @{hop.owner.handle}
+      {/* Who they're sending to, as the athlete set it up in the app. */}
+      <div className="mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm font-medium text-muted">
+        <Avatar name={full} src={hop.owner.avatarUrl} size="sm" />
+        <span className="text-fg">{full}</span>
+        {hop.owner.hopPlus && <Badge tone="event">Hop+</Badge>}
+        {hop.owner.name && <span>@{hop.owner.handle}</span>}
         {hop.slug !== DEFAULT_HOP_SLUG && <Badge tone="event">{hop.title}</Badge>}
       </div>
       <h1 className="mt-2 text-[32px] leading-[1.1] font-bold tracking-tight text-balance">
