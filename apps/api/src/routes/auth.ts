@@ -187,6 +187,7 @@ export function toMe(
     activeHopId: user.activeHopId,
     color: colorFor(user.color, user.id).id,
     emailNewClips: user.emailNewClips,
+    pushNewClips: user.pushNewClips,
     avatarUrl: avatarUrl(user.avatarKey),
     hopPlus,
     profileReviewed: user.profileReviewedAt !== null,

@@ -150,8 +150,11 @@ export const meRoutes = new Hono<AppEnv>()
       ...(profileReviewed ? { profileReviewedAt: now } : {}),
       updatedAt: now,
     };
-    await db.update(users).set(set).where(eq(users.id, user.id));
-    return c.json({ me: toMe({ ...user, ...set }, { hopPlus: await hasPlus(db, user.id) }) });
+    // The row as saved, so changes made meanwhile (another device) show too.
+    const saved = await db.update(users).set(set).where(eq(users.id, user.id)).returning().get();
+    return c.json({
+      me: toMe(saved ?? { ...user, ...set }, { hopPlus: await hasPlus(db, user.id) }),
+    });
   })
 
   /**

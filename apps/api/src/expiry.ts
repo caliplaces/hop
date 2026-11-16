@@ -15,19 +15,12 @@ import {
   sql,
 } from "drizzle-orm";
 import { type Db, getDb } from "./db";
-import {
-  devices,
-  type ExpiryNoticeRow,
-  expiryNotices,
-  files,
-  type UserRow,
-  users,
-} from "./db/schema";
+import { type ExpiryNoticeRow, expiryNotices, files, type UserRow, users } from "./db/schema";
 import { clipsExpiringEmail, clipsExpiringPush } from "./email/clips-expiring";
 import { sendEmail } from "./email/send";
 import type { Env } from "./env";
-import { pushAlert } from "./lib/apns";
 import { goneStatus } from "./lib/files";
+import { pushToPhones } from "./lib/phones";
 import { hasPlusSql } from "./lib/plans";
 
 /**
@@ -98,8 +91,6 @@ const PER_RUN = 25;
 const LEASE_MS = 10 * 60 * 1000;
 /** A run stops starting new sends after this, so runs five minutes apart rarely overlap. */
 const RUN_BUDGET_MS = 3 * 60 * 1000;
-/** Phones pushed to per athlete; registering keeps no more (routes/devices.ts). */
-export const PHONES_PER_ATHLETE = 5;
 
 /** The day a notice claimed at `batch` names: a week on, as midnight UTC. */
 export function statedDay(batch: number): number {
@@ -466,11 +457,8 @@ async function email(
   }
 }
 
-/**
- * Pushes to the athlete's phones this server can reach; true if any took it.
- * Phones Apple says are gone are forgotten.
- */
-async function push(
+/** Pushes the news to the athlete's phones; true if any took it. */
+function push(
   env: Env,
   db: Db,
   userId: string,
@@ -478,28 +466,11 @@ async function push(
   collapseId: string,
   now: number,
 ): Promise<boolean> {
-  if (!env.APNS_KEY) return false;
-  const phones = await db
-    .select({ token: devices.token })
-    .from(devices)
-    .where(and(eq(devices.userId, userId), eq(devices.environment, env.APNS_ENVIRONMENT)))
-    .limit(PHONES_PER_ATHLETE);
-  const alert = clipsExpiringPush(news);
-  const outcomes = await Promise.all(
-    phones.map(async ({ token }) => {
-      const outcome = await pushAlert(env, token, alert, {
-        data: { hop: "expiring" },
-        collapseId,
-        now,
-      }).catch((error) => {
-        console.error("expiry: push failed", error);
-        return "failed" as const;
-      });
-      if (outcome === "gone") await db.delete(devices).where(eq(devices.token, token));
-      return outcome;
-    }),
-  );
-  return outcomes.includes("sent");
+  return pushToPhones(env, db, userId, clipsExpiringPush(news), {
+    data: { hop: "expiring" },
+    collapseId,
+    now,
+  });
 }
 
 /**

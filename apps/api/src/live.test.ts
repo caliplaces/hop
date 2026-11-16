@@ -296,6 +296,21 @@ describe("pushing arrivals", () => {
     expect(row?.alertedAt).toBe(T0 + 2 * MIN);
   });
 
+  it("records only updates that reached the phone, for the new-clips push", async () => {
+    await watching(TOKEN_A);
+    await clip("hop_jam", T0 + MIN);
+    apnsReply = () => new Response(JSON.stringify({ reason: "TooManyRequests" }), { status: 429 });
+    await pushArrivals(env, "hop_jam", T0 + MIN);
+    expect((await db.select().from(liveActivities).get())?.pushedAt).toBeNull();
+
+    apnsReply = () => new Response(null, { status: 200 });
+    await pushArrivals(env, "hop_jam", T0 + 2 * MIN);
+    expect((await db.select().from(liveActivities).get())?.pushedAt).toBe(T0 + 2 * MIN);
+    // An older update finishing late doesn't move it back.
+    await pushArrivals(env, "hop_jam", T0 + MIN + 30 * 1000);
+    expect((await db.select().from(liveActivities).get())?.pushedAt).toBe(T0 + 2 * MIN);
+  });
+
   it("forgets tokens Apple no longer accepts, and keeps the rest after a hiccup", async () => {
     await watching(TOKEN_A);
     await watching(TOKEN_B);

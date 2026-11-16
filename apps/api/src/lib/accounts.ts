@@ -104,6 +104,7 @@ export function erasure(db: Db, owned: Owned, now: number) {
         activeHopId: null,
         appAccountToken: null,
         emailNewClips: false,
+        pushNewClips: false,
         profileReviewedAt: null,
         updatedAt: now,
       })
@@ -120,6 +121,7 @@ export function erasure(db: Db, owned: Owned, now: number) {
             isNotNull(users.appAccountToken),
             isNotNull(users.profileReviewedAt),
             eq(users.emailNewClips, true),
+            eq(users.pushNewClips, true),
           ),
         ),
       ),
