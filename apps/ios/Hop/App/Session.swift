@@ -90,6 +90,22 @@ final class Session {
         }
     }
 
+    /// Deletes the account on the server, for good, then forgets it here.
+    /// Throws, staying signed in, unless the server confirms.
+    func deleteAccount() async throws {
+        guard let asked = token else { return }
+        do {
+            try await api.delete("api/me")
+        } catch let error as APIError where error.status == 401 {
+            // The session is already gone: most likely a retry after the
+            // reply to a deletion that went through was lost. Either way it
+            // can't be used, so it's forgotten, as a deletion would be.
+        }
+        // Signed out, or in as someone else, while it was on its way.
+        guard token == asked else { return }
+        forget()
+    }
+
     /// Signs out at once, then tells the server to end the session.
     func signOut() async {
         let client = api

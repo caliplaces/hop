@@ -13,6 +13,9 @@ final class HopPlus {
     enum Problem: Equatable {
         /// It belongs to another Hop account.
         case otherAccount
+        /// It belongs to a Hop account that was deleted. Apple bills it until
+        /// it's cancelled, and it can't move to another account.
+        case deletedAccount
         /// A sandbox purchase (TestFlight), which production doesn't honour.
         case testPurchase
         /// The API couldn't verify it.
@@ -133,6 +136,7 @@ final class HopPlus {
             await purchase.finish()
             let problem: Problem = switch error.code {
             case "other_account": .otherAccount
+            case "deleted_account": .deletedAccount
             case "test_purchase": .testPurchase
             default: .unverified
             }

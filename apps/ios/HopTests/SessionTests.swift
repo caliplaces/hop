@@ -248,6 +248,39 @@ struct SessionTests {
         #expect(HopServer.isAllowedOverride(URL(string: url)!) == allowed)
     }
 
+    @Test func deletingTheAccountAsksTheServerThenForgetsIt() async throws {
+        server.reply = { _ in (200, #"{"ok":true}"#) }
+        let saved = MemoryTokenStore("tok_saved")
+        let session = makeSession(store: saved)
+        try await session.deleteAccount()
+        #expect(!session.isSignedIn)
+        #expect(saved.token == nil)
+        let request = try #require(server.requests.last?.request)
+        #expect(request.httpMethod == "DELETE")
+        #expect(request.url?.path == "/api/me")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer tok_saved")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    }
+
+    @Test func aDeletionWhoseSessionIsAlreadyGoneSignsOut() async throws {
+        // A retry after the first reply was lost: the server no longer knows the session.
+        server.reply = { _ in (401, #"{"error":"unauthorized","message":"Sign in to continue."}"#) }
+        let saved = MemoryTokenStore("tok_saved")
+        let session = makeSession(store: saved)
+        try await session.deleteAccount()
+        #expect(!session.isSignedIn)
+        #expect(saved.token == nil)
+    }
+
+    @Test func staysSignedInWhenTheServerDoesntConfirmTheDeletion() async {
+        server.reply = { _ in (500, #"{"error":"internal","message":"Something broke."}"#) }
+        let saved = MemoryTokenStore("tok_saved")
+        let session = makeSession(store: saved)
+        await #expect(throws: APIError.self) { try await session.deleteAccount() }
+        #expect(session.isSignedIn)
+        #expect(saved.token == "tok_saved")
+    }
+
     @Test func signOutForgetsLocallyAndEndsTheServerSession() async throws {
         server.reply = { _ in (200, #"{"ok":true}"#) }
         let saved = MemoryTokenStore("tok_saved")
