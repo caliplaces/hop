@@ -42,7 +42,7 @@ describe("new-clips email", () => {
     });
     expect(email.subject).toBe("3 new clips from Street Kings Prague");
     expect(email.text).toContain("Coach Peter and Lea sent you clips from Street Kings Prague.");
-    expect(email.html).toContain('href="https://onmyhop.com/app?hop=hop_event"');
+    expect(email.html).toContain('href="https://onmyhop.com/app/events/hop_event"');
     expect(email.html).toContain("https://onmyhop.com/email/busy-mint.png");
     expect(email.text).toContain("Unsubscribe: https://onmyhop.com/unsubscribe?token=abc");
     expect(email.html).toContain('href="https://onmyhop.com/unsubscribe?token=abc"');
@@ -55,7 +55,7 @@ describe("new-clips email", () => {
     });
     expect(email.subject).toBe("1 new clip on your Hop");
     expect(email.text).toContain("SmokyMonkey441 sent you a clip.");
-    expect(email.text).toContain("Watch them: https://onmyhop.com/app?hop=hop_main");
+    expect(email.text).toContain("Watch them: https://onmyhop.com/app/events/hop_main");
   });
 
   it("breaks clips down by Hop when they span several", async () => {

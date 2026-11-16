@@ -350,10 +350,18 @@ export const meRoutes = new Hono<AppEnv>()
 
   .get(
     "/me/files",
-    validate("query", z.object({ hopId: z.string().optional(), cursor: z.string().optional() })),
+    validate(
+      "query",
+      z.object({
+        hopId: z.string().optional(),
+        cursor: z.string().optional(),
+        /** Fewer than a page, such as an event card's cover. */
+        limit: z.coerce.number().int().min(1).max(PAGE_SIZE).optional(),
+      }),
+    ),
     async (c) => {
       const user = currentUser(c);
-      const { hopId, cursor } = c.req.valid("query");
+      const { hopId, cursor, limit = PAGE_SIZE } = c.req.valid("query");
       const conditions = [eq(files.ownerId, user.id), eq(files.status, "complete")];
       if (hopId) conditions.push(eq(files.hopId, hopId));
       if (cursor) {
@@ -371,13 +379,13 @@ export const meRoutes = new Hono<AppEnv>()
         .from(files)
         .where(and(...conditions))
         .orderBy(desc(files.createdAt), desc(files.id))
-        .limit(PAGE_SIZE + 1);
+        .limit(limit + 1);
 
-      const page = rows.slice(0, PAGE_SIZE);
+      const page = rows.slice(0, limit);
       const last = page.at(-1);
       const result: InboxPage = {
         files: page.map(toInboxFile),
-        nextCursor: rows.length > PAGE_SIZE && last ? `${last.createdAt}:${last.id}` : null,
+        nextCursor: rows.length > limit && last ? `${last.createdAt}:${last.id}` : null,
       };
       return c.json(result);
     },
