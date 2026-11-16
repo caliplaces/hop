@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { getDb } from "../db";
 import { files, hops } from "../db/schema";
+import { accountDeletedEmail } from "../email/account-deleted";
 import { launchEmail } from "../email/launch";
 import { newClipsEmail } from "../email/new-clips";
 import type { RenderedEmail } from "../email/send";
@@ -27,6 +28,9 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
       name: query("name") ?? "Matej Matiasko",
       color: colorFor(query("color"), "preview"),
     }),
+  // ?handle= (empty) shows an account deleted before it claimed a handle.
+  "account-deleted": (appUrl, query) =>
+    accountDeletedEmail({ appUrl, handle: query("handle") ?? "matej" }),
   // ?app=1 adds the App Store link.
   launch: (appUrl, query) =>
     launchEmail({

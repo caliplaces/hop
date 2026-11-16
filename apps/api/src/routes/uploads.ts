@@ -181,8 +181,18 @@ export const uploadRoutes = new Hono<AppEnv>()
         where owner_id = ${hop.ownerId}
           and (status = 'complete' or (status = 'pending' and last_activity_at > ${activeSince}))
       ) + ${input.size} <= ${storageLimitSql(hop.ownerId, now)}
+        -- Still open: closed, or its owner's account deleted, since it was read.
+        and (select status from ${hops} where id = ${hop.id}) = 'open'
     `);
     if (reserved.meta.changes !== 1) {
+      const still = await db
+        .select({ status: hops.status })
+        .from(hops)
+        .where(eq(hops.id, hop.id))
+        .get();
+      if (still?.status !== "open") {
+        return fail(c, 403, "hop_closed", "This Hop isn't accepting uploads.");
+      }
       return fail(c, 507, "hop_full", "This Hop is full right now.");
     }
 

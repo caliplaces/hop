@@ -4,6 +4,7 @@ import { getDb } from "./db";
 import { files, liveActivities, sessions, users, waitlist } from "./db/schema";
 import type { Env } from "./env";
 import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
+import { dropEmptiedHops, eraseDeletedAccounts } from "./lib/accounts";
 import { AVATAR_PREFIX } from "./lib/avatars";
 import { finishRemoval } from "./lib/files";
 
@@ -15,12 +16,17 @@ const STUCK_DELETE_MS = 10 * 60 * 1000;
 
 /**
  * Removes uploads with no activity for a day, retries removals that failed
- * midway, and deletes expired sessions and Live Activity registrations.
+ * midway, finishes deleting accounts, and deletes expired sessions and Live
+ * Activity registrations.
  */
 export async function cleanup(env: Env) {
   const db = getDb(env.DB);
   let removed = 0;
   let failed = 0;
+
+  // Erases deleted accounts again and marks their clips for removal, which
+  // the loop below then does (see lib/accounts.ts).
+  await eraseDeletedAccounts(db);
 
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
     const now = Date.now();
@@ -57,6 +63,7 @@ export async function cleanup(env: Env) {
     }
   }
 
+  const hopsDropped = await dropEmptiedHops(db);
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
   await db.delete(liveActivities).where(lt(liveActivities.expiresAt, Date.now()));
   // The waitlist keeps an address only until a day after its launch email,
@@ -77,7 +84,9 @@ export async function cleanup(env: Env) {
     console.error("cleanup: photo sweep failed, will retry", error);
     return 0;
   });
-  console.log(`cleanup: removed ${removed} uploads, ${failed} failed, ${avatars} unused photos`);
+  console.log(
+    `cleanup: removed ${removed} uploads, ${failed} failed, ${avatars} unused photos, ${hopsDropped} deleted accounts' hops`,
+  );
 }
 
 /** An upload under way finishes long before this, so its photo is never swept. */

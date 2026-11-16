@@ -1,45 +1,58 @@
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-export const users = sqliteTable("users", {
-  id: text("id").primaryKey(),
-  oidcSub: text("oidc_sub").notNull().unique(),
-  email: text("email"),
-  emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
-  name: text("name"),
-  /** Public handle (onmyhop.com/<handle>). One per account, claimed once. */
-  handle: text("handle").unique(),
-  /** Palette colour id for the athlete's page; null until chosen (a stable default is derived). */
-  color: text("color"),
-  /** The hop that onmyhop.com/<handle> uploads into. */
-  activeHopId: text("active_hop_id"),
-  /** Email the athlete when new clips arrive. On by default; unsubscribe links turn it off. */
-  emailNewClips: integer("email_new_clips", { mode: "boolean" }).notNull().default(true),
-  /**
-   * A UUID the iPhone app sets on App Store purchases (StoreKit's
-   * appAccountToken), so the API knows whose they are. Made when first needed.
-   */
-  appAccountToken: text("app_account_token").unique(),
-  /**
-   * Goes up whenever one of the athlete's subscriptions changes, so the app
-   * can tell a stale plan reply from a newer one (see GET /api/me/plan).
-   */
-  planRevision: integer("plan_revision").notNull().default(0),
-  /**
-   * The name others see, set in Hop. `name` is their Caliplaces account's,
-   * refreshed at every sign-in, and stands in until they set one.
-   */
-  displayName: text("display_name"),
-  /**
-   * Their profile photo in R2 (avatars/<random>.jpg), public. Unique and
-   * indexed: the cleanup looks photos up by it.
-   */
-  avatarKey: text("avatar_key").unique(),
-  /** When they confirmed their public profile, so the app asks only once. */
-  profileReviewedAt: integer("profile_reviewed_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    oidcSub: text("oidc_sub").notNull().unique(),
+    email: text("email"),
+    emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
+    name: text("name"),
+    /** Public handle (onmyhop.com/<handle>). One per account, claimed once. */
+    handle: text("handle").unique(),
+    /** Palette colour id for the athlete's page; null until chosen (a stable default is derived). */
+    color: text("color"),
+    /** The hop that onmyhop.com/<handle> uploads into. */
+    activeHopId: text("active_hop_id"),
+    /** Email the athlete when new clips arrive. On by default; unsubscribe links turn it off. */
+    emailNewClips: integer("email_new_clips", { mode: "boolean" }).notNull().default(true),
+    /**
+     * A UUID the iPhone app sets on App Store purchases (StoreKit's
+     * appAccountToken), so the API knows whose they are. Made when first needed.
+     */
+    appAccountToken: text("app_account_token").unique(),
+    /**
+     * Goes up whenever one of the athlete's subscriptions changes, so the app
+     * can tell a stale plan reply from a newer one (see GET /api/me/plan).
+     */
+    planRevision: integer("plan_revision").notNull().default(0),
+    /**
+     * The name others see, set in Hop. `name` is their Caliplaces account's,
+     * refreshed at every sign-in, and stands in until they set one.
+     */
+    displayName: text("display_name"),
+    /**
+     * Their profile photo in R2 (avatars/<random>.jpg), public. Unique and
+     * indexed: the cleanup looks photos up by it.
+     */
+    avatarKey: text("avatar_key").unique(),
+    /** When they confirmed their public profile, so the app asks only once. */
+    profileReviewedAt: integer("profile_reviewed_at"),
+    /**
+     * When they deleted their account. The row stays as a tombstone with
+     * nothing personal left, keeping only the handle, so nobody else can claim
+     * it and receive clips sent to their old link. See lib/accounts.ts.
+     */
+    deletedAt: integer("deleted_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    // Deleted accounts only: tiny, and what the cleanup reads them by.
+    index("users_deleted_idx").on(t.deletedAt).where(sql`${t.deletedAt} is not null`),
+  ],
+);
 
 export const sessions = sqliteTable(
   "sessions",
@@ -134,6 +147,11 @@ export const files = sqliteTable(
     index("files_hop_status_completed_idx").on(t.hopId, t.status, t.completedAt),
     index("files_status_activity_idx").on(t.status, t.lastActivityAt),
     index("files_pass_status_idx").on(t.passId, t.status),
+    // Clips sent by signed-in contributors, so deleting an account finds
+    // theirs without reading every clip.
+    index("files_contributor_idx")
+      .on(t.contributorUserId)
+      .where(sql`${t.contributorUserId} is not null`),
     // Only finished uploads not yet announced: tiny, since almost every row is.
     // Keyed on completed_at rather than status, so SQLite can't prefer the
     // status indexes (and read every clip) for the digest's queries.

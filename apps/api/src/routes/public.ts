@@ -32,7 +32,9 @@ export const publicRoutes = new Hono<AppEnv>()
   .get("/h/:handle", async (c) => {
     const db = getDb(c.env.DB);
     const owner = await findUserByHandle(db, normalizeHandle(c.req.param("handle")));
-    if (!owner?.activeHopId) return fail(c, 404, "not_found", "This Hop doesn't exist.");
+    if (!owner?.activeHopId || owner.deletedAt) {
+      return fail(c, 404, "not_found", "This Hop doesn't exist.");
+    }
     const hop = await db.select().from(hops).where(eq(hops.id, owner.activeHopId)).get();
     if (!hop) return fail(c, 404, "not_found", "This Hop doesn't exist.");
     return c.json(toPublicHop(hop, owner, await hasPlus(db, owner.id)));
@@ -41,7 +43,7 @@ export const publicRoutes = new Hono<AppEnv>()
   .get("/h/:handle/:slug", async (c) => {
     const db = getDb(c.env.DB);
     const owner = await findUserByHandle(db, normalizeHandle(c.req.param("handle")));
-    if (!owner) return fail(c, 404, "not_found", "This Hop doesn't exist.");
+    if (!owner || owner.deletedAt) return fail(c, 404, "not_found", "This Hop doesn't exist.");
     const hop = await db
       .select()
       .from(hops)

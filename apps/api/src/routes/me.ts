@@ -22,8 +22,10 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { type Db, getDb } from "../db";
 import { type FileRow, files, hops, users } from "../db/schema";
+import { sendAccountDeletedEmail } from "../email/account-deleted";
 import { sendWelcomeEmail } from "../email/welcome";
 import type { AppEnv, Env } from "../env";
+import { deleteAccount } from "../lib/accounts";
 import { arrivalsSince } from "../lib/arrivals";
 import { AVATAR_CACHE, AVATAR_PREFIX, newAvatarKey } from "../lib/avatars";
 import { newId } from "../lib/crypto";
@@ -31,7 +33,7 @@ import { removeFile } from "../lib/files";
 import { BodyTooLargeError, fail, readBodyCapped } from "../lib/http";
 import { sanitizeJpeg } from "../lib/jpeg";
 import { hasPlus } from "../lib/plans";
-import { currentUser, requireUser } from "../lib/session";
+import { currentUser, destroySession, requireUser } from "../lib/session";
 import { presignGet } from "../lib/storage";
 import { validate } from "../lib/validate";
 import { findUserByHandle, toMe } from "./auth";
@@ -136,6 +138,27 @@ export const meRoutes = new Hono<AppEnv>()
     };
     await db.update(users).set(set).where(eq(users.id, user.id));
     return c.json({ me: toMe({ ...user, ...set }, { hopPlus: await hasPlus(db, user.id) }) });
+  })
+
+  /**
+   * Deletes the account, for good. Everything that identifies them goes at
+   * once and they're signed out everywhere; their clips are removed within
+   * the hour. The handle stays reserved. See lib/accounts.ts.
+   */
+  .delete("/me", requireUser, async (c) => {
+    const user = currentUser(c);
+    const was = await deleteAccount(getDb(c.env.DB), user.id);
+    if (was?.avatarKey) await removeAvatar(c.env, was.avatarKey);
+    if (was) {
+      // After the response: a slow or failing email never holds it up.
+      c.executionCtx.waitUntil(
+        sendAccountDeletedEmail(c.env, was).catch((error) =>
+          console.error("Account deleted email failed", error),
+        ),
+      );
+    }
+    await destroySession(c);
+    return c.json({ ok: true });
   })
 
   /**

@@ -80,10 +80,11 @@ You also need to:
 
 Hop sends its own emails through [Resend](https://resend.com) from `EMAIL_FROM` (see `wrangler.jsonc`); sign-in emails come from Caliplaces auth. Templates live in `src/email/` as JSX components that hono/jsx renders to table-based HTML with inline styles, with a plain-text version alongside. Each email goes only to verified addresses, and carries an idempotency key so retries never send it twice.
 
-| Email     | When                                                                                                       |
-| --------- | ---------------------------------------------------------------------------------------------------------- |
-| Welcome   | An athlete claims their handle                                                                             |
-| New clips | Clips arrived and uploads have been quiet for 10 minutes, or an hour after the first one (`src/notify.ts`) |
+| Email           | When                                                                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Welcome         | An athlete claims their handle                                                                                                                              |
+| New clips       | Clips arrived and uploads have been quiet for 10 minutes, or an hour after the first one (`src/notify.ts`)                                                  |
+| Account deleted | An athlete deletes their account: what went, that the handle stays reserved, what to do if it wasn't them, and that Hop+ is billed by Apple until cancelled |
 
 The new-clips digest runs every 5 minutes. A clip counts as announced once `files.notified_at` is set; each run claims an athlete's unannounced clips in one statement before sending, and hands them back if the send fails. Athletes turn it off in account settings, from the unsubscribe link in each email (a page that asks first), or with their mail app's one-click unsubscribe (`List-Unsubscribe`, RFC 8058).
 
@@ -145,6 +146,25 @@ wrangler d1 execute hop-production --remote --env production \
 ```
 
 The photo itself goes with the next hourly cleanup, and caches drop it within a week.
+
+## Deleting an account
+
+`DELETE /api/me` deletes the signed-in account, from the app (Account → Delete Account, which App Review requires) or the website. In one transaction (`src/lib/accounts.ts`):
+
+- **Everything that identifies them goes:**
+  - email, both names and the photo (deleted from R2 at once);
+  - the App Store account token, subscriptions and Live Activities;
+  - every session, so they're signed out everywhere.
+
+  Their Caliplaces login is let go too (`oidc_sub` becomes `deleted:<id>`), so signing in with it again starts a new, empty account.
+
+- **Their hops close and their clips are marked for removal.** The hourly cleanup removes the clips from R2 in batches, then drops each hop once it's empty.
+- **Clips they sent other athletes stay with those athletes,** no longer tied to an account, so they no longer show as from a signed-in contributor.
+- **The row stays as a tombstone (`users.deleted_at`).** It keeps only the id and the handle. The page 404s, and the handle can't be claimed: whoever took it would receive clips people send to the old link or QR code.
+
+Requests already under way when someone deletes their account (saving a name, uploading a photo, starting a Live Activity) could write to the tombstone afterwards. So every cleanup run erases all tombstones again. Uploads re-check that the hop is still open when they reserve their place.
+
+Deleting the account doesn't cancel Hop+, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. Their purchase carries the old account's token, so it can't move to a new account.
 
 ## Hop+ subscriptions
 
