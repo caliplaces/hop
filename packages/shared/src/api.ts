@@ -2,21 +2,53 @@ import { z } from "zod";
 import { COLOR_IDS, type ColorId } from "./colors";
 import { MAX_FILE_BYTES, MAX_PARTS_PER_SIGN_REQUEST, MIN_FILE_BYTES } from "./limits";
 
+/** An emoji, with any colour or skin-tone modifiers, and others joined to it. */
+const EMOJI =
+  /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*/gu;
+/** Check marks, which would pass for a badge next to a name. */
+const CHECK_MARKS = /[\u2611\u2705\u2713\u2714\u{1F5F8}]/u;
+
 /**
- * Anonymous names can't start with "@", which is reserved for signed-in
- * contributors' verified handles.
+ * A name as people should see it, whoever typed it: compatibility forms
+ * folded (a fullwidth ＠ is an @), no control or invisible characters
+ * (bidi overrides, zero-width and other default-ignorable ones) except
+ * those that build an emoji, no stacks of combining marks ("Zalgo" text),
+ * no check marks, and one space at a time.
+ */
+export function cleanName(name: string): string {
+  const visible = (text: string) => text.replace(/[\p{C}\p{Default_Ignorable_Code_Point}]/gu, "");
+  // Line breaks and tabs become spaces before anything invisible goes.
+  const normal = name.normalize("NFKC").replace(/\s+/g, " ");
+  let kept = "";
+  let last = 0;
+  for (const emoji of normal.matchAll(EMOJI)) {
+    kept += visible(normal.slice(last, emoji.index)) + emoji[0];
+    last = emoji.index + emoji[0].length;
+  }
+  kept += visible(normal.slice(last));
+  return kept
+    .replace(/(\p{M}{3})\p{M}+/gu, "$1")
+    .replace(new RegExp(CHECK_MARKS.source, "gu"), "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * What an anonymous contributor calls themselves, cleaned (see cleanName).
+ * It can't start with "@", which is reserved for signed-in contributors'
+ * verified handles, and must show something: a letter, a number or an emoji.
  */
 export const contributorNameSchema = z
   .string()
-  .trim()
-  .transform((name) =>
-    name
-      .replace(/^@+/, "")
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
-      .replace(/[\u0000-\u001f\u007f]/g, "")
-      .trim(),
-  )
-  .pipe(z.string().min(1).max(40));
+  .max(200)
+  .transform((name) => cleanName(name).replace(/^@+/, "").trim())
+  .pipe(
+    z
+      .string()
+      .min(1)
+      .max(40)
+      .refine((name) => /[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name)),
+  );
 
 export const createUploadSchema = z.object({
   name: z.string().trim().min(1).max(255),
@@ -57,12 +89,6 @@ export const hopPassSchema = z.object({ turnstileToken: z.string().min(1) });
 export const colorSchema = z.enum(COLOR_IDS);
 
 export const claimHandleSchema = z.object({ handle: z.string(), color: colorSchema.optional() });
-
-/** An emoji, with any colour or skin-tone modifiers, and others joined to it. */
-const EMOJI =
-  /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*/gu;
-/** Check marks, which would pass for a badge next to a name. */
-const CHECK_MARKS = /[\u2611\u2705\u2713\u2714\u{1F5F8}]/u;
 
 /**
  * The name others see on an athlete's page. Hop's own, kept apart from the

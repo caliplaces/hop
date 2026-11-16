@@ -20,6 +20,21 @@ export async function pushToPhones(
   options: PushAlertOptions,
 ): Promise<boolean> {
   if (!env.APNS_KEY) return false;
+  try {
+    return await pushEach(env, db, userId, alert, options);
+  } catch (error) {
+    console.error("push: failed", userId, error);
+    return false;
+  }
+}
+
+async function pushEach(
+  env: Env,
+  db: Db,
+  userId: string,
+  alert: { title: string; body: string },
+  options: PushAlertOptions,
+): Promise<boolean> {
   const phones = await db
     .select({ token: devices.token })
     .from(devices)

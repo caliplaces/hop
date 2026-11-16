@@ -1,3 +1,4 @@
+import { cleanName } from "@hop/shared";
 import { and, eq, gt, isNull, lte, or } from "drizzle-orm";
 import { getDb } from "./db";
 import { liveActivities } from "./db/schema";
@@ -28,7 +29,10 @@ export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
   await Promise.all(
     watching.map(async (activity) => {
       const { count, latest } = await arrivalsSince(db, hopId, activity.since, 1);
-      const sender = latest[0]?.contributorName ?? null;
+      // Typed by a stranger: shown cleaned, as everywhere else.
+      const sender = latest[0]?.contributorName
+        ? cleanName(latest[0].contributorName) || null
+        : null;
       // Claim the alert before sending, in one conditional update: when a
       // burst of uploads completes at once, only one of them wins it.
       const alerting =

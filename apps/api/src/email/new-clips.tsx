@@ -1,5 +1,5 @@
 /** @jsxImportSource hono/jsx */
-import { DEFAULT_HOP_SLUG, type PaletteColor } from "@hop/shared";
+import { cleanName, DEFAULT_HOP_SLUG, type PaletteColor } from "@hop/shared";
 import { Button, EmailDocument, Hero, renderEmail, Text, Title } from "./layout";
 import type { RenderedEmail } from "./send";
 import { light } from "./theme";
@@ -7,8 +7,11 @@ import { light } from "./theme";
 export type NewClipsInput = {
   appUrl: string;
   color: PaletteColor;
-  /** One entry per clip in this digest. */
-  clips: { hopId: string; contributor: string | null }[];
+  /**
+   * One entry per clip in this digest. `verified` is a signed-in
+   * contributor, whose name is their @handle.
+   */
+  clips: { hopId: string; contributor: string | null; verified?: boolean }[];
   /** The athlete's Hops, for titles. */
   hops: { id: string; slug: string; title: string }[];
   unsubscribeUrl: string;
@@ -25,15 +28,19 @@ function defuse(name: string): string {
   return name.replace(/[.:/]/g, (ch) => `${ch}​`);
 }
 
+/** Keeps right-to-left text in a name from reordering the sentence around it. */
+const isolate = (text: string) => `\u2068${text}\u2069`;
+
 /**
- * Names for a notification: no link-defusing needed, but nothing that could
- * break a line or hide in it.
+ * A contributor's name for a notification: no link-defusing needed, but
+ * cleaned as names are on the way in (cleanName; older names predate it),
+ * and only a signed-in contributor's verified handle may start with @.
  */
-function plain(name: string): string {
-  return name
-    .replace(/\s+/g, " ")
-    .replace(/[\p{Cc}\p{Cf}]/gu, "")
-    .trim();
+function pushName(name: string | null, verified: boolean): string | null {
+  if (!name) return null;
+  const clean = cleanName(name);
+  const shown = verified ? clean : clean.replace(/^@+/, "").trim();
+  return shown ? isolate(shown) : null;
 }
 
 /** "Coach Peter", "Coach Peter and Lea", "Coach Peter, Lea and 3 others". */
@@ -41,9 +48,7 @@ export function describePeople(
   contributors: (string | null)[],
   clean: (name: string) => string = defuse,
 ): string {
-  const names = [
-    ...new Set(contributors.map((n) => (n ? clean(n) : "")).filter((n) => n.length > 0)),
-  ];
+  const names = [...new Set(contributors.filter((n): n is string => Boolean(n)).map(clean))];
   const anonymous = contributors.some((n) => !n);
   if (names.length === 0) return "Someone";
   const shown = names.slice(0, 2);
@@ -56,7 +61,7 @@ export function describePeople(
 function summarize(
   clips: NewClipsInput["clips"],
   hops: NewClipsInput["hops"],
-  clean: (name: string) => string,
+  show: { names: (string | null)[]; title: (title: string) => string },
 ) {
   const count = clips.length;
   const counts = new Map<string, number>();
@@ -66,11 +71,8 @@ function summarize(
     .sort((a, b) => b.count - a.count);
   const single = byHop.length === 1 ? byHop[0]?.hop : undefined;
   // "from Street Kings Prague" reads well; "from Main", the standing Hop, doesn't.
-  const event = single && single.slug !== DEFAULT_HOP_SLUG ? clean(single.title) : null;
-  const people = describePeople(
-    clips.map((clip) => clip.contributor),
-    clean,
-  );
+  const event = single && single.slug !== DEFAULT_HOP_SLUG ? show.title(single.title) : null;
+  const people = describePeople(show.names, (name) => name);
   const headline = event
     ? `${plural(count, "new clip")} from ${event}`
     : `${plural(count, "new clip")} on your Hop`;
@@ -86,7 +88,18 @@ export async function newClipsEmail({
   hops,
   unsubscribeUrl,
 }: NewClipsInput): Promise<RenderedEmail> {
-  const { count, byHop, single, event, headline: subject, sent } = summarize(clips, hops, defuse);
+  const {
+    count,
+    byHop,
+    single,
+    event,
+    headline: subject,
+    sent,
+  } = summarize(clips, hops, {
+    names: clips.map((clip) => (clip.contributor ? defuse(clip.contributor) : null)),
+    // The athlete's own title, as they typed it.
+    title: (title) => title,
+  });
   const sentence = `${sent}${event ? ` from ${event}` : ""}.`;
   const inboxUrl = single ? `${appUrl}/app?hop=${encodeURIComponent(single.id)}` : `${appUrl}/app`;
   const footer = "You’re getting this because new clips arrived on your Hop.";
@@ -183,6 +196,9 @@ export async function newClipsEmail({
  * they're all in, if they are, for the app to open.
  */
 export function newClipsPush({ clips, hops }: Pick<NewClipsInput, "clips" | "hops">) {
-  const { headline, sent, single } = summarize(clips, hops, plain);
+  const { headline, sent, single } = summarize(clips, hops, {
+    names: clips.map((clip) => pushName(clip.contributor, clip.verified ?? false)),
+    title: (title) => isolate(cleanName(title)),
+  });
   return { alert: { title: headline, body: `${sent}.` }, hopId: single?.id ?? null };
 }

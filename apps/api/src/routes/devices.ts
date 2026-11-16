@@ -19,8 +19,10 @@ const TOKEN = /^[0-9a-f]{64,200}$/;
  * PHONES_PER_ATHLETE.
  *
  * Moving a token needs only the token, which Apple issues to that one app
- * install (32 random bytes) and the API never hands out; whoever has it
- * could only stop that phone hearing of its own clips.
+ * install (32 random bytes) and the API never hands out. Whoever had one
+ * could move it to their own account: that phone would then show their
+ * notifications (their events' titles and senders' names) instead of its
+ * owner's.
  */
 export const deviceRoutes = new Hono<AppEnv>()
   .put("/me/devices/:token", requireUser, validate("json", deviceSchema), async (c) => {

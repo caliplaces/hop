@@ -32,6 +32,8 @@ let objects: ReturnType<typeof createTestR2>["objects"];
 let faults: ReturnType<typeof createTestR2>["faults"];
 let token: string;
 let allowChanges: boolean;
+/** Runs while a change is being made, as another device's would. */
+let meanwhile: (() => Promise<void>) | null = null;
 
 beforeEach(async () => {
   const DB = createTestD1();
@@ -44,9 +46,15 @@ beforeEach(async () => {
     ENVIRONMENT: "production",
     APP_URL: "https://onmyhop.com",
     SESSION_SECRET: "test-secret",
-    PROFILE_LIMITER: { limit: async () => ({ success: allowChanges }) } as RateLimit,
+    PROFILE_LIMITER: {
+      limit: async () => {
+        await meanwhile?.();
+        return { success: allowChanges };
+      },
+    } as RateLimit,
   } as Env;
   allowChanges = true;
+  meanwhile = null;
   db = getDb(DB);
   const now = Date.now();
   await db.insert(users).values({
@@ -176,6 +184,15 @@ describe("notification settings", () => {
     await patch({ emailNewClips: false, pushNewClips: true });
     expect(await me()).toMatchObject({ emailNewClips: false, pushNewClips: true });
     expect((await patch({ pushNewClips: "no" })).status).toBe(400);
+  });
+
+  it("reply with what's saved, including a change made meanwhile elsewhere", async () => {
+    meanwhile = async () => {
+      meanwhile = null;
+      await db.update(users).set({ emailNewClips: false }).where(eq(users.id, "usr_a"));
+    };
+    const reply = (await (await patch({ pushNewClips: false })).json()) as { me: Me };
+    expect(reply.me).toMatchObject({ pushNewClips: false, emailNewClips: false });
   });
 });
 

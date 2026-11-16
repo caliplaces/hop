@@ -36,6 +36,10 @@ const RETRY_AFTER_MS = 5 * 60 * 1000;
 const GIVE_UP_AFTER_MS = 23 * 60 * 60 * 1000;
 /** Athletes handled per run (every 5 minutes); anyone left over goes next run. */
 const PER_RUN = 25;
+/** A run stops starting on athletes after this, so runs five minutes apart rarely overlap. */
+const RUN_BUDGET_MS = 3 * 60 * 1000;
+/** iOS ends a Live Activity after eight hours: older registrations count nothing anyone sees. */
+const LIVE_ACTIVITY_LIFETIME_MS = 8 * 60 * 60 * 1000;
 
 // Every query below repeats these terms so it can use files_unannounced_idx,
 // which only holds finished, unannounced uploads (see schema.ts).
@@ -70,6 +74,7 @@ export async function announceNewClips(env: Env, now = Date.now()): Promise<void
     .limit(PER_RUN);
 
   const outcomes = { sent: 0, skipped: 0, failed: 0 };
+  const started = Date.now();
   const attempt = async (ownerId: string, batch: number, push: boolean) => {
     try {
       outcomes[await sendBatch(env, db, ownerId, batch, now, push)]++;
@@ -82,9 +87,11 @@ export async function announceNewClips(env: Env, now = Date.now()): Promise<void
 
   // One athlete at a time keeps each run light; a failure only affects that athlete.
   for (const { ownerId, batch } of stalled) {
+    if (Date.now() - started > RUN_BUDGET_MS) break;
     if (batch !== null) await attempt(ownerId, batch, false);
   }
   for (const { ownerId } of due) {
+    if (Date.now() - started > RUN_BUDGET_MS) break;
     // Claim atomically, so overlapping runs can't put a clip in two batches.
     const claimed = await db
       .update(files)
@@ -128,6 +135,7 @@ async function sendBatch(
       .select({
         hopId: files.hopId,
         contributor: files.contributorName,
+        contributorUserId: files.contributorUserId,
         status: files.status,
         completedAt: files.completedAt,
       })
@@ -144,8 +152,14 @@ async function sendBatch(
     .from(hops)
     .where(eq(hops.ownerId, ownerId));
 
+  // Best effort, and never in the email's way.
   const pushed =
-    push && user.pushNewClips && (await pushBatch(env, db, ownerId, clips, athleteHops, now));
+    push &&
+    user.pushNewClips &&
+    (await pushBatch(env, db, ownerId, clips, athleteHops, now).catch((error) => {
+      console.error("new clips: push failed", ownerId, batch, error);
+      return false;
+    }));
 
   // Athletes who opted out (or can't receive email) have their clips marked
   // announced anyway, so they don't pile up and get re-checked every run.
@@ -193,7 +207,12 @@ async function pushBatch(
   env: Env,
   db: Db,
   ownerId: string,
-  clips: { hopId: string; contributor: string | null; completedAt: number | null }[],
+  clips: {
+    hopId: string;
+    contributor: string | null;
+    contributorUserId: string | null;
+    completedAt: number | null;
+  }[],
   athleteHops: { id: string; slug: string; title: string }[],
   now: number,
 ): Promise<boolean> {
@@ -201,7 +220,13 @@ async function pushBatch(
   const watching = await db
     .select({ hopId: liveActivities.hopId, since: liveActivities.since })
     .from(liveActivities)
-    .where(and(eq(liveActivities.userId, ownerId), gt(liveActivities.expiresAt, now)));
+    .where(
+      and(
+        eq(liveActivities.userId, ownerId),
+        gt(liveActivities.expiresAt, now),
+        gt(liveActivities.createdAt, now - LIVE_ACTIVITY_LIFETIME_MS),
+      ),
+    );
   const counted = (clip: (typeof clips)[number]) =>
     watching.some(
       (activity) =>
@@ -212,7 +237,10 @@ async function pushBatch(
   const news = clips.filter((clip) => !counted(clip));
   if (news.length === 0) return false;
 
-  const { alert, hopId } = newClipsPush({ clips: news, hops: athleteHops });
+  const { alert, hopId } = newClipsPush({
+    clips: news.map((clip) => ({ ...clip, verified: clip.contributorUserId !== null })),
+    hops: athleteHops,
+  });
   return pushToPhones(env, db, ownerId, alert, {
     data: hopId ? { hop: "clips", hopId } : { hop: "clips" },
     // Grouped by event on the phone.

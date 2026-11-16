@@ -73,6 +73,9 @@ export type PushOutcome =
   /** Something else went wrong; try again with the next clip. */
   | "failed";
 
+/** A push APNs hasn't answered in this long is given up on, so it can't hold up a run. */
+const TIMEOUT_MS = 10 * 1000;
+
 /** Push tokens Apple has stopped accepting. */
 const GONE_REASONS = new Set(["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"]);
 
@@ -106,6 +109,7 @@ export async function pushLiveActivity(
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (response.ok) return "sent";
   const reason = ((await response.json().catch(() => null)) as { reason?: string } | null)?.reason;
@@ -154,6 +158,7 @@ export async function pushAlert(
       aps: { alert, sound: "default", ...(threadId ? { "thread-id": threadId } : {}) },
       ...data,
     }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (response.ok) return "sent";
   if (response.status === 410) return "gone";

@@ -254,6 +254,8 @@ describe("new-clips digest", () => {
 
 describe("new clips on the phone", () => {
   const PHONE = "a".repeat(64);
+  /** Names and titles are isolated, so right-to-left text can't reorder the sentence. */
+  const i = (text: string) => `\u2068${text}\u2069`;
 
   beforeEach(async () => {
     forgetProviderToken();
@@ -302,8 +304,8 @@ describe("new clips on the phone", () => {
         token: PHONE,
         threadId: "hop-open",
         alert: {
-          title: "2 new clips from Street Kings Prague",
-          body: "Coach Peter and Lea sent you clips.",
+          title: `2 new clips from ${i("Street Kings Prague")}`,
+          body: `${i("Coach Peter")} and ${i("Lea")} sent you clips.`,
         },
         data: { hop: "clips", hopId: "hop-open" },
       },
@@ -322,7 +324,7 @@ describe("new clips on the phone", () => {
     await announceNewClips(env, T0);
     expect(pushes[0]).toMatchObject({
       threadId: "clips",
-      alert: { title: "2 new clips on your Hop", body: "Lea sent you clips." },
+      alert: { title: "2 new clips on your Hop", body: `${i("Lea")} sent you clips.` },
       data: { hop: "clips" },
     });
   });
@@ -394,7 +396,7 @@ describe("new clips on the phone", () => {
 
     await announceNewClips(env, T0 + 50 * MIN);
     expect(pushes.map((push) => push.alert)).toEqual([
-      { title: "2 new clips on your Hop", body: "Early and Lea sent you clips." },
+      { title: "2 new clips on your Hop", body: `${i("Early")} and ${i("Lea")} sent you clips.` },
     ]);
     // The email covers them all.
     expect(sent[0]?.subject).toBe("3 new clips on your Hop");
@@ -438,11 +440,55 @@ describe("new clips on the phone", () => {
     expect(await unannounced()).toBe(0);
   });
 
-  it("shows names as typed, minus anything that could break the line", async () => {
+  it("shows names cleaned, and only a signed-in sender's with an @", async () => {
     await athlete("matej");
     await phone("matej");
     await clip("matej", T0 - 15 * MIN, "coach.peter\u200b\nX");
+    // Older names, from before names were cleaned on the way in.
+    await clip("matej", T0 - 15 * MIN, "\u200b@coach_official");
+    const verified = await clip("matej", T0 - 15 * MIN, "@leo.flips");
+    await athlete("leo");
+    await db.update(files).set({ contributorUserId: "leo" }).where(eq(files.id, verified));
     await announceNewClips(env, T0);
-    expect(pushes[0]?.alert.body).toBe("coach.peter X sent you a clip.");
+    expect(pushes[0]?.alert.body).toBe(
+      `${i("coach.peter X")}, ${i("coach_official")} and 1 other sent you clips.`,
+    );
+  });
+
+  it("counts a name with nothing visible left as someone", async () => {
+    await athlete("matej");
+    await phone("matej");
+    await clip("matej", T0 - 15 * MIN, "Lea");
+    await clip("matej", T0 - 15 * MIN, "\u3164\u200b");
+    await announceNewClips(env, T0);
+    expect(pushes[0]?.alert.body).toBe(`${i("Lea")} and 1 other sent you clips.`);
+  });
+
+  it("keeps the email going when a push can't be sent at all", async () => {
+    await athlete("matej");
+    await phone("matej");
+    await clip("matej", T0 - 15 * MIN);
+    // Event mode's registrations can't be read: the push gives up, the email goes.
+    await env.DB.prepare("DROP TABLE live_activities").run();
+    await announceNewClips(env, T0);
+    expect(pushes).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect(await unannounced()).toBe(0);
+  });
+
+  it("ignores Event mode registrations older than a Live Activity lasts", async () => {
+    await athlete("matej");
+    await phone("matej");
+    await clip("matej", T0 - 15 * MIN);
+    await db.insert(liveActivities).values({
+      token: "e".repeat(64),
+      userId: "matej",
+      hopId: "hop-matej",
+      since: T0 - 9 * 60 * MIN,
+      createdAt: T0 - 9 * 60 * MIN,
+      expiresAt: T0 + 60 * MIN,
+    });
+    await announceNewClips(env, T0);
+    expect(pushes).toHaveLength(1);
   });
 });
