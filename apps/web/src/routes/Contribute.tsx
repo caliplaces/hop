@@ -147,6 +147,10 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
             <a className="underline-offset-4 hover:underline" href="/privacy">
               Privacy
             </a>
+            <span aria-hidden="true">·</span>
+            <a className="underline-offset-4 hover:underline" href="/terms">
+              Terms
+            </a>
           </p>
         </footer>
       </main>

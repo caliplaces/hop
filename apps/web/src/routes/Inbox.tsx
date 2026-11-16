@@ -2,6 +2,7 @@ import { colorFor } from "@hop/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { QrCode } from "lucide-react";
+import { useState } from "react";
 import { buttonClass } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import type { AthleteMe } from "../features/account/AccountDialog";
@@ -9,6 +10,7 @@ import { RequireAthlete } from "../features/account/RequireAthlete";
 import { EventCard } from "../features/inbox/EventCard";
 import { ExpiryNudge, isNearlyFull, StorageNudge } from "../features/inbox/Nudges";
 import { Mascot } from "../features/mascot/Mascot";
+import { HopPlusDialog } from "../features/plus/HopPlusOffer";
 import { queries } from "../lib/queries";
 
 /**
@@ -18,8 +20,13 @@ import { queries } from "../lib/queries";
 function InboxPage({ me }: { me: AthleteMe }) {
   const hops = useQuery(queries.hops());
   const plan = useQuery(queries.plan());
+  const prices = useQuery(queries.prices());
+  const [offering, setOffering] = useState(false);
   const totalClips = hops.data?.reduce((sum, hop) => sum + hop.fileCount, 0) ?? 0;
   const status = plan.data;
+  // Hop+ on the website, where it's sold there.
+  const getPlus =
+    status?.plan === "free" && prices.data?.length ? () => setOffering(true) : undefined;
 
   return (
     <>
@@ -36,8 +43,10 @@ function InboxPage({ me }: { me: AthleteMe }) {
 
       {status && (status.expiring || isNearlyFull(status)) && (
         <div className="mt-6 grid gap-3 lg:grid-cols-2">
-          {status.plan === "free" && status.expiring && <ExpiryNudge expiring={status.expiring} />}
-          {isNearlyFull(status) && <StorageNudge status={status} />}
+          {status.plan === "free" && status.expiring && (
+            <ExpiryNudge expiring={status.expiring} onGetPlus={getPlus} />
+          )}
+          {isNearlyFull(status) && <StorageNudge status={status} onGetPlus={getPlus} />}
         </div>
       )}
 
@@ -69,6 +78,8 @@ function InboxPage({ me }: { me: AthleteMe }) {
           </div>
         )}
       </div>
+
+      <HopPlusDialog open={offering} onClose={() => setOffering(false)} />
     </>
   );
 }

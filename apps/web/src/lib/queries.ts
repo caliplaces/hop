@@ -1,4 +1,11 @@
-import type { HopSummary, InboxPage, PlanStatus, PublicConfig, PublicHop } from "@hop/shared";
+import type {
+  HopSummary,
+  InboxPage,
+  PlanStatus,
+  PublicConfig,
+  PublicHop,
+  WebPrice,
+} from "@hop/shared";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { api, fetchMe } from "./api";
 
@@ -27,6 +34,14 @@ export const queries = {
     }),
 
   plan: () => queryOptions({ queryKey: ["plan"], queryFn: () => api<PlanStatus>("/me/plan") }),
+
+  /** Hop+ prices on the website; none where it isn't sold there. */
+  prices: () =>
+    queryOptions({
+      queryKey: ["prices"],
+      queryFn: () => api<{ prices: WebPrice[] }>("/billing/web/prices").then((r) => r.prices),
+      staleTime: 5 * 60 * 1000,
+    }),
 
   /** An event card's cover: its three newest clips. */
   cover: (hopId: string) =>
