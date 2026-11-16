@@ -33,6 +33,10 @@ struct QRCodeView: View {
                 .scaledToFit()
                 .padding(padding)
                 .background(.white, in: .rect(cornerRadius: cornerRadius))
+                // One layer, so a shadow added around it falls outside the
+                // white card. Otherwise SwiftUI shadows the code and the card
+                // separately, and the code casts a grey halo onto the card.
+                .compositingGroup()
                 .accessibilityLabel(Text("QR code for \(text)"))
         }
     }
