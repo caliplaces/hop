@@ -20,7 +20,8 @@ import { queries } from "../lib/queries";
 function InboxPage({ me }: { me: AthleteMe }) {
   const hops = useQuery(queries.hops());
   const plan = useQuery(queries.plan());
-  const prices = useQuery(queries.prices());
+  // Only on the free plan is there Hop+ to offer.
+  const prices = useQuery({ ...queries.prices(), enabled: plan.data?.plan === "free" });
   const [offering, setOffering] = useState(false);
   const totalClips = hops.data?.reduce((sum, hop) => sum + hop.fileCount, 0) ?? 0;
   const status = plan.data;
