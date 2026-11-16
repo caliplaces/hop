@@ -6,6 +6,7 @@ import { z } from "zod";
 import { type Db, getDb } from "../db";
 import { files, subscriptions, type UserRow, users } from "../db/schema";
 import type { AppEnv, Env } from "../env";
+import { expiring } from "../expiry";
 import {
   type AppleNotification,
   type AppleRenewalInfo,
@@ -232,6 +233,7 @@ async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
     appAccountToken: token,
     plans: PLANS,
     revision,
+    expiring: subscription ? null : await expiring(db, user.id),
   };
 }
 

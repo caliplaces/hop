@@ -3,6 +3,7 @@ import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
 import { files, liveActivities, reports, sessions, users, waitlist } from "./db/schema";
 import type { Env } from "./env";
+import { expireClips } from "./expiry";
 import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
 import { dropEmptiedHops, eraseDeletedAccounts } from "./lib/accounts";
 import { AVATAR_PREFIX } from "./lib/avatars";
@@ -32,6 +33,12 @@ export async function cleanup(env: Env) {
   await eraseDeletedAccounts(db).catch((error) =>
     console.error("cleanup: erasing deleted accounts failed, will retry", error),
   );
+  // Free-plan clips past their 30 days, noticed a week ahead (src/expiry.ts):
+  // marked here, removed by the loop below.
+  const expired = await expireClips(db).catch((error) => {
+    console.error("cleanup: expiring free-plan clips failed, will retry", error);
+    return 0;
+  });
 
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
     const now = Date.now();
@@ -99,7 +106,7 @@ export async function cleanup(env: Env) {
     return 0;
   });
   console.log(
-    `cleanup: removed ${removed} uploads, ${failed} failed, ${avatars} unused photos, ${hopsDropped} deleted accounts' hops`,
+    `cleanup: removed ${removed} uploads (${expired} expired), ${failed} failed, ${avatars} unused photos, ${hopsDropped} deleted accounts' hops`,
   );
 }
 

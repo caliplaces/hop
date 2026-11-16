@@ -2,12 +2,14 @@ import type { ReactNode } from "react";
 import { Logo } from "../components/Logo";
 
 /**
- * Who runs Hop. Filled in before launch: App Review and the GDPR both need a
- * name and an address on this page.
+ * Who runs Hop: App Review and the GDPR both need a name and an address on
+ * this page. From the Czech business register (ARES).
  */
 const OPERATOR = {
-  name: "[COMPANY NAME]",
-  address: "[REGISTERED ADDRESS]",
+  name: "Caliplaces s.r.o.",
+  address: "Uralská 689/7, Bubeneč, 160 00 Praha 6, Czech Republic",
+  registration:
+    "Company ID (IČO) 23311207, registered with the Municipal Court in Prague, file C 424636",
 };
 const CONTACT = "hello@onmyhop.com";
 const UPDATED = "16 November 2026";
@@ -51,7 +53,8 @@ export function Privacy() {
 
       <Section title="Who runs Hop">
         <p>
-          Hop (onmyhop.com and the Hop app) is run by {OPERATOR.name}, {OPERATOR.address}. For
+          Hop (onmyhop.com and the Hop app) is run by {OPERATOR.name}, {OPERATOR.address} (
+          {OPERATOR.registration}). It decides how your data is used, and answers for it. For
           anything about your data, write to{" "}
           <a className="underline underline-offset-4" href={`mailto:${CONTACT}`}>
             {CONTACT}
@@ -162,8 +165,10 @@ export function Privacy() {
       <Section title="How long it’s kept">
         <List>
           <li>
-            Clips: until you delete them, or your account. (The free plan’s 30-day limit isn’t
-            applied yet; this page will say when it is.)
+            Clips: with Hop+, until you delete them or your account. On the free plan, 30 days after
+            they arrive. You’ll hear by email and on your phone a week before, and again the day
+            before, so you can save them or get Hop+. Clips are only ever removed after that notice,
+            then for good, from storage too.
           </li>
           <li>Sign-ins: 30 days on the website, and up to a year in the app.</li>
           <li>

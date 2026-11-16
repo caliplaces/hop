@@ -162,6 +162,16 @@ export const files = sqliteTable(
     notifyBatch: integer("notify_batch"),
     notifyAttemptedAt: integer("notify_attempted_at"),
     notifiedAt: integer("notified_at"),
+    /**
+     * Free-plan expiry (see src/expiry.ts). A clip near the end of its 30
+     * days is claimed into a notice (expiry_notice_batch, the claim time),
+     * and once that notice has gone out, expiry_noticed_at is set: the clip
+     * may go a week later, never before. expiry_reminded_at is the day-before
+     * reminder. All three clear while the athlete has Hop+.
+     */
+    expiryNoticeBatch: integer("expiry_notice_batch"),
+    expiryNoticedAt: integer("expiry_noticed_at"),
+    expiryRemindedAt: integer("expiry_reminded_at"),
   },
   (t) => [
     index("files_owner_status_activity_idx").on(t.ownerId, t.status, t.lastActivityAt),
@@ -182,6 +192,14 @@ export const files = sqliteTable(
     index("files_unannounced_idx")
       .on(t.ownerId, t.notifyBatch, t.completedAt)
       .where(sql`${t.completedAt} is not null and ${t.notifiedAt} is null`),
+    // Clips not yet in an expiry notice, by athlete and age.
+    index("files_unnoticed_idx")
+      .on(t.ownerId, t.completedAt)
+      .where(sql`${t.status} = 'complete' and ${t.expiryNoticeBatch} is null`),
+    // Clips in an expiry notice: few, as they go within a week.
+    index("files_noticed_idx")
+      .on(t.expiryNoticeBatch, t.ownerId)
+      .where(sql`${t.expiryNoticeBatch} is not null`),
   ],
 );
 
@@ -375,3 +393,24 @@ export const blockKeys = sqliteTable(
 export type ReportRow = typeof reports.$inferSelect;
 export type BlockRow = typeof blocks.$inferSelect;
 export type BlockKeyRow = typeof blockKeys.$inferSelect;
+
+/**
+ * The app's push tokens, one per install: for notifications such as clips
+ * about to expire. A token signed in to another account moves to it.
+ */
+export const devices = sqliteTable(
+  "devices",
+  {
+    /** APNs device token, as hex. */
+    token: text("token").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    environment: text("environment", { enum: ["sandbox", "production"] }).notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("devices_user_idx").on(t.userId)],
+);
+
+export type DeviceRow = typeof devices.$inferSelect;

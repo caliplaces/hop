@@ -17,6 +17,7 @@ import type { Db } from "../db";
 import {
   blockKeys,
   blocks,
+  devices,
   files,
   hops,
   liveActivities,
@@ -148,6 +149,7 @@ export function erasure(db: Db, owned: Owned, now: number) {
       .where(and(owned(reports.subjectUserId), ne(reports.kind, "profile"))),
     db.delete(sessions).where(owned(sessions.userId)),
     db.delete(liveActivities).where(owned(liveActivities.userId)),
+    db.delete(devices).where(owned(devices.userId)),
     db.delete(subscriptions).where(owned(subscriptions.userId)),
     db
       .update(hops)

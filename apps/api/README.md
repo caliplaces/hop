@@ -85,6 +85,7 @@ Hop sends its own emails through [Resend](https://resend.com) from `EMAIL_FROM` 
 | Welcome         | An athlete claims their handle                                                                                                                              |
 | New clips       | Clips arrived and uploads have been quiet for 10 minutes, or an hour after the first one (`src/notify.ts`)                                                  |
 | Report          | A clip or page is reported: to `REPORTS_EMAIL`, with the IDs needed to look at it                                                                           |
+| Clips expiring  | A week before free-plan clips go, and the day before (`src/expiry.ts`), whatever the new-clips setting                                                      |
 | Account deleted | An athlete deletes their account: what went, that the handle stays reserved, what to do if it wasn't them, and that Hop+ is billed by Apple until cancelled |
 
 The new-clips digest runs every 5 minutes. A clip counts as announced once `files.notified_at` is set; each run claims an athlete's unannounced clips in one statement before sending, and hands them back if the send fails. Athletes turn it off in account settings, from the unsubscribe link in each email (a page that asks first), or with their mail app's one-click unsubscribe (`List-Unsubscribe`, RFC 8058).
@@ -206,6 +207,25 @@ wrangler d1 execute hop-production --remote --env production \
 
 To take down a reported name or photo, see Profiles above.
 
+## Free-plan expiry
+
+Free-plan clips are kept for 30 days (`PLANS.free.retentionDays`), then removed for good, from R2 too (`src/expiry.ts`). No clip goes unannounced:
+
+- **The notice.** When a clip is 23 days old, its athlete hears a week ahead (`EXPIRY_NOTICE_DAYS`): "12 clips leave your inbox on …".
+  - It's an email to a verified address, whatever their new-clips setting, since it's about losing clips.
+  - It's also a notification on every phone of theirs that registered for them.
+  - The plan (`GET /api/me/plan`) shows those clips as `expiring`, for the app's banner.
+- **The reminder,** the day before: "Tomorrow, 12 clips leave your inbox". Both suggest saving the clips from the inbox, or getting Hop+.
+- **Removal.** A clip goes once it's 30 days old **and** its notice went out at least a week before. So the old clips of someone whose Hop+ just ended get a fresh week's notice too.
+  - The hourly cleanup marks them and removes them in the same run.
+  - A clip held for a report is only hidden until its hold ends (see Reports and blocks).
+- **Hop+.** While the athlete has Hop+, expiry stops and their clips' notices are cleared.
+- **How often.** Each athlete gets at most one notice and one reminder a day, each covering every clip due one. They run with the five-minute email jobs.
+- **Retries.** A notice is a batch claimed once (`files.expiry_notice_batch`), sent with that batch as its idempotency key. Its clips only count as noticed (`files.expiry_noticed_at`) once it went. One that keeps failing for a day is claimed afresh, never assumed sent.
+- **No email or phone.** Without a verified address or a phone, the notice is given in the app only.
+
+The app registers its push token with `PUT /api/me/devices/:token { environment }` and removes it on sign-out (`DELETE /api/me/devices/:token`). Each install has one token, so signing in to another account moves it. Notifications use the same APNs key as Live Activities, as `alert` pushes to the app's own topic.
+
 ## Hop+ subscriptions
 
 Athletes subscribe to Hop+ in the iPhone app, through the App Store. The plans are in `packages/shared/src/limits.ts`:
@@ -231,7 +251,7 @@ How a subscription's state is kept right:
 
 - **Ordering replies.** Each athlete has a `plan_revision`, bumped in the same transaction as any change to their subscriptions (both accounts' when one moves). `GET /api/me/plan` and purchase replies read it first and return it as `revision`, so the rest of the reply is at least that new. The app never replaces a plan with one of a lower revision, whichever reply arrives last.
 
-Upload quota checks use the plan at the moment of the upload (`src/lib/plans.ts`). Retention isn't enforced yet: no clip is deleted for being older than 30 days.
+Upload quota checks use the plan at the moment of the upload (`src/lib/plans.ts`). Retention is "Free-plan expiry" below.
 
 In App Store Connect, under the app's **App Information › App Store Server Notifications**, set Version 2 URLs:
 

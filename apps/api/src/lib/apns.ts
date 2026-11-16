@@ -114,3 +114,34 @@ export async function pushLiveActivity(
   console.error("apns: push failed", response.status, reason);
   return "failed";
 }
+
+/**
+ * A notification on the phone (the app's own push token, not a Live
+ * Activity's), such as clips about to expire. `data` rides along for the app
+ * to open the right screen.
+ */
+export async function pushAlert(
+  env: Env,
+  token: string,
+  alert: { title: string; body: string },
+  data: Record<string, string>,
+  now = Date.now(),
+): Promise<PushOutcome> {
+  const response = await fetch(`https://${HOSTS[env.APNS_ENVIRONMENT]}/3/device/${token}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${await providerToken(env, now)}`,
+      "apns-push-type": "alert",
+      "apns-topic": env.APPLE_BUNDLE_ID,
+      "apns-priority": "10",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ aps: { alert, sound: "default" }, ...data }),
+  });
+  if (response.ok) return "sent";
+  const reason = ((await response.json().catch(() => null)) as { reason?: string } | null)?.reason;
+  if (response.status === 410 || (reason && GONE_REASONS.has(reason))) return "gone";
+  if (reason === "ExpiredProviderToken") forgetProviderToken();
+  console.error("apns: alert failed", response.status, reason);
+  return "failed";
+}

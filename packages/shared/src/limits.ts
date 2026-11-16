@@ -26,7 +26,7 @@ export const MAX_AVATAR_BYTES = 512 * KiB;
 
 /**
  * What each plan includes. Free keeps clips for `retentionDays`; Hop+ keeps
- * them for good (null). Retention isn't enforced yet: see the API README.
+ * them for good (null). See "Free-plan expiry" in the API README.
  */
 export const PLANS = {
   free: { storageBytes: 15 * GiB, retentionDays: 30 },
@@ -34,6 +34,12 @@ export const PLANS = {
 } as const;
 
 export type PlanId = keyof typeof PLANS;
+
+/**
+ * Before a free-plan clip expires, its athlete hears at least this many days
+ * ahead (email and push), and again the day before. No clip goes without it.
+ */
+export const EXPIRY_NOTICE_DAYS = 7;
 
 /** App Store product IDs that give Hop+, all in one subscription group. */
 export const HOP_PLUS_PRODUCT_IDS = ["hop_plus", "hop_plus_annual"] as const;
