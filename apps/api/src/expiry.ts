@@ -512,25 +512,31 @@ export async function expireClips(db: Db, now = Date.now(), limit = 5000): Promi
 }
 
 /**
- * For the plan: how many of the athlete's clips they've been told are
- * leaving, the day the first notice named, and when those go.
+ * For the plan: the athlete's clips leaving first (the earliest notice's
+ * day), how many, and when they go. Clips in later notices come up once
+ * these have gone.
  */
 export async function expiring(db: Db, userId: string) {
-  const row = await db
-    .select({ clips: count(), at: min(files.expiryGoesAt) })
+  // Read through files_notice_idx.
+  const noticed = and(
+    eq(files.ownerId, userId),
+    isNotNull(files.expiryNoticeBatch),
+    isNotNull(files.expiryGoesAt),
+    isComplete,
+  );
+  const first = await db
+    .select({ at: min(files.expiryGoesAt) })
     .from(files)
-    .where(
-      and(
-        // Read through files_notice_idx.
-        eq(files.ownerId, userId),
-        isNotNull(files.expiryNoticeBatch),
-        isNotNull(files.expiryGoesAt),
-        isComplete,
-      ),
-    )
+    .where(noticed)
     .get();
-  if (!row || row.clips === 0 || row.at === null) return null;
-  const at = Number(row.at);
+  if (first?.at == null) return null;
+  const at = Number(first.at);
+  const row = await db
+    .select({ clips: count() })
+    .from(files)
+    .where(and(noticed, eq(files.expiryGoesAt, at)))
+    .get();
+  if (!row?.clips) return null;
   return { clips: row.clips, on: new Date(dayOf(at)).toISOString().slice(0, 10), at };
 }
 

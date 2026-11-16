@@ -100,7 +100,7 @@ export function AccountDialog({
   return (
     <Dialog open={open} onClose={close} size="sm">
       <div className="flex items-center gap-3">
-        <Avatar name={me.name ?? me.handle} />
+        <Avatar name={me.name ?? me.handle} src={me.avatarUrl} />
         <div className="min-w-0">
           <p className="truncate font-semibold">{me.name ?? `@${me.handle}`}</p>
           <p className="truncate text-sm text-muted">@{me.handle}</p>

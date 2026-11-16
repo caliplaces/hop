@@ -926,6 +926,17 @@ describe("the plan", () => {
     expect(withPlus.expiring).toBeNull();
   });
 
+  it("counts only the clips leaving first, with their day", async () => {
+    await clip("alex", 25 * DAY);
+    await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    // A second notice the next day: those clips leave a day later.
+    await clip("alex", 23 * DAY - 2 * HOUR);
+    await runAt(NOW + DAY + MIN);
+    const status = (await (await call("/me/plan")).json()) as PlanStatus;
+    expect(status.expiring).toEqual({ clips: 2, on: "2026-11-23", at: GOES });
+  });
+
   it("has nothing leaving until a notice got through", async () => {
     await clip("alex", 25 * DAY);
     expect(((await (await call("/me/plan")).json()) as PlanStatus).expiring).toBeNull();

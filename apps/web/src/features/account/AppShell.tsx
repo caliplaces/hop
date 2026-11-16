@@ -49,7 +49,7 @@ export function AppShell({ me, children }: { me: AthleteMe; children: ReactNode 
             onClick={() => setAccountOpen(true)}
             aria-label="Account"
           >
-            <Avatar name={me.name ?? me.handle} size="sm" />
+            <Avatar name={me.name ?? me.handle} src={me.avatarUrl} size="sm" />
           </button>
         </div>
       </header>
