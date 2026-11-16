@@ -91,6 +91,11 @@ const REMINDER_GAP_MS = 23 * 60 * 60 * 1000;
 const SKIPPED = 0;
 /** Athletes handled per run, for each of claiming, sending and reminding. */
 const PER_RUN = 25;
+/**
+ * A run trying a notice holds it this long, so the next run leaves it alone
+ * meanwhile: well over a run's budget and its sends' timeouts.
+ */
+const LEASE_MS = 10 * 60 * 1000;
 /** A run stops starting new sends after this, so runs five minutes apart rarely overlap. */
 const RUN_BUDGET_MS = 3 * 60 * 1000;
 /** Phones pushed to per athlete; registering keeps no more (routes/devices.ts). */
@@ -269,16 +274,25 @@ async function sendNotices(env: Env, db: Db, now: number, inBudget: () => boolea
 }
 
 /** One try at a notice; true once it has reached the athlete. */
-async function sendNotice(env: Env, db: Db, notice: ExpiryNoticeRow, now: number) {
+async function sendNotice(env: Env, db: Db, listed: ExpiryNoticeRow, now: number) {
   const ofNotice = and(
-    eq(expiryNotices.userId, notice.userId),
-    eq(expiryNotices.batch, notice.batch),
+    eq(expiryNotices.userId, listed.userId),
+    eq(expiryNotices.batch, listed.batch),
   );
   const stillSending = and(
     ofNotice,
     isNull(expiryNotices.givenAt),
     isNull(expiryNotices.abandonedAt),
   );
+  // Taken for this try, or left alone if another run took it since it was
+  // listed: one run at a time pushes and emails it.
+  const notice = await db
+    .update(expiryNotices)
+    .set({ nextAttemptAt: now + LEASE_MS })
+    .where(and(stillSending, eq(expiryNotices.nextAttemptAt, listed.nextAttemptAt)))
+    .returning()
+    .get();
+  if (!notice) return false;
   const inNotice = and(eq(files.ownerId, notice.userId), eq(files.expiryNoticeBatch, notice.batch));
   // Its clips go back unclaimed, unless another run gave it meanwhile.
   const letGo = () =>
@@ -310,12 +324,12 @@ async function sendNotice(env: Env, db: Db, notice: ExpiryNoticeRow, now: number
 
   // As claimed, so a retry sends the very same email under the same key.
   const news = { clips: notice.clips, day: dayOf(notice.goesAt), when: "notice" as const };
-  // Pushed once, whatever happens to the email.
+  // Pushed once (a try that fails is tried again), whatever happens to the email.
   const pushed =
     notice.pushedAt === null &&
     (await push(env, db, user.id, news, `expiring-${notice.batch}`, now));
   const emailed = await email(env, user, news, `clips-expiring/notice/${user.id}/${notice.batch}`);
-  const pushedAt = pushed ? { pushedAt: sql`coalesce(${expiryNotices.pushedAt}, ${now})` } : {};
+  const pushedAt = pushed ? { pushedAt: now } : {};
 
   if (emailed) {
     await db.batch([

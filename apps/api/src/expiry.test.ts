@@ -46,6 +46,8 @@ let pushes: {
   body: Record<string, unknown>;
 }[];
 let resendUp: boolean;
+/** Addresses Resend fails for, even while up. */
+let resendRefuses: Set<string>;
 let apnsReply: (token: string) => Response;
 let limited: boolean;
 let queries: { query: string; params: SqliteValue[] }[];
@@ -195,13 +197,15 @@ beforeEach(async () => {
   emails = [];
   pushes = [];
   resendUp = true;
+  resendRefuses = new Set();
   apnsReply = () => new Response(null, { status: 200 });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const headers = new Headers(init?.headers);
-      if (url.includes("push.apple.com")) {
+      const host = new URL(url).hostname;
+      if (host === "api.sandbox.push.apple.com" || host === "api.push.apple.com") {
         const device = url.split("/").at(-1) ?? "";
         pushes.push({
           token: device,
@@ -218,7 +222,9 @@ beforeEach(async () => {
       const during = duringResend;
       duringResend = null;
       await during?.();
-      if (!resendUp) return Response.json({ name: "internal_server_error" }, { status: 500 });
+      if (!resendUp || resendRefuses.has(body.to[0])) {
+        return Response.json({ name: "internal_server_error" }, { status: 500 });
+      }
       emails.push({
         to: body.to,
         subject: body.subject,
@@ -795,16 +801,49 @@ describe("overlapping runs", () => {
     return due;
   }
 
+  it("leave a notice to the run trying it", async () => {
+    const due = await nearlyLetGo();
+    // Run B starts while run A's email is out: it neither sends nor lets go.
+    duringResend = () => remindOfExpiry(env, NOW + 6 * HOUR + 4 * MIN);
+    await remindOfExpiry(env, NOW + 6 * HOUR - MIN);
+    expect(tried).toHaveLength(2);
+    expect(pushes).toHaveLength(1);
+    expect((await notices())[0]).toMatchObject({
+      givenAt: NOW + 6 * HOUR - MIN,
+      abandonedAt: null,
+    });
+    expect((await row(due))?.expiryGoesAt).toBe(GOES);
+  });
+
+  it("don't try a notice another run tried since it was listed", async () => {
+    await clip("alex", 25 * DAY);
+    await clip("bea", 25 * DAY);
+    resendUp = false;
+    await runAt(NOW);
+    await db
+      .update(expiryNotices)
+      .set({ nextAttemptAt: NOW + 4 * MIN })
+      .where(eq(expiryNotices.userId, "alex"));
+    resendUp = true;
+    resendRefuses = new Set(["bea@example.com"]);
+    // Run A lists Alex's notice, then Bea's. While Alex's email is out, run B
+    // tries Bea's (and fails); A then leaves Bea's alone until its next try.
+    duringResend = () => remindOfExpiry(env, NOW + 5 * MIN + 1000);
+    await remindOfExpiry(env, NOW + 5 * MIN);
+    const toBea = tried.filter((email) => email.key?.includes("/bea/"));
+    expect(toBea).toHaveLength(2);
+  });
+
   it("can't let go of a notice another just gave", async () => {
     const due = await nearlyLetGo();
-    // Run A's email is out when run B, past the six hours, lets the notice go;
-    // B's letting go lands after A has given it.
+    // Run A's email is out so long that run B, past the six hours and A's
+    // hold, lets the notice go; B's letting go lands after A has given it.
     const reached = signal();
     const release = signal();
     gate = { match: /set "abandoned_at"/, reached: reached.settle, release: release.promise };
     let b: Promise<void> | undefined;
     duringResend = async () => {
-      b = remindOfExpiry(env, NOW + 6 * HOUR + 4 * MIN);
+      b = remindOfExpiry(env, NOW + 6 * HOUR + 10 * MIN);
       await reached.promise;
     };
     await remindOfExpiry(env, NOW + 6 * HOUR - MIN);
@@ -820,8 +859,8 @@ describe("overlapping runs", () => {
 
   it("can't give a notice another just let go", async () => {
     const due = await nearlyLetGo();
-    // Run B lets the notice go entirely while run A's email is out.
-    duringResend = () => remindOfExpiry(env, NOW + 6 * HOUR + 4 * MIN);
+    // Run B, past A's hold, lets the notice go entirely while A's email is out.
+    duringResend = () => remindOfExpiry(env, NOW + 6 * HOUR + 10 * MIN);
     await remindOfExpiry(env, NOW + 6 * HOUR - MIN);
 
     expect((await notices())[0]).toMatchObject({ givenAt: null });
