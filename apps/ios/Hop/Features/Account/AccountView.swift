@@ -86,6 +86,10 @@ struct AccountView: View {
                     Text("Bought Hop+ on another device? Restoring brings it here.")
                 }
 
+                if let me = session.me {
+                    NewClipsSection(me: me)
+                }
+
                 Section {
                     NavigationLink(value: AccountRoute.blockedSenders) {
                         Label("Blocked Senders", systemImage: "hand.raised")

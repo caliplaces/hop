@@ -1,0 +1,138 @@
+import Foundation
+import Testing
+import UserNotifications
+@testable import Hop
+
+/// Stands in for the system's notification center: notifications allowed.
+private final class AllowingCenter: NotificationCenterProtocol, @unchecked Sendable {
+    func authorizationStatus() async -> UNAuthorizationStatus { .authorized }
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool { true }
+}
+
+private func meJSON(push: Bool, email: Bool = true) -> String {
+    """
+    {"me":{"id":"usr_1","name":"Alex","email":"alex@example.com","handle":"alex",
+     "activeHopId":"hop_1","color":"grape","emailNewClips":\(email),"pushNewClips":\(push)}}
+    """
+}
+
+@MainActor
+@Suite("Notifications of new clips", .serialized)
+struct NewClipsTests {
+    let server = StubServer(host: "newclips-\(UUID().uuidString.lowercased()).test")
+
+    private func me(push: Bool = true, email: Bool = true) -> Me {
+        Me(id: "usr_1", name: "Alex", email: "alex@example.com", handle: "alex",
+           activeHopId: "hop_1", color: "grape", emailNewClips: email, pushNewClips: push)
+    }
+
+    @Test func readsWhatANotificationIsAbout() {
+        typealias Opened = PushNotifications.Opened
+        #expect(Opened(userInfo: ["hop": "clips", "hopId": "hop_1"]) == .clips(hopId: "hop_1"))
+        #expect(Opened(userInfo: ["hop": "clips"]) == .clips(hopId: nil))
+        #expect(Opened(userInfo: ["hop": "expiring"]) == .expiring)
+        #expect(Opened(userInfo: ["aps": ["alert": "Hi"]]) == nil)
+        #expect(Opened(userInfo: ["hop": 3]) == nil)
+    }
+
+    @Test func keepsATapForTheInboxAndCountsArrivals() {
+        let defaults = UserDefaults(suiteName: "NewClipsTests.\(UUID().uuidString)")!
+        let push = PushNotifications(defaults: defaults, center: AllowingCenter()) {}
+        push.tapped(.clips(hopId: "hop_1"))
+        #expect(push.opened == .clips(hopId: "hop_1"))
+        push.tapped(nil)
+        #expect(push.opened == .clips(hopId: "hop_1"))
+
+        // Only new clips reload the inbox.
+        push.arrived(.expiring)
+        push.arrived(nil)
+        #expect(push.arrivals == 0)
+        push.arrived(.clips(hopId: nil))
+        #expect(push.arrivals == 1)
+    }
+
+    @Test func readsTheSettingAndAssumesItOnFromOlderServers() throws {
+        let off = try JSONDecoder().decode(Me.self, from: Data("""
+            {"id":"u","name":null,"email":null,"handle":null,"activeHopId":null,"color":"grape",
+             "emailNewClips":true,"pushNewClips":false}
+            """.utf8))
+        #expect(!off.pushNewClips)
+        let older = try JSONDecoder().decode(Me.self, from: Data("""
+            {"id":"u","name":null,"email":null,"handle":null,"activeHopId":null,"color":"grape",
+             "emailNewClips":true}
+            """.utf8))
+        #expect(older.pushNewClips)
+    }
+
+    @Test func savesOnlyTheSwitchFlipped() async throws {
+        server.reply = { _ in (200, meJSON(push: false)) }
+        let settings = NewClipsSettings(me: me())
+        var published: [Me] = []
+        await settings.setPush(false, api: server.client(token: "hs_test")) { published.append($0) }
+
+        let request = try #require(server.requests.last)
+        #expect(request.request.httpMethod == "PATCH")
+        #expect(request.request.url?.path == "/api/me")
+        let body = try #require(try JSONSerialization.jsonObject(with: request.body) as? [String: Bool])
+        #expect(body == ["pushNewClips": false])
+        #expect(!settings.push)
+        #expect(settings.email)
+        #expect(published.map(\.pushNewClips) == [false])
+        #expect(settings.problem == nil)
+    }
+
+    @Test func flipsBackWhenSavingFails() async {
+        server.reply = { _ in (429, #"{"error":"rate_limited","message":"Too many changes. Try again in a minute."}"#) }
+        let settings = NewClipsSettings(me: me())
+        var published: [Me] = []
+        await settings.setEmail(false, api: server.client()) { published.append($0) }
+        #expect(settings.email)
+        #expect(settings.problem == "Too many changes. Try again in a minute.")
+        #expect(published.isEmpty)
+    }
+
+    @Test func theLatestChangeWins() async throws {
+        let answer = Locked(meJSON(push: false))
+        server.reply = { _ in (200, answer.value) }
+        let settings = NewClipsSettings(me: me())
+        var published: [Me] = []
+
+        // Off, held on its way; then back on, answered at once.
+        server.held = ["/api/me"]
+        let off = Task { await settings.setPush(false, api: server.client()) { published.append($0) } }
+        try await server.waitForRequest("/api/me")
+        server.held = []
+        answer.value = meJSON(push: true)
+        await settings.setPush(true, api: server.client()) { published.append($0) }
+
+        // The older reply arrives last, saying off: it doesn't count.
+        answer.value = meJSON(push: false)
+        server.release()
+        await off.value
+        #expect(settings.push)
+        #expect(published.map(\.pushNewClips) == [true])
+    }
+
+    @Test func anOlderChangeFailingLaterChangesNothing() async throws {
+        let answer = Locked<(Int, String)>((200, meJSON(push: false)))
+        server.reply = { _ in answer.value }
+        let settings = NewClipsSettings(me: me())
+
+        // Off (held), on, then off again, saved.
+        server.held = ["/api/me"]
+        let first = Task { await settings.setPush(false, api: server.client()) { _ in } }
+        try await server.waitForRequest("/api/me")
+        server.held = []
+        answer.value = (200, meJSON(push: true))
+        await settings.setPush(true, api: server.client()) { _ in }
+        answer.value = (200, meJSON(push: false))
+        await settings.setPush(false, api: server.client()) { _ in }
+
+        // The first fails, last: what's saved stands, and nothing went wrong.
+        answer.value = (500, #"{"error":"internal","message":"Something broke."}"#)
+        server.release()
+        await first.value
+        #expect(!settings.push)
+        #expect(settings.problem == nil)
+    }
+}

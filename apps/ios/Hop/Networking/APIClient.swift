@@ -161,6 +161,8 @@ nonisolated struct Me: Codable, Equatable, Sendable {
     /// A palette colour id.
     let color: String
     let emailNewClips: Bool
+    /// New clips are announced on their phones that allow notifications.
+    let pushNewClips: Bool
     /// Their profile photo, relative to the site; without one, their initial shows.
     let avatarUrl: String?
     /// They have Hop+, which their page shows with a Hop+ mark.
@@ -176,6 +178,7 @@ nonisolated struct Me: Codable, Equatable, Sendable {
         activeHopId: String?,
         color: String,
         emailNewClips: Bool,
+        pushNewClips: Bool = true,
         avatarUrl: String? = nil,
         hopPlus: Bool = false,
         profileReviewed: Bool = true
@@ -187,6 +190,7 @@ nonisolated struct Me: Codable, Equatable, Sendable {
         self.activeHopId = activeHopId
         self.color = color
         self.emailNewClips = emailNewClips
+        self.pushNewClips = pushNewClips
         self.avatarUrl = avatarUrl
         self.hopPlus = hopPlus
         self.profileReviewed = profileReviewed
@@ -201,6 +205,8 @@ nonisolated struct Me: Codable, Equatable, Sendable {
         activeHopId = try container.decodeIfPresent(String.self, forKey: .activeHopId)
         color = try container.decode(String.self, forKey: .color)
         emailNewClips = try container.decode(Bool.self, forKey: .emailNewClips)
+        // Servers from before new-clip notifications don't say: they're on.
+        pushNewClips = try container.decodeIfPresent(Bool.self, forKey: .pushNewClips) ?? true
         avatarUrl = try container.decodeIfPresent(String.self, forKey: .avatarUrl)
         hopPlus = try container.decodeIfPresent(Bool.self, forKey: .hopPlus) ?? false
         // Servers from before profiles don't say, and couldn't save it, so
