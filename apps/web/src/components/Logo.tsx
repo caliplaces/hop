@@ -25,13 +25,20 @@ export function LogoMark({
   );
 }
 
-export function Logo({ color, className }: { color?: string; className?: string }) {
+/** Bobble and the wordmark, as a link: home by default, or the inbox inside the app. */
+export function Logo({
+  color,
+  className,
+  to = "/",
+  label = "Hop home",
+}: {
+  color?: string;
+  className?: string;
+  to?: "/" | "/app";
+  label?: string;
+}) {
   return (
-    <Link
-      to="/"
-      className={cx("inline-flex items-center gap-1.5", className)}
-      aria-label="Hop home"
-    >
+    <Link to={to} className={cx("inline-flex items-center gap-1.5", className)} aria-label={label}>
       <LogoMark color={color} />
       <span className="text-xl font-bold tracking-tight">hop</span>
     </Link>
