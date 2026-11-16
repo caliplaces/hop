@@ -85,9 +85,11 @@ export function StorageNudge({ status, onGetPlus }: GetPlus & { status: PlanStat
   );
 }
 
-/** At least 80% of the plan's storage used. */
+/** On the free plan, with at least 80% of its storage used: as the iPhone app, a word about Hop+. */
 export function isNearlyFull(status: PlanStatus): boolean {
   return (
-    status.storage.limitBytes > 0 && status.storage.usedBytes / status.storage.limitBytes >= 0.8
+    status.plan === "free" &&
+    status.storage.limitBytes > 0 &&
+    status.storage.usedBytes / status.storage.limitBytes >= 0.8
   );
 }
