@@ -45,9 +45,9 @@ struct ReportClipSheet: View {
                     TextField("Anything else? (optional)", text: $note, axis: .vertical)
                         .lineLimit(2...6)
                         .onChange(of: note) { _, value in
-                            if value.count > Moderation.maxNoteLength {
-                                note = String(value.prefix(Moderation.maxNoteLength))
-                            }
+                            // As the API counts, so what's typed is what's accepted.
+                            let limited = Moderation.limited(value)
+                            if limited != value { note = limited }
                         }
                 } footer: {
                     Text("Hop’s team gets your report with this clip, and looks into it.")

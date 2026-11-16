@@ -30,6 +30,9 @@ final class InboxModel {
     /// Bumped each time an event's list starts over, so a page that was
     /// requested before can't be appended to the new list.
     private var generations: [String: Int] = [:]
+    /// Clips known to be gone (a blocked sender's): kept out of any page that
+    /// arrives later, including one requested before they went.
+    private var dropped: Set<String> = []
 
     /// Reloads the events, then the first page of every event already shown.
     func refresh(api: APIClient, activeHopId: String?) async {
@@ -77,7 +80,9 @@ final class InboxModel {
             var list = clips[hopId] ?? ClipList()
             let known = replacing ? [] : list.items
             // A page can overlap the last if clips arrived meanwhile.
-            list.items = known + page.files.filter { clip in !known.contains { $0.id == clip.id } }
+            list.items = known + page.files.filter { clip in
+                !known.contains { $0.id == clip.id } && !dropped.contains(clip.id)
+            }
             list.nextCursor = page.nextCursor
             if replacing { list.refreshes += 1 }
             list.loadedOnce = true
@@ -156,6 +161,7 @@ final class InboxModel {
     /// list and from its counts, without waiting for a reload.
     func drop(_ ids: Set<String>) {
         guard !ids.isEmpty else { return }
+        dropped.formUnion(ids)
         for (hopId, list) in clips {
             let gone = list.items.filter { ids.contains($0.id) }
             guard !gone.isEmpty else { continue }

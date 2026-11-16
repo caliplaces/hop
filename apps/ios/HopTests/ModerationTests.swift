@@ -35,8 +35,25 @@ struct ModerationTests {
         try await Moderation.report(clip(), reason: .spam, note: "   ", api: server.client())
         #expect(try body(0) == ["reason": "spam"])
 
-        try await Moderation.report(clip(), reason: .other, note: String(repeating: "x", count: 600), api: server.client())
-        #expect((try body(1)["note"] as? String)?.count == Moderation.maxNoteLength)
+        try await Moderation.report(clip(), reason: .other, note: String(repeating: "😀", count: 300), api: server.client())
+        #expect((try body(1)["note"] as? String)?.utf16.count == Moderation.maxNoteLength)
+    }
+
+    @Test func limitsNotesAsTheAPICountsThemWithoutSplittingCharacters() throws {
+        let ascii = String(repeating: "a", count: 499)
+        // 499 letters and an emoji (two UTF-16 units) is 501: the emoji goes whole.
+        #expect(Moderation.limited(ascii + "😀") == ascii)
+        // 498 and the emoji is exactly 500: kept.
+        let fits = String(repeating: "a", count: 498) + "😀"
+        #expect(Moderation.limited(fits) == fits)
+        // A family emoji is one character of many units: never cut through.
+        let family = "👨‍👩‍👧‍👦"
+        let limited = Moderation.limited(String(repeating: "a", count: 495) + family)
+        #expect(limited == String(repeating: "a", count: 495))
+        #expect(Moderation.limited(String(repeating: "😀", count: 300)).utf16.count == 500)
+        // Trimmed first, then limited; empty means none.
+        #expect(Moderation.noteForAPI("   \n ") == nil)
+        #expect(Moderation.noteForAPI("  hi  ") == "hi")
     }
 
     @Test func passesOnWhyAReportWasRefused() async throws {
@@ -143,6 +160,41 @@ struct DropClipsTests {
 private func clipJSON(_ id: String, size: Int) -> String {
     """
     {"id":"\(id)","hopId":"x","name":"IMG.MOV","mime":"video/quicktime","size":\(size),
+     "hasThumbnail":false,"contributorName":"Troll","contributorVerified":false,"note":null,"createdAt":1}
+    """
+}
+
+@MainActor
+@Suite("Dropped clips stay dropped", .serialized)
+struct DroppedClipsTests {
+    let server = StubServer(host: "dropped-\(UUID().uuidString.lowercased()).test")
+
+    @Test func aPageRequestedBeforeTheBlockDoesntBringThemBack() async throws {
+        server.reply = { request in
+            switch request.url?.path {
+            case "/api/me/hops":
+                (200, #"{"hops":[{"id":"hop_1","slug":"a","title":"A","status":"open","createdAt":1,"fileCount":2,"totalBytes":20}]}"#)
+            case "/api/me/files":
+                (200, #"{"files":[\#(droppedClipJSON("fil_1")),\#(droppedClipJSON("fil_2"))],"nextCursor":null}"#)
+            default: (404, "{}")
+            }
+        }
+        let model = InboxModel()
+        // The page is on its way when the block lands.
+        server.held = ["/api/me/files"]
+        let refresh = Task { await model.refresh(api: server.client(), activeHopId: nil) }
+        try await server.waitForRequest("/api/me/files")
+        model.drop(["fil_1"])
+        server.release()
+        await refresh.value
+        #expect(model.clips["hop_1"]?.items.map(\.id) == ["fil_2"])
+        #expect(model.clips["hop_1"]?.isLoading == false)
+    }
+}
+
+private func droppedClipJSON(_ id: String) -> String {
+    """
+    {"id":"\(id)","hopId":"hop_1","name":"IMG.MOV","mime":"video/quicktime","size":10,
      "hasThumbnail":false,"contributorName":"Troll","contributorVerified":false,"note":null,"createdAt":1}
     """
 }

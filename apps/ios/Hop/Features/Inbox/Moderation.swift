@@ -22,15 +22,36 @@ nonisolated enum ReportReason: String, CaseIterable, Identifiable, Encodable, Se
 /// with an athlete's link can send them clips, so both are always at hand
 /// (App Store Guideline 1.2). See "Reports and blocks" in apps/api/README.md.
 nonisolated enum Moderation {
-    /// The longest note the API takes with a report.
+    /// The longest note the API takes with a report, as it counts: in
+    /// UTF-16 units (JavaScript's length), so an emoji can count as two.
     static let maxNoteLength = 500
+
+    /// `text` cut to `maxNoteLength` as the API counts, never through the
+    /// middle of a character.
+    static func limited(_ text: String) -> String {
+        guard text.utf16.count > maxNoteLength else { return text }
+        var kept = ""
+        var units = 0
+        for character in text {
+            let size = character.utf16.count
+            guard units + size <= maxNoteLength else { break }
+            kept.append(character)
+            units += size
+        }
+        return kept
+    }
+
+    /// The note as it's sent: trimmed and limited, or none if empty.
+    static func noteForAPI(_ note: String) -> String? {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : limited(trimmed)
+    }
 
     /// Sends a report of `clip` to Hop's team.
     static func report(_ clip: Clip, reason: ReportReason, note: String, api: APIClient) async throws {
-        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let _: Done = try await api.post(
             "api/me/files/\(clip.id)/report",
-            body: ReportBody(reason: reason, note: trimmed.isEmpty ? nil : String(trimmed.prefix(maxNoteLength)))
+            body: ReportBody(reason: reason, note: noteForAPI(note))
         )
     }
 
