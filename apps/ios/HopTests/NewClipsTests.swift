@@ -158,4 +158,22 @@ struct NewClipsTests {
         #expect(!settings.email)
         #expect(settings.problem == "Something broke.")
     }
+
+    @Test func takesAChangeSavedElsewhereUnlessSaving() async throws {
+        let settings = NewClipsSettings(me: me())
+        settings.sync(with: me(push: true, email: false))
+        #expect(!settings.email)
+
+        server.reply = { _ in (200, meJSON(push: false, email: false)) }
+        server.held = ["/api/me"]
+        let off = Task { await settings.setPush(false, api: server.client()) { _ in } }
+        try await server.waitForRequest("/api/me")
+        // An older copy arriving mid-save doesn't undo the flip.
+        settings.sync(with: me(push: true, email: true))
+        #expect(!settings.push)
+        server.release()
+        await off.value
+        #expect(!settings.push)
+        #expect(!settings.email)
+    }
 }

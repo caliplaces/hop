@@ -22,6 +22,16 @@ final class NewClipsSettings {
         saved = (me.pushNewClips, me.emailNewClips)
     }
 
+    /// Takes a newer copy of the profile, such as a save this sheet made
+    /// before it was closed and opened again. Not while saving: the save
+    /// settles it.
+    func sync(with me: Me) {
+        guard !saving else { return }
+        saved = (me.pushNewClips, me.emailNewClips)
+        push = me.pushNewClips
+        email = me.emailNewClips
+    }
+
     func setPush(_ on: Bool, api: APIClient, publish: (Me) -> Void) async {
         push = on
         await save(api: api, publish: publish)
@@ -118,6 +128,10 @@ struct NewClipsSection: View {
             }
         } header: {
             Text("New Clips")
+                // A save made before Account was last closed lands here.
+                .onChange(of: session.me) { _, me in
+                    if let me { settings.sync(with: me) }
+                }
         } footer: {
             if let problem = settings.problem {
                 Text(problem).foregroundStyle(.red)
