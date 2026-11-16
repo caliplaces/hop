@@ -13,7 +13,7 @@ export function randomString(length: number): string {
 }
 
 /** 20 random base36 chars is ~103 bits, plenty for unguessable ids. */
-export function newId(prefix: "usr" | "hop" | "fil"): string {
+export function newId(prefix: "usr" | "hop" | "fil" | "rep" | "blk"): string {
   return `${prefix}_${randomString(20)}`;
 }
 

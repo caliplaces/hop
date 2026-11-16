@@ -1,5 +1,13 @@
+import { REPORT_REASONS } from "@hop/shared";
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable(
   "users",
@@ -110,8 +118,12 @@ export const files = sqliteTable(
     size: integer("size").notNull(),
     partSize: integer("part_size").notNull(),
     partCount: integer("part_count").notNull(),
-    /** "deleting" rows are being removed; see lib/files.ts removeFile. */
-    status: text("status", { enum: ["pending", "complete", "deleting"] })
+    /**
+     * "deleting" rows are being removed; see lib/files.ts removeFile. "held"
+     * clips were reported, then deleted: gone for the athlete, kept for Hop's
+     * team until held_until.
+     */
+    status: text("status", { enum: ["pending", "complete", "deleting", "held"] })
       .notNull()
       .default("pending"),
     multipartUploadId: text("multipart_upload_id"),
@@ -125,6 +137,18 @@ export const files = sqliteTable(
     }),
     note: text("note"),
     uploaderIpHash: text("uploader_ip_hash"),
+    /**
+     * SHA-256 of the sender's browser key (the hop_sender cookie, see
+     * lib/senders.ts), so an athlete can block whoever sent a clip without
+     * blocking everyone else on the same network.
+     */
+    senderKey: text("sender_key"),
+    /**
+     * Set when the clip is reported: until then, deleting it (by the athlete,
+     * a block or deleting their account) only hides it, so Hop's team can
+     * still look at it. See lib/files.ts.
+     */
+    heldUntil: integer("held_until"),
     createdAt: integer("created_at").notNull(),
     /** Bumped on create, part signing and completion; drives quota reservation and cleanup. */
     lastActivityAt: integer("last_activity_at").notNull(),
@@ -257,3 +281,97 @@ export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
+
+/**
+ * Reports of a clip (by the athlete it was sent to) or of an athlete's page
+ * (by anyone). Each is emailed to REPORTS_EMAIL; the row is the record, kept
+ * for a year (see cron.ts).
+ */
+export const reports = sqliteTable(
+  "reports",
+  {
+    id: text("id").primaryKey(),
+    /** A clip or a page reported, or a sender blocked (which tells the team too). */
+    kind: text("kind", { enum: ["clip", "profile", "block"] }).notNull(),
+    reason: text("reason", { enum: REPORT_REASONS }).notNull(),
+    note: text("note"),
+    /** The athlete reporting a clip; null for a page reported by a visitor. */
+    reporterId: text("reporter_id").references(() => users.id, { onDelete: "set null" }),
+    /** SHA-256 of a visitor's IP, for page reports. */
+    reporterIpHash: text("reporter_ip_hash"),
+    /** The account reported: the page's owner, or a clip's signed-in sender. */
+    subjectUserId: text("subject_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The clip reported. Not a foreign key: the report outlives the clip. */
+    fileId: text("file_id"),
+    /** The clip's sender as it showed them, and their browser key. */
+    contributorName: text("contributor_name"),
+    senderKey: text("sender_key"),
+    /** The clip's note and file name, which outlive it here. */
+    clipNote: text("clip_note"),
+    clipName: text("clip_name"),
+    /**
+     * The team's email about it (see src/reports.ts): the batch it was
+     * claimed into (the claim time), then when that batch's email went out.
+     */
+    emailBatch: integer("email_batch"),
+    emailedAt: integer("emailed_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("reports_created_idx").on(t.createdAt),
+    index("reports_unemailed_idx").on(t.createdAt).where(sql`${t.emailedAt} is null`),
+    // An athlete reports (or blocks from) each clip once.
+    uniqueIndex("reports_once_idx")
+      .on(t.kind, t.reporterId, t.fileId)
+      .where(sql`${t.reporterId} is not null and ${t.fileId} is not null`),
+    index("reports_page_idx").on(t.reporterIpHash, t.subjectUserId, t.createdAt),
+  ],
+);
+
+/**
+ * Senders an athlete blocked: by account, when they sent while signed in,
+ * and by every browser key they were seen with (block_keys). Uploads from a
+ * blocked sender are refused (lib/senders.ts).
+ */
+export const blocks = sqliteTable(
+  "blocks",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    contributorUserId: text("contributor_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    /** How they appeared on the clip that was blocked, for the athlete's list. */
+    label: text("label"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("blocks_owner_user_idx")
+      .on(t.ownerId, t.contributorUserId)
+      .where(sql`${t.contributorUserId} is not null`),
+    index("blocks_owner_created_idx").on(t.ownerId, t.createdAt),
+  ],
+);
+
+/** The browser keys (hashed) a block covers: each blocked once per athlete. */
+export const blockKeys = sqliteTable(
+  "block_keys",
+  {
+    ownerId: text("owner_id").notNull(),
+    senderKey: text("sender_key").notNull(),
+    blockId: text("block_id")
+      .notNull()
+      .references(() => blocks.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ownerId, t.senderKey] }),
+    index("block_keys_block_idx").on(t.blockId),
+  ],
+);
+
+export type ReportRow = typeof reports.$inferSelect;
+export type BlockRow = typeof blocks.$inferSelect;
+export type BlockKeyRow = typeof blockKeys.$inferSelect;

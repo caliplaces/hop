@@ -21,6 +21,8 @@
     "ENVIRONMENT": "development",
     "APP_URL": "http://localhost:5173",
     "EMAIL_FROM": "Hop (dev) <hello@onmyhop.com>",
+
+    "REPORTS_EMAIL": "hello@onmyhop.com",
     "OIDC_ISSUER": "https://auth.caliplaces.com",
     // Each environment has its own Caliplaces developer app. For local dev, set
     // OIDC_CLIENT_ID and OIDC_CLIENT_SECRET in .dev.vars from your own dev app.
@@ -60,7 +62,8 @@
     { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
     { "name": "AUTH_LIMITER", "namespace_id": "1011", "simple": { "limit": 20, "period": 60 } },
     { "name": "WAITLIST_LIMITER", "namespace_id": "1021", "simple": { "limit": 10, "period": 60 } },
-    { "name": "PROFILE_LIMITER", "namespace_id": "1031", "simple": { "limit": 20, "period": 60 } }
+    { "name": "PROFILE_LIMITER", "namespace_id": "1031", "simple": { "limit": 20, "period": 60 } },
+    { "name": "REPORT_LIMITER", "namespace_id": "1041", "simple": { "limit": 10, "period": 60 } }
   ],
 
   "env": {
@@ -73,6 +76,8 @@
         "ENVIRONMENT": "staging",
         "APP_URL": "https://staging.onmyhop.com",
         "EMAIL_FROM": "Hop (staging) <hello@onmyhop.com>",
+
+        "REPORTS_EMAIL": "hello@onmyhop.com",
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "399581759521488902",
         "OIDC_APP_CLIENT_ID": "399623629245054982",
@@ -114,6 +119,11 @@
           "name": "PROFILE_LIMITER",
           "namespace_id": "1032",
           "simple": { "limit": 20, "period": 60 }
+        },
+        {
+          "name": "REPORT_LIMITER",
+          "namespace_id": "1042",
+          "simple": { "limit": 10, "period": 60 }
         }
       ]
     },
@@ -126,6 +136,8 @@
         "ENVIRONMENT": "production",
         "APP_URL": "https://onmyhop.com",
         "EMAIL_FROM": "Hop <hello@onmyhop.com>",
+
+        "REPORTS_EMAIL": "hello@onmyhop.com",
         "OIDC_ISSUER": "https://auth.caliplaces.com",
         "OIDC_CLIENT_ID": "399569698213068806",
         "OIDC_APP_CLIENT_ID": "399623629245054982",
@@ -167,6 +179,11 @@
           "name": "PROFILE_LIMITER",
           "namespace_id": "1033",
           "simple": { "limit": 20, "period": 60 }
+        },
+        {
+          "name": "REPORT_LIMITER",
+          "namespace_id": "1043",
+          "simple": { "limit": 10, "period": 60 }
         }
       ]
     }

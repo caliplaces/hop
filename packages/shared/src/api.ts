@@ -107,6 +107,30 @@ export const updateProfileSchema = z
   .partial()
   .refine((changes) => Object.keys(changes).length > 0, "Nothing to update.");
 
+/** Why something was reported. */
+export const REPORT_REASONS = ["sexual", "violence", "harassment", "spam", "other"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+/** Reporting a clip (from the app) or an athlete's page (from the web). */
+export const reportSchema = z.object({
+  reason: z.enum(REPORT_REASONS),
+  note: z.string().trim().max(500).optional(),
+});
+export type ReportInput = z.infer<typeof reportSchema>;
+
+/** Reporting a page needs no account, so it needs a Turnstile pass instead. */
+export const pageReportSchema = reportSchema.extend({
+  turnstileToken: z.string().min(1).max(4096),
+});
+
+/** Someone an athlete blocked from sending them clips. */
+export type Block = {
+  id: string;
+  /** How they appeared on the clip blocked: a name or an @handle. */
+  label: string | null;
+  createdAt: number;
+};
+
 /** Unsubscribe links carry a signed token; `subscribe: true` undoes it. */
 export const emailPreferenceSchema = z.object({
   token: z.string().min(1).max(1000),
