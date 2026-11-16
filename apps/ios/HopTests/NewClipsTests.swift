@@ -91,48 +91,43 @@ struct NewClipsTests {
         #expect(published.isEmpty)
     }
 
-    @Test func theLatestChangeWins() async throws {
-        let answer = Locked(meJSON(push: false))
-        server.reply = { _ in (200, answer.value) }
+    @Test func aFlipDuringASaveGoesNextSoTheServerEndsWithTheLast() async throws {
+        // The server answers with each change as it applies it.
+        let calls = Locked(0)
+        server.reply = { _ in
+            calls.value += 1
+            return (200, meJSON(push: calls.value == 1 ? false : true))
+        }
         let settings = NewClipsSettings(me: me())
         var published: [Me] = []
 
-        // Off, held on its way; then back on, answered at once.
+        // Off, held on its way; then back on, while it is.
         server.held = ["/api/me"]
         let off = Task { await settings.setPush(false, api: server.client()) { published.append($0) } }
         try await server.waitForRequest("/api/me")
         server.held = []
-        answer.value = meJSON(push: true)
         await settings.setPush(true, api: server.client()) { published.append($0) }
+        #expect(settings.push)
+        #expect(server.requests.count == 1)
 
-        // The older reply arrives last, saying off: it doesn't count.
-        answer.value = meJSON(push: false)
         server.release()
         await off.value
+        let bodies = try server.requests.map {
+            try #require(try JSONSerialization.jsonObject(with: $0.body) as? [String: Bool])
+        }
+        #expect(bodies == [["pushNewClips": false], ["pushNewClips": true]])
         #expect(settings.push)
-        #expect(published.map(\.pushNewClips) == [true])
+        #expect(published.map(\.pushNewClips) == [false, true])
     }
 
-    @Test func anOlderChangeFailingLaterChangesNothing() async throws {
-        let answer = Locked<(Int, String)>((200, meJSON(push: false)))
-        server.reply = { _ in answer.value }
+    @Test func showsAChangeMadeElsewhereToTheOtherSwitch() async throws {
+        // Email was turned off on the web meanwhile.
+        server.reply = { _ in (200, meJSON(push: false, email: false)) }
         let settings = NewClipsSettings(me: me())
-
-        // Off (held), on, then off again, saved.
-        server.held = ["/api/me"]
-        let first = Task { await settings.setPush(false, api: server.client()) { _ in } }
-        try await server.waitForRequest("/api/me")
-        server.held = []
-        answer.value = (200, meJSON(push: true))
-        await settings.setPush(true, api: server.client()) { _ in }
-        answer.value = (200, meJSON(push: false))
         await settings.setPush(false, api: server.client()) { _ in }
-
-        // The first fails, last: what's saved stands, and nothing went wrong.
-        answer.value = (500, #"{"error":"internal","message":"Something broke."}"#)
-        server.release()
-        await first.value
         #expect(!settings.push)
-        #expect(settings.problem == nil)
+        #expect(!settings.email)
+        // Nothing sent back over it.
+        #expect(server.requests.count == 1)
     }
 }

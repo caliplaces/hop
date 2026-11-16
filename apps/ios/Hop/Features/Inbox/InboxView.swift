@@ -10,6 +10,9 @@ struct InboxView: View {
     @State private var showingHopPlus = false
     @State private var path: [Hop] = []
     @State private var push = PushNotifications.shared
+    /// A tapped notification being opened. Kept apart from `push.opened`, so
+    /// taking that one doesn't cancel the opening.
+    @State private var opening: PushNotifications.Opened?
     /// Event cards zoom open into their clips, and back.
     @Namespace private var zoom
 
@@ -35,10 +38,15 @@ struct InboxView: View {
         }
         // A tapped notification: the event its clips are in, or Hop+ for
         // clips about to leave.
-        .task(id: push.opened) {
-            guard let opened = push.opened else { return }
+        .onChange(of: push.opened, initial: true) { _, opened in
+            guard let opened else { return }
             push.opened = nil
-            await open(opened)
+            opening = opened
+        }
+        .task(id: opening) {
+            guard let opening else { return }
+            await open(opening)
+            if self.opening == opening { self.opening = nil }
         }
     }
 

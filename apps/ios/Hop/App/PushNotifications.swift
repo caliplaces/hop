@@ -40,6 +40,7 @@ final class PushNotifications: NSObject {
     private let defaults: UserDefaults
     private let center: NotificationCenterProtocol
     private let registerWithApple: @MainActor () -> Void
+    private let unregisterWithApple: @MainActor () -> Void
     /// The signed-in session's client, to send a token to when Apple hands one over.
     private var api: APIClient?
 
@@ -49,11 +50,13 @@ final class PushNotifications: NSObject {
     init(
         defaults: UserDefaults = .standard,
         center: NotificationCenterProtocol = UNUserNotificationCenter.current(),
-        registerWithApple: @escaping @MainActor () -> Void = { UIApplication.shared.registerForRemoteNotifications() }
+        registerWithApple: @escaping @MainActor () -> Void = { UIApplication.shared.registerForRemoteNotifications() },
+        unregisterWithApple: @escaping @MainActor () -> Void = { UIApplication.shared.unregisterForRemoteNotifications() }
     ) {
         self.defaults = defaults
         self.center = center
         self.registerWithApple = registerWithApple
+        self.unregisterWithApple = unregisterWithApple
         askDismissed = defaults.bool(forKey: Self.dismissedKey)
     }
 
@@ -84,9 +87,12 @@ final class PushNotifications: NSObject {
         if allowed, before != authorization, api != nil { registerWithApple() }
     }
 
-    /// Signed out: no more sending tokens anywhere.
+    /// Signed out: no more sending tokens anywhere, and nothing tapped is
+    /// opened for whoever signs in next.
     func stop() {
         api = nil
+        opened = nil
+        arrivals = 0
     }
 
     /// From the card: asks, and registers if allowed.
@@ -130,7 +136,14 @@ final class PushNotifications: NSObject {
     func unregister(api: APIClient) async {
         stop()
         guard let token else { return }
-        try? await api.delete("api/me/devices/\(token)")
+        do {
+            try await api.delete("api/me/devices/\(token)")
+        } catch {
+            // The API still has this phone for them (offline, say): Apple
+            // stops taking pushes for its token instead, and the API forgets
+            // it at the next one. Signing in again asks for a new token.
+            unregisterWithApple()
+        }
     }
 
     private struct DeviceBody: Encodable {

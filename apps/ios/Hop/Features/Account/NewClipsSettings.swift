@@ -3,57 +3,66 @@ import SwiftUI
 import UIKit
 
 /// How the athlete hears of new clips: on their phones, and by email. Each
-/// switch saves as it's flipped. When changes overlap, the last one wins: an
-/// older reply never puts back what a newer change replaced.
+/// switch saves as it's flipped, one save at a time: a flip made while one
+/// is on its way goes next, so the server always ends up with the last one.
 @Observable
 final class NewClipsSettings {
+    /// What the switches show: what the athlete wants.
     private(set) var push: Bool
     private(set) var email: Bool
     /// Why the last change didn't save, if it didn't.
     private(set) var problem: String?
-    /// Bumped by each change, so only the latest one's reply counts.
-    private var generation = 0
+    /// What the server has, as far as its replies tell.
+    private var saved: (push: Bool, email: Bool)
+    private var saving = false
 
     init(me: Me) {
         push = me.pushNewClips
         email = me.emailNewClips
+        saved = (me.pushNewClips, me.emailNewClips)
     }
 
     func setPush(_ on: Bool, api: APIClient, publish: (Me) -> Void) async {
-        let before = push
         push = on
-        await save(Changes(pushNewClips: on), api: api, publish: publish) { self.push = before }
+        await save(api: api, publish: publish)
     }
 
     func setEmail(_ on: Bool, api: APIClient, publish: (Me) -> Void) async {
-        let before = email
         email = on
-        await save(Changes(emailNewClips: on), api: api, publish: publish) { self.email = before }
+        await save(api: api, publish: publish)
     }
 
-    private func save(
-        _ changes: Changes,
-        api: APIClient,
-        publish: (Me) -> Void,
-        undo: () -> Void
-    ) async {
-        generation += 1
-        let mine = generation
+    /// Sends what differs from the server until nothing does. A save already
+    /// under way picks up later flips itself.
+    private func save(api: APIClient, publish: (Me) -> Void) async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
         problem = nil
-        do {
-            let reply: Reply = try await api.patch("api/me", body: changes)
-            guard mine == generation else { return }
-            push = reply.me.pushNewClips
-            email = reply.me.emailNewClips
-            publish(reply.me)
-        } catch {
-            guard mine == generation else { return }
-            undo()
-            problem = error.localizedDescription
+        while push != saved.push || email != saved.email {
+            let sent = (push: push, email: email)
+            let changes = Changes(
+                pushNewClips: push != saved.push ? push : nil,
+                emailNewClips: email != saved.email ? email : nil
+            )
+            do {
+                let reply: Reply = try await api.patch("api/me", body: changes)
+                saved = (reply.me.pushNewClips, reply.me.emailNewClips)
+                // A switch not flipped meanwhile shows what the server has,
+                // which may be a change made on another device.
+                if push == sent.push { push = saved.push }
+                if email == sent.email { email = saved.email }
+                publish(reply.me)
+            } catch {
+                push = saved.push
+                email = saved.email
+                problem = error.localizedDescription
+                return
+            }
         }
     }
 
-    /// Only the setting that changed; the other is left out, not sent.
+    /// Only the settings that changed; the others are left out, not sent.
     private struct Changes: Encodable {
         var pushNewClips: Bool?
         var emailNewClips: Bool?

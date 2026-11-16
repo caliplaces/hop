@@ -31,7 +31,10 @@ struct NotificationsTests {
 
     private func make(_ center: FakeCenter, registered: Locked<Int> = Locked(0)) -> PushNotifications {
         let defaults = UserDefaults(suiteName: "NotificationsTests.\(UUID().uuidString)")!
-        return PushNotifications(defaults: defaults, center: center) { registered.value += 1 }
+        return PushNotifications(
+            defaults: defaults, center: center,
+            registerWithApple: { registered.value += 1 }, unregisterWithApple: {}
+        )
     }
 
     @Test func asksAppleForATokenOnlyWhenAllowed() async {
@@ -94,6 +97,29 @@ struct NotificationsTests {
         #expect(!push.shouldAsk)
         let later = PushNotifications(defaults: defaults, center: FakeCenter()) {}
         #expect(!later.shouldAsk)
+    }
+
+    @Test func stopsApplePushingWhenTheAPICantBeToldOnSignOut() async throws {
+        server.reply = { _ in (500, #"{"error":"internal","message":"Something broke."}"#) }
+        let unregistered = Locked(0)
+        let defaults = UserDefaults(suiteName: "NotificationsTests.\(UUID().uuidString)")!
+        let push = PushNotifications(
+            defaults: defaults, center: FakeCenter(status: .authorized),
+            registerWithApple: {}, unregisterWithApple: { unregistered.value += 1 }
+        )
+        await push.received(token)
+        await push.unregister(api: server.client())
+        #expect(unregistered.value == 1)
+    }
+
+    @Test func forgetsWhatWasTappedOnSignOut() {
+        let defaults = UserDefaults(suiteName: "NotificationsTests.\(UUID().uuidString)")!
+        let push = PushNotifications(defaults: defaults, center: FakeCenter(status: .authorized)) {}
+        push.tapped(.clips(hopId: "hop_1"))
+        push.arrived(.clips(hopId: nil))
+        push.stop()
+        #expect(push.opened == nil)
+        #expect(push.arrivals == 0)
     }
 
     @Test func letsGoOfThePhoneOnSignOut() async throws {
