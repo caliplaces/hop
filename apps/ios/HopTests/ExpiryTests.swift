@@ -144,8 +144,8 @@ struct SignOutOrderTests {
 
 @Suite("Clips about to expire")
 struct ExpiryNudgeTests {
-    private func calendar(_ zone: String) -> Calendar {
-        var calendar = Calendar(identifier: .gregorian)
+    private func calendar(_ zone: String, _ identifier: Calendar.Identifier = .gregorian) -> Calendar {
+        var calendar = Calendar(identifier: identifier)
         calendar.timeZone = TimeZone(identifier: zone)!
         return calendar
     }
@@ -173,6 +173,14 @@ struct ExpiryNudgeTests {
         let early = Date(timeIntervalSince1970: 1_799_989_200)
         #expect(ExpiryNudge.title(expiring(2, on: "2027-01-15"), now: early, calendar: calendar("America/Los_Angeles")) == "2 clips leave tomorrow")
         #expect(ExpiryNudge.title(expiring(2, on: "2027-01-15"), now: early, calendar: calendar("UTC")) == "2 clips leave today")
+    }
+
+    @Test func readsTheAPIsDateWhateverCalendarThePhoneUses() {
+        for identifier: Calendar.Identifier in [.buddhist, .japanese, .islamicUmmAlQura, .hebrew] {
+            let phone = calendar("UTC", identifier)
+            #expect(ExpiryNudge.title(expiring(2, on: "2027-01-16"), now: now, calendar: phone) == "2 clips leave tomorrow")
+            #expect(ExpiryNudge.title(expiring(2, on: "2027-01-22"), now: now, calendar: phone).hasPrefix("2 clips leave on "))
+        }
     }
 
     @Test func readsThePlan() throws {

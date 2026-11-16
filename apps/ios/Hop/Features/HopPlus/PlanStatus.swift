@@ -57,11 +57,14 @@ nonisolated struct PlanStatus: Codable, Equatable, Sendable {
         /// When the first of them may go, in milliseconds since 1970.
         let at: Int64
 
-        /// That day, in `calendar`: midnight where the athlete is.
+        /// That day's midnight in `calendar`'s time zone. The API's date is
+        /// always Gregorian, whatever calendar the phone uses.
         func day(in calendar: Calendar) -> Date? {
             let parts = on.split(separator: "-").compactMap { Int($0) }
             guard parts.count == 3 else { return nil }
-            return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+            var gregorian = Calendar(identifier: .gregorian)
+            gregorian.timeZone = calendar.timeZone
+            return gregorian.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
         }
     }
 
