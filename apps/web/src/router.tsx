@@ -55,6 +55,12 @@ const privacyRoute = createRoute({
   component: lazyRouteComponent(() => import("./routes/Privacy"), "Privacy"),
 });
 
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin",
+  component: lazyRouteComponent(() => import("./routes/Admin"), "Admin"),
+});
+
 // Static routes above win over these dynamic ones; reserved handles keep them apart.
 const ContributePage = lazyRouteComponent(() => import("./routes/Contribute"), "Contribute");
 const handleRoute = createRoute({
@@ -81,6 +87,7 @@ const routeTree = rootRoute.addChildren([
   hopsRoute,
   unsubscribeRoute,
   privacyRoute,
+  adminRoute,
   handleRoute,
   hopRoute,
 ]);
