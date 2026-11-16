@@ -14,9 +14,20 @@ struct DeleteAccountView: View {
 
     private static let red = Color(light: 0xD92D20, dark: 0xFF6369)
 
-    /// Hop+ that will renew: deleting the account doesn't stop Apple billing it.
-    private var renewingHopPlus: Bool {
-        hopPlus.status?.plan == .plus && hopPlus.status?.subscription?.autoRenew == true
+    /// What to say about Hop+, which Apple keeps billing after the account goes.
+    nonisolated enum BillingNote: Equatable {
+        /// Hop+ that will renew: it has to be cancelled with Apple.
+        case renews
+        /// The plan hasn't loaded, or couldn't: a paying athlete mustn't
+        /// miss the warning, so it's given in general terms.
+        case unknown
+        /// Free, or Hop+ that won't renew: nothing to cancel.
+        case none
+    }
+
+    nonisolated static func billingNote(for status: PlanStatus?) -> BillingNote {
+        guard let status else { return .unknown }
+        return status.plan == .plus && status.subscription?.autoRenew == true ? .renews : .none
     }
 
     var body: some View {
@@ -52,16 +63,13 @@ struct DeleteAccountView: View {
                 row("You’re signed out on every device.", systemImage: "rectangle.portrait.and.arrow.right")
             }
 
-            if renewingHopPlus {
-                Section {
-                    row(
-                        "Deleting your account doesn’t cancel Hop+. Apple keeps billing you until you cancel it.",
-                        systemImage: "creditcard"
-                    )
-                    Button("Manage Subscription") { managingSubscription = true }
-                } header: {
-                    Text(verbatim: "Hop+")
-                }
+            switch Self.billingNote(for: hopPlus.status) {
+            case .renews:
+                billing("Deleting your account doesn’t cancel Hop+. Apple keeps billing you until you cancel it.")
+            case .unknown:
+                billing("If you have Hop+, deleting your account doesn’t cancel it. Apple keeps billing you until you cancel it.")
+            case .none:
+                EmptyView()
             }
 
             Section {
@@ -101,6 +109,20 @@ struct DeleteAccountView: View {
             Text(failure ?? "")
         }
         .manageSubscriptionsSheet(isPresented: $managingSubscription)
+        // The plan says whether there's Hop+ to warn about; until it's here,
+        // the warning is given anyway (see BillingNote).
+        .task {
+            if hopPlus.status == nil { await hopPlus.refresh(api: session.api) }
+        }
+    }
+
+    private func billing(_ text: LocalizedStringKey) -> some View {
+        Section {
+            row(text, systemImage: "creditcard")
+            Button("Manage Subscription") { managingSubscription = true }
+        } header: {
+            Text(verbatim: "Hop+")
+        }
     }
 
     private func row(_ text: LocalizedStringKey, systemImage: String) -> some View {
