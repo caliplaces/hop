@@ -4,6 +4,7 @@ import SwiftUI
 /// Screens the account sheet pushes.
 enum AccountRoute: Hashable {
     case profile
+    case deleteAccount
 }
 
 /// The athlete's account: who they are, their plan and storage, and signing out.
@@ -94,6 +95,13 @@ struct AccountView: View {
                             .foregroundStyle(.red)
                     }
                 }
+
+                Section {
+                    NavigationLink(value: AccountRoute.deleteAccount) {
+                        Text("Delete Account")
+                            .foregroundStyle(.red)
+                    }
+                }
             }
             .tint(Theme.ink)
             // By value, not with the view itself: a link holding its view
@@ -103,6 +111,8 @@ struct AccountView: View {
                 switch route {
                 case .profile:
                     if let me = session.me { EditProfileView(me: me, session: session) }
+                case .deleteAccount:
+                    DeleteAccountView()
                 }
             }
             .navigationTitle("Account")
@@ -155,6 +165,8 @@ struct AccountView: View {
         switch problem {
         case .otherAccount:
             String(localized: "Hop+ on this Apple Account belongs to another Hop account.")
+        case .deletedAccount:
+            String(localized: "Hop+ on this Apple Account belongs to a deleted Hop account. Cancel it in your Apple Account’s subscriptions, then subscribe again.")
         case .testPurchase:
             String(localized: "Purchases in test builds don’t unlock Hop+.")
         case .unverified:

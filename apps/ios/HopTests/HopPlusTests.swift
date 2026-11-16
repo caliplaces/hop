@@ -163,8 +163,12 @@ struct HopPlusTests {
         purchase.value = (400, #"{"error":"invalid_transaction","message":"No."}"#)
         #expect(await hopPlus.send(purchases.make(3), api: api) == .refused(.unverified))
 
+        purchase.value = (403, #"{"error":"deleted_account","message":"No."}"#)
+        #expect(await hopPlus.send(purchases.make(4), api: api) == .refused(.deletedAccount))
+        #expect(hopPlus.problem == .deletedAccount)
+
         // Asking again won't change a definite no, so StoreKit can let them go.
-        #expect(purchases.finished == [1, 2, 3])
+        #expect(purchases.finished == [1, 2, 3, 4])
         #expect(hopPlus.status == nil)
     }
 
