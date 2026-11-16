@@ -35,6 +35,7 @@ import { sanitizeJpeg } from "../lib/jpeg";
 import { hasPlus } from "../lib/plans";
 import { currentUser, destroySession, requireUser } from "../lib/session";
 import { presignGet } from "../lib/storage";
+import { cancelForDeletion, stripeEnabled } from "../lib/stripe";
 import { validate } from "../lib/validate";
 import { findUserByHandle, toMe } from "./auth";
 
@@ -164,6 +165,22 @@ export const meRoutes = new Hono<AppEnv>()
    */
   .delete("/me", requireUser, async (c) => {
     const user = currentUser(c);
+    if (user.stripeCustomerId) {
+      // Hop+ from the website: nothing would stop Stripe billing a deleted
+      // account, so the account stays until it's cancelled.
+      try {
+        if (!stripeEnabled(c.env)) throw new Error("Stripe isn't set up");
+        await cancelForDeletion(c.env, user.stripeCustomerId);
+      } catch (error) {
+        console.error("stripe: cancelling for deletion failed", error);
+        return fail(
+          c,
+          503,
+          "billing_unavailable",
+          "Couldn't cancel your Hop+ just now, so your account is still here. Try again in a minute.",
+        );
+      }
+    }
     const was = await deleteAccount(getDb(c.env.DB), user.id);
     if (was?.avatarKey) await removeAvatar(c.env, was.avatarKey);
     if (was) {

@@ -157,7 +157,7 @@ The photo itself goes with the next hourly cleanup, and caches drop it within a 
 
 - **Everything that identifies them goes:**
   - email, both names and the photo (deleted from R2 at once);
-  - the App Store account token, subscriptions and Live Activities;
+  - the App Store account token, which Stripe customer was theirs, subscriptions and Live Activities;
   - every session, so they're signed out everywhere;
   - a verified address on the launch waitlist.
 
@@ -169,7 +169,9 @@ The photo itself goes with the next hourly cleanup, and caches drop it within a 
 
 A deleted account's sessions are refused, even one a sign-in under way created just after. A request already running when they delete could still write to the tombstone (a name, a photo, a clip sent to someone, a Live Activity). So for a week after a deletion, every cleanup run erases the account again. A handle claim only lands on an account with no handle that isn't deleted. Uploads re-check that the hop is still open when they reserve their place. Each of these cleanup steps runs on its own, so one failing doesn't stop the rest.
 
-Deleting the account doesn't cancel Hop+, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. The purchase carries the deleted account's token, so restoring it on a new account fails with `deleted_account`, which tells them to cancel it and subscribe again.
+Deleting the account doesn't cancel Hop+ from the App Store, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. The purchase carries the deleted account's token, so restoring it on a new account fails with `deleted_account`, which tells them to cancel it and subscribe again.
+
+Hop+ from the website is cancelled at once, in Stripe, before anything else (see "Hop+ on the website"). If Stripe can't be reached, the deletion answers `503 billing_unavailable` and the account stays, rather than be billed after it's gone.
 
 ## Reports and blocks
 
@@ -244,7 +246,7 @@ pnpm --filter @hop/api exec wrangler secret put ADMIN_USER_IDS --env production
 
 ## Hop+ subscriptions
 
-Athletes subscribe to Hop+ in the iPhone app, through the App Store. The plans are in `packages/shared/src/limits.ts`:
+Athletes subscribe to Hop+ in the iPhone app, through the App Store, or on the website, through Stripe (see "Hop+ on the website" below). The plans are in `packages/shared/src/limits.ts`:
 
 | Plan | Storage | Clips kept |
 | ---- | ------- | ---------- |
@@ -291,6 +293,38 @@ wrangler secret put APPLE_SANDBOX_USERS --env production
 
 - Nothing catches up on notifications Apple gave up retrying (after about 3 days). Asking the App Store Server API for the subscription's status would, and needs an In-App Purchase key.
 - Purchases that carry no `appAccountToken`, such as offer codes redeemed in the App Store app, can't be credited.
+
+## Hop+ on the website
+
+The website sells Hop+ through Stripe Checkout, and Stripe's customer portal handles everything after: payment method, invoices, switching plans, cancelling (`src/lib/stripe.ts`, `src/routes/stripe.ts`). Stripe Tax isn't on: the price set on the product is what's charged.
+
+- `GET /api/billing/web/prices`: the Hop+ product's active monthly and yearly prices (the newest of each), cached for five minutes. None where Stripe isn't set up, and the website then doesn't offer Hop+.
+- `POST /api/billing/web/checkout` `{ priceId }`: a Checkout page. The athlete gets a Stripe customer the first time (`users.stripe_customer_id`). Any checkout they left open is expired first, so two tabs can't make two subscriptions. Refused with `409 already_plus` with Hop+ from anywhere, after catching up with Stripe, so a checkout paid moments ago counts.
+- `POST /api/billing/web/portal`: a portal page, for athletes with a customer.
+- `POST /api/billing/web/sync`: reads their subscriptions from Stripe now and returns the plan, for coming back from Checkout before the webhook lands.
+- `POST /api/stripe/webhook`: Stripe's events.
+
+How it's kept right:
+
+- **Only Stripe's word.** A webhook must carry a valid `Stripe-Signature` (HMAC-SHA256 with the endpoint's signing secret, at most five minutes old). Even then it only names a subscription, which is fetched from Stripe and stored as it is now. Data fetched earlier never overwrites data fetched later, so retried and out-of-order events can't roll it back.
+- **Only Hop+.** The Stripe account sells other products: only subscriptions whose every item is `STRIPE_PRODUCT_ID` count, and only for a customer Hop made for a live account.
+- **Test and live mode.** Live mode only in production; test mode locally and on staging. An event or subscription in the other mode is refused.
+- **What it gives.** Stored with the App Store's in `subscriptions`, as `provider = 'stripe'`, the subscription ID as its key, and `hop_plus` or `hop_plus_annual` for its period. Paid up: Hop+ to the period's end. Past due, while Stripe retries the renewal: Hop+ carries on as a billing grace period, for up to 16 days. Cancelled: until it ended. Unpaid or paused: it ended when the unpaid period began. Never paid (incomplete): not stored.
+- **Deleted accounts.** Deleting an account cancels its Hop+ in Stripe and expires its open checkouts first. A checkout paid after all (Stripe can't expire one being paid) makes a subscription whose metadata names the deleted account: the webhook cancels it. Stripe keeps the customer and its invoices, as accounting law requires; Hop forgets which one it was.
+
+Setup, per environment (test mode for staging, live mode for production):
+
+1. The product: `STRIPE_PRODUCT_ID` in `wrangler.jsonc`. Give it a monthly price and, if wanted, a yearly one, both recurring every 1 month or 1 year.
+2. An API key. A restricted key needs write access to Customers, Checkout Sessions, Subscriptions and the Customer portal, and read access to Prices.
+3. A webhook endpoint at `https://onmyhop.com/api/stripe/webhook` (or staging's), with the events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.paused`, `customer.subscription.resumed`, `invoice.paid` and `invoice.payment_failed`. Staging only lets the team's IPs in, so its firewall needs an exception for that one path.
+4. The customer portal (Settings › Billing › Customer portal): allow cancelling (at the end of the period), updating the payment method and seeing invoices, and, with two prices, switching between them. Under Settings › Business › Customer emails, turn on receipts.
+
+```sh
+wrangler secret put STRIPE_SECRET_KEY --env staging       # sk_test_… or rk_test_…
+wrangler secret put STRIPE_WEBHOOK_SECRET --env staging   # whsec_… from the endpoint
+```
+
+Locally, run `stripe listen --forward-to localhost:8787/api/stripe/webhook` and put the `whsec_…` it prints in `.dev.vars`.
 
 ## Deploys
 

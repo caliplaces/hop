@@ -22,6 +22,7 @@ import { liveActivityRoutes } from "./routes/live";
 import { meRoutes } from "./routes/me";
 import { publicRoutes } from "./routes/public";
 import { reportRoutes } from "./routes/reports";
+import { stripeRoutes } from "./routes/stripe";
 import { uploadRoutes } from "./routes/uploads";
 import { waitlistRoutes } from "./routes/waitlist";
 
@@ -58,6 +59,7 @@ app.route("/", reportRoutes);
 app.route("/", deviceRoutes);
 app.route("/", liveActivityRoutes);
 app.route("/", billingRoutes);
+app.route("/", stripeRoutes);
 app.route("/", waitlistRoutes);
 app.route("/", adminRoutes);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);

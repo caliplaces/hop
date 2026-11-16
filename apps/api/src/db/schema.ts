@@ -38,6 +38,12 @@ export const users = sqliteTable(
      */
     planRevision: integer("plan_revision").notNull().default(0),
     /**
+     * Their customer in Stripe, for Hop+ bought on the website: made when
+     * they first check out. Stripe's subscriptions name it, which is how
+     * they're tied to this account (see lib/stripe.ts).
+     */
+    stripeCustomerId: text("stripe_customer_id").unique(),
+    /**
      * The name others see, set in Hop. `name` is their Caliplaces account's,
      * refreshed at every sign-in, and stands in until they set one.
      */
@@ -243,19 +249,26 @@ export const liveActivities = sqliteTable(
 );
 
 /**
- * Hop+ subscriptions bought through the App Store, one row per subscription
- * (Apple's originalTransactionId, which stays the same across renewals). Kept
- * up to date from signed transactions the app sends and from App Store Server
- * Notifications. An athlete has Hop+ while one of theirs is paid up or in a
- * billing grace period, and wasn't revoked (refunded).
+ * Hop+ subscriptions, one row per subscription. From the App Store: Apple's
+ * originalTransactionId, which stays the same across renewals, kept up to
+ * date from signed transactions the app sends and from App Store Server
+ * Notifications. From the website: Stripe's subscription, kept up to date
+ * from Stripe's webhooks (lib/stripe.ts). An athlete has Hop+ while one of
+ * theirs is paid up or in a billing grace period, and wasn't revoked (refunded).
  */
 export const subscriptions = sqliteTable(
   "subscriptions",
   {
+    /** Apple's original transaction ID, or Stripe's subscription ID (sub_…). */
     originalTransactionId: text("original_transaction_id").primaryKey(),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** Bought in the iPhone app (the App Store) or on the website (Stripe). */
+    provider: text("provider", { enum: ["apple", "stripe"] })
+      .notNull()
+      .default("apple"),
+    /** The App Store product; for Stripe, the one with the same period. */
     productId: text("product_id").notNull(),
     environment: text("environment", { enum: ["Sandbox", "Production"] }).notNull(),
     /** End of the paid period. */

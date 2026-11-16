@@ -72,6 +72,20 @@ export type Env = {
    * elsewhere, where sandbox purchases always count.
    */
   APPLE_SANDBOX_USERS?: string;
+  /**
+   * Hop+ on the website, through Stripe (lib/stripe.ts). STRIPE_SECRET_KEY
+   * is the API key, a restricted one will do; STRIPE_WEBHOOK_SECRET is the
+   * webhook endpoint's signing secret (whsec_…). Both are secrets: test mode
+   * locally and on staging, live mode in production. Without them the
+   * website doesn't sell Hop+.
+   */
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * The Hop+ product in that Stripe account (prod_…). Its active monthly and
+   * yearly prices are what the website sells; nothing else there counts.
+   */
+  STRIPE_PRODUCT_ID: string;
 };
 
 export type AppEnv = {

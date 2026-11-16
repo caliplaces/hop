@@ -44,7 +44,12 @@
     "APPLE_BUNDLE_ID": "com.onmyhop.app",
     "APPLE_APP_ID": "6834920854",
     "APNS_ENVIRONMENT": "sandbox",
-    "APNS_KEY_ID": "K4TQW3FWN6"
+    "APNS_KEY_ID": "K4TQW3FWN6",
+    // Hop+ on the website: the product in Stripe whose prices are sold, in
+    // test mode here and on staging, live mode in production. The API key
+    // and webhook signing secret are secrets (STRIPE_SECRET_KEY,
+    // STRIPE_WEBHOOK_SECRET); without them the website doesn't sell Hop+.
+    "STRIPE_PRODUCT_ID": "prod_VdnJFIpMsbAZlR"
   },
   "d1_databases": [
     {
@@ -88,7 +93,8 @@
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
         "APNS_ENVIRONMENT": "sandbox",
-        "APNS_KEY_ID": "K4TQW3FWN6"
+        "APNS_KEY_ID": "K4TQW3FWN6",
+        "STRIPE_PRODUCT_ID": "prod_VdnJFIpMsbAZlR"
       },
       "d1_databases": [
         {
@@ -148,7 +154,8 @@
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
         "APNS_ENVIRONMENT": "production",
-        "APNS_KEY_ID": "JNYA3Z4YF6"
+        "APNS_KEY_ID": "JNYA3Z4YF6",
+        "STRIPE_PRODUCT_ID": "prod_Vd4BKOyA6xDfYn"
       },
       "d1_databases": [
         {

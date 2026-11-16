@@ -35,7 +35,9 @@ import { goneStatus } from "./files";
  *
  * The row stays as a tombstone. Everything that identifies the athlete is
  * cleared at once (name, email, photo, sign-ins, subscriptions, Live
- * Activities), leaving the id, the handle, the colour and timestamps. A
+ * Activities), leaving the id, the handle, the colour and timestamps. Hop+
+ * bought on the website is cancelled in Stripe first (routes/me.ts); the App
+ * Store's can only be cancelled by the athlete. A
  * handle that went back to the pool could be claimed by someone else, who
  * would then receive the clips people send to the old link or QR code.
  *
@@ -103,6 +105,8 @@ export function erasure(db: Db, owned: Owned, now: number) {
         avatarKey: null,
         activeHopId: null,
         appAccountToken: null,
+        // Stripe keeps the customer, and its invoices, as the law requires.
+        stripeCustomerId: null,
         emailNewClips: false,
         pushNewClips: false,
         profileReviewedAt: null,
@@ -119,6 +123,7 @@ export function erasure(db: Db, owned: Owned, now: number) {
             isNotNull(users.avatarKey),
             isNotNull(users.activeHopId),
             isNotNull(users.appAccountToken),
+            isNotNull(users.stripeCustomerId),
             isNotNull(users.profileReviewedAt),
             eq(users.emailNewClips, true),
             eq(users.pushNewClips, true),
