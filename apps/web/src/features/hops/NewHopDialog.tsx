@@ -29,8 +29,8 @@ export function NewHopDialog({
     <Dialog
       open={open}
       onClose={close}
-      title="New Hop"
-      description="One per event keeps clips apart. Close it when the event’s over."
+      title="New event"
+      description="Each event keeps its clips apart, and your link sends them to it. Close it when the event’s over."
     >
       <form
         onSubmit={(e) => {
@@ -48,7 +48,7 @@ export function NewHopDialog({
         />
         {create.error ? (
           <FieldHint tone="danger">
-            {create.error instanceof ApiError ? create.error.message : "Couldn't create the Hop."}
+            {create.error instanceof ApiError ? create.error.message : "Couldn't create the event."}
           </FieldHint>
         ) : (
           <FieldHint>{slug ? displayHopUrl(hopUrl(handle, slug)) : " "}</FieldHint>
@@ -59,7 +59,7 @@ export function NewHopDialog({
           className="mt-4 w-full"
           disabled={!slug || create.isPending}
         >
-          {create.isPending ? "Creating…" : "Create Hop"}
+          {create.isPending ? "Creating…" : "Create event"}
         </Button>
       </form>
     </Dialog>

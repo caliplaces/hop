@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFeedback } from "../../components/ui/feedback";
 import { ApiError, api } from "../../lib/api";
 
-/** Create, open/close and "make live" for hops; each refreshes hops and the session. */
+/** Create, close or reopen events, and point the link at one; each refreshes the events and the session. */
 export function useHopMutations() {
   const queryClient = useQueryClient();
   const { toast } = useFeedback();
@@ -17,7 +17,7 @@ export function useHopMutations() {
     mutationFn: (title: string) => api("/me/hops", { method: "POST", json: { title } }),
     onSuccess: () => {
       refresh();
-      toast("Hop created");
+      toast("Event created");
     },
   });
   const setStatus = useMutation({
@@ -25,7 +25,7 @@ export function useHopMutations() {
       api(`/me/hops/${id}`, { method: "PATCH", json: { status } }),
     onSuccess: (_, { status }) => {
       refresh();
-      toast(status === "closed" ? "Hop closed" : "Hop reopened");
+      toast(status === "closed" ? "Event closed" : "Event reopened");
     },
     onError,
   });
@@ -33,7 +33,7 @@ export function useHopMutations() {
     mutationFn: (id: string) => api(`/me/hops/${id}/activate`, { method: "POST" }),
     onSuccess: () => {
       refresh();
-      toast("Your link now uploads here");
+      toast("Your link now sends clips here");
     },
     onError,
   });

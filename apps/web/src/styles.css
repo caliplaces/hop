@@ -110,6 +110,7 @@
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-drift: drift 22s ease-in-out infinite;
   --animate-slide-in: slide-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-slide-in-right: slide-in-right 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 /*
@@ -151,6 +152,12 @@
   }
 }
 
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
 @keyframes fade-up {
   from {
     opacity: 0;
