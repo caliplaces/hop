@@ -1,6 +1,11 @@
 import StoreKit
 import SwiftUI
 
+/// Screens the account sheet pushes.
+enum AccountRoute: Hashable {
+    case profile
+}
+
 /// The athlete's account: who they are, their plan and storage, and signing out.
 struct AccountView: View {
     @Environment(Session.self) private var session
@@ -17,7 +22,11 @@ struct AccountView: View {
         NavigationStack {
             Form {
                 if let me = session.me {
-                    Section { profile(me) }
+                    Section {
+                        NavigationLink(value: AccountRoute.profile) {
+                            profile(me)
+                        }
+                    }
                 }
 
                 Section("Plan") {
@@ -87,6 +96,15 @@ struct AccountView: View {
                 }
             }
             .tint(Theme.ink)
+            // By value, not with the view itself: a link holding its view
+            // keeps that view's state, so an edit cancelled on one visit
+            // would still be there on the next.
+            .navigationDestination(for: AccountRoute.self) { route in
+                switch route {
+                case .profile:
+                    if let me = session.me { EditProfileView(me: me, session: session) }
+                }
+            }
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -118,8 +136,11 @@ struct AccountView: View {
         HStack(spacing: 14) {
             Avatar(me: me, size: 52)
             VStack(alignment: .leading, spacing: 2) {
-                Text(me.name ?? me.email ?? String(localized: "Signed in"))
-                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(me.name ?? me.email ?? String(localized: "Signed in"))
+                        .font(.headline)
+                    if me.hopPlus { HopPlusBadge(color: me.paletteColor) }
+                }
                 if let link = me.link {
                     Text(verbatim: link.spoken)
                         .font(.subheadline)

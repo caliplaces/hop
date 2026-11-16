@@ -92,8 +92,22 @@ nonisolated struct APIClient: Sendable {
         _ = try await send("DELETE", path, body: nil)
     }
 
+    /// A DELETE whose reply matters, such as the profile it leaves behind.
+    func delete<Response: Decodable>(_ path: String) async throws -> Response {
+        try await decode(send("DELETE", path, body: nil))
+    }
+
+    /// Uploads raw bytes, such as a JPEG, labelled with their own type.
+    func put<Response: Decodable>(_ path: String, data: Data, contentType: String) async throws -> Response {
+        try await decode(send("PUT", path, body: data, contentType: contentType))
+    }
+
     private func send(
-        _ method: String, _ path: String, query: [URLQueryItem] = [], body: Data?
+        _ method: String,
+        _ path: String,
+        query: [URLQueryItem] = [],
+        body: Data?,
+        contentType: String = "application/json"
     ) async throws -> Data {
         var url = baseURL.appending(path: path)
         if !query.isEmpty { url.append(queryItems: query) }
@@ -102,8 +116,9 @@ nonisolated struct APIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if method != "GET" {
             // The API treats unlabelled writes like cross-site form posts and
-            // refuses them, so every write says it's JSON, even without a body.
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            // refuses them, so every write says what it is: JSON, even
+            // without a body, unless it's raw bytes like a photo.
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
             request.httpBody = body
         }
         if let token {
@@ -136,6 +151,8 @@ nonisolated struct APIClient: Sendable {
 /// The signed-in athlete, as `GET /api/me` describes them.
 nonisolated struct Me: Codable, Equatable, Sendable {
     let id: String
+    /// The name others see: the one they set in Hop, or else their
+    /// Caliplaces account's.
     let name: String?
     let email: String?
     /// Their onmyhop.com/<handle>, once claimed.
@@ -144,9 +161,68 @@ nonisolated struct Me: Codable, Equatable, Sendable {
     /// A palette colour id.
     let color: String
     let emailNewClips: Bool
+    /// Their profile photo, relative to the site; without one, their initial shows.
+    let avatarUrl: String?
+    /// They have Hop+, which their page shows with a Hop+ mark.
+    let hopPlus: Bool
+    /// They've seen and confirmed what their page shows about them.
+    let profileReviewed: Bool
+
+    init(
+        id: String,
+        name: String?,
+        email: String?,
+        handle: String?,
+        activeHopId: String?,
+        color: String,
+        emailNewClips: Bool,
+        avatarUrl: String? = nil,
+        hopPlus: Bool = false,
+        profileReviewed: Bool = true
+    ) {
+        self.id = id
+        self.name = name
+        self.email = email
+        self.handle = handle
+        self.activeHopId = activeHopId
+        self.color = color
+        self.emailNewClips = emailNewClips
+        self.avatarUrl = avatarUrl
+        self.hopPlus = hopPlus
+        self.profileReviewed = profileReviewed
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        email = try container.decodeIfPresent(String.self, forKey: .email)
+        handle = try container.decodeIfPresent(String.self, forKey: .handle)
+        activeHopId = try container.decodeIfPresent(String.self, forKey: .activeHopId)
+        color = try container.decode(String.self, forKey: .color)
+        emailNewClips = try container.decode(Bool.self, forKey: .emailNewClips)
+        avatarUrl = try container.decodeIfPresent(String.self, forKey: .avatarUrl)
+        hopPlus = try container.decodeIfPresent(Bool.self, forKey: .hopPlus) ?? false
+        // Servers from before profiles don't say, and couldn't save it, so
+        // there's nothing to ask them to confirm.
+        profileReviewed = try container.decodeIfPresent(Bool.self, forKey: .profileReviewed) ?? true
+    }
 
     var paletteColor: PaletteColor { Palette.color(id: color) }
 
     /// Their upload page, on the server this build talks to.
     var link: URL? { handle.map { HopServer.baseURL.appending(path: $0) } }
+
+    /// Their photo, on the server this build talks to. Only ever a path on
+    /// Hop's own site, never another one.
+    var avatarURL: URL? {
+        guard let avatarUrl, avatarUrl.hasPrefix("/"), !avatarUrl.hasPrefix("//") else { return nil }
+        return URL(string: avatarUrl, relativeTo: HopServer.baseURL)?.absoluteURL
+    }
+
+    /// The first letter of what they're called, for when there's no photo.
+    var initial: String {
+        let source = name ?? handle ?? email ?? ""
+        return source.first.map { String($0).uppercased() } ?? "?"
+    }
 }
