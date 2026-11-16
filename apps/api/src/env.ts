@@ -38,6 +38,11 @@ export type Env = {
   EMAIL_FROM: string;
   /** Where reports of clips and pages go: Hop's team. */
   REPORTS_EMAIL: string;
+  /**
+   * Hop's team: account IDs (usr_…), comma-separated, who may see the
+   * private stats page (/admin). A secret, so the list isn't in the repo.
+   */
+  ADMIN_USER_IDS?: string;
   /** Resend API key. Optional locally, where emails are logged instead of sent. */
   RESEND_API_KEY?: string;
   /**

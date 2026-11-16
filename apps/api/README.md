@@ -230,6 +230,18 @@ Free-plan clips are kept for 30 days (`PLANS.free.retentionDays`), then removed 
 
 The app registers its push token with `PUT /api/me/devices/:token { environment }` (rate limited, at most five phones per athlete, newest kept) and removes it on sign-out (`DELETE /api/me/devices/:token`). Each install has one token, so signing in to another account moves it. The app refreshes its token every launch, and one not refreshed in 90 days is forgotten. Notifications use the same APNs key as Live Activities, as `alert` pushes to the app's own topic. Only Apple's 410 makes the API forget a token: a 400 such as `DeviceTokenNotForTopic` is likelier this server's setup than the phone.
 
+## Stats page
+
+`onmyhop.com/admin` shows Hop's numbers to Hop's team: athletes (new and active), people who sent clips, events, clips, storage by plan, Hop+ subscribers, the waitlist, and the last 30 days day by day (`GET /api/admin/stats`, `src/stats.ts`). It's counts and sums over what the API stores anyway, read on demand: nothing new is collected, and nothing is about anyone in particular.
+
+Only accounts listed in the `ADMIN_USER_IDS` secret (comma-separated `usr_…` IDs) can see it. Everyone else, signed in or not, gets the same 404 as any unknown page. Set it per environment:
+
+```sh
+pnpm --filter @hop/api exec wrangler secret put ADMIN_USER_IDS --env production
+```
+
+"Active" athletes used the app (app sessions renew at most daily, so that's right to the day) or the website (a lower bound: its sessions renew in their last week) in the window. "People who sent clips" are counted by account when signed in, otherwise by browser.
+
 ## Hop+ subscriptions
 
 Athletes subscribe to Hop+ in the iPhone app, through the App Store. The plans are in `packages/shared/src/limits.ts`:

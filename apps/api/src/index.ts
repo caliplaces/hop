@@ -12,6 +12,7 @@ import { APP_SITE_ASSOCIATION_PATH, appSiteAssociation } from "./lib/oidc";
 import { loadSession } from "./lib/session";
 import { announceNewClips } from "./notify";
 import { announceReports } from "./reports";
+import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { billingRoutes } from "./routes/billing";
 import { devRoutes } from "./routes/dev";
@@ -58,6 +59,7 @@ app.route("/", deviceRoutes);
 app.route("/", liveActivityRoutes);
 app.route("/", billingRoutes);
 app.route("/", waitlistRoutes);
+app.route("/", adminRoutes);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 app.use("/dev/*", async (c, next) => {
   // Belt and braces: even a mistaken deploy with development vars can't expose these.

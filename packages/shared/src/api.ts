@@ -327,3 +327,35 @@ export const fileUrlsSchema = z.object({
 export type PublicConfig = { turnstileSiteKey: string };
 
 export type ApiError = { error: string; message?: string };
+
+/** Counts in the last day, week and 30 days. */
+export type Recent = { day: number; week: number; month: number };
+
+/**
+ * Hop's numbers, for the private stats page (/admin): counts only, nothing
+ * about anyone in particular. See apps/api/src/stats.ts.
+ */
+export type AdminStats = {
+  generatedAt: number;
+  /** Accounts with a handle (athletes), not deleted. */
+  athletes: { total: number; new: Recent; active: Recent; deleted: number };
+  /** Distinct people who sent clips (by browser, or account if signed in). */
+  senders: Recent;
+  /** Events: Hops other than each athlete's standing one. */
+  events: { total: number; new: Recent };
+  clips: { total: number; new: Recent };
+  storage: {
+    /** Clips kept (complete, or held for a report). */
+    bytes: number;
+    /** Uploads under way. */
+    pendingBytes: number;
+    /** What the free plan and Hop+ athletes keep. */
+    freeBytes: number;
+    plusBytes: number;
+  };
+  plus: { subscribers: number };
+  waitlist: number;
+  /** The last 30 days, oldest first; days start at midnight UTC. */
+  daily: { day: string; athletes: number; events: number; clips: number; bytes: number }[];
+};
+
