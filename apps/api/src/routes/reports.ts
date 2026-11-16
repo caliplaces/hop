@@ -1,5 +1,5 @@
 import { type Block, normalizeHandle, pageReportSchema, reportSchema } from "@hop/shared";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db";
@@ -52,10 +52,16 @@ export const reportRoutes = new Hono<AppEnv>()
           createdAt: now,
         })
         .onConflictDoNothing(),
+      // Held from the first report, so reporting again doesn't stretch it.
       // Not one already going: deleting it claimed it first (lib/files.ts).
       db
         .update(files)
-        .set({ heldUntil: sql`max(coalesce(${files.heldUntil}, 0), ${now + HOLD_MS})` })
+        .set({
+          heldUntil: sql`max(coalesce(${files.heldUntil}, 0), (
+            select min(${reports.createdAt}) from ${reports}
+            where ${reports.kind} = 'clip' and ${reports.fileId} = ${file.id}
+          ) + ${HOLD_MS})`,
+        })
         .where(and(eq(files.id, file.id), inArray(files.status, ["pending", "complete", "held"]))),
     ]);
     return c.json({ ok: true });
@@ -81,12 +87,12 @@ export const reportRoutes = new Hono<AppEnv>()
       // Clips from before sender keys carry no way to recognise their sender.
       return fail(c, 422, "cant_block", "This clip's sender can't be blocked. You can report it.");
     }
-    await saveBlock(db, user.id, file);
+    const keys = await saveBlock(db, user.id, file);
 
     const now = Date.now();
     const theirs = [
       ...(file.contributorUserId ? [eq(files.contributorUserId, file.contributorUserId)] : []),
-      ...(file.senderKey ? [eq(files.senderKey, file.senderKey)] : []),
+      ...(keys.length > 0 ? [inArray(files.senderKey, keys)] : []),
     ];
     const [, removed] = await db.batch([
       db
@@ -205,14 +211,18 @@ function aboutClip(file: FileRow) {
   };
 }
 
+/** At most this many browser keys go in one statement (D1 binds 100 values). */
+const KEYS_PER_INSERT = 20;
+
 /**
  * Blocks whoever sent `file`, every way they're known: by account if they
- * were signed in, and by this browser's key. A sender seen with several
+ * were signed in, and by this browser's key, and every other browser they
+ * sent this athlete clips from while signed in. Returns those keys. A sender seen with several
  * browsers gets one block covering each key it was given (block_keys), so
  * signing out on any of them doesn't help. An existing block of the same
  * sender learns what it lacked.
  */
-async function saveBlock(db: Db, ownerId: string, file: FileRow) {
+async function saveBlock(db: Db, ownerId: string, file: FileRow): Promise<string[]> {
   const now = Date.now();
   let block = file.contributorUserId
     ? await db
@@ -262,13 +272,33 @@ async function saveBlock(db: Db, ownerId: string, file: FileRow) {
       if (winner) blockId = winner.id;
     }
   }
-  if (file.senderKey) {
+  const keys = new Set(file.senderKey ? [file.senderKey] : []);
+  if (file.contributorUserId) {
+    const seen = await db
+      .selectDistinct({ key: files.senderKey })
+      .from(files)
+      .where(
+        and(
+          eq(files.ownerId, ownerId),
+          eq(files.contributorUserId, file.contributorUserId),
+          isNotNull(files.senderKey),
+        ),
+      );
+    for (const { key } of seen) if (key) keys.add(key);
+  }
+  const all = [...keys];
+  for (let i = 0; i < all.length; i += KEYS_PER_INSERT) {
     // A key already blocked (under another block of theirs) stays where it is.
     await db
       .insert(blockKeys)
-      .values({ ownerId, senderKey: file.senderKey, blockId, createdAt: now })
+      .values(
+        all
+          .slice(i, i + KEYS_PER_INSERT)
+          .map((senderKey) => ({ ownerId, senderKey, blockId, createdAt: now })),
+      )
       .onConflictDoNothing();
   }
+  return all;
 }
 
 function isUniqueViolation(error: unknown): boolean {

@@ -287,12 +287,21 @@ describe("reporting a clip", () => {
     expect(sent).toEqual([]);
   });
 
-  it("counts reporting the same clip twice as once", async () => {
+  it("counts reporting the same clip twice as once, its hold included", async () => {
     await post(`/me/files/${trollClip}/report`, { reason: "spam" }, as(alexToken));
-    expect(
-      (await post(`/me/files/${trollClip}/report`, { reason: "other" }, as(alexToken))).status,
-    ).toBe(200);
+    // As if that first report was ten days ago.
+    const firstAt = Date.now() - 10 * DAY;
+    await db.update(reports).set({ createdAt: firstAt });
+    await db
+      .update(files)
+      .set({ heldUntil: firstAt + HOLD_MS })
+      .where(eq(files.id, trollClip));
+    const again = await post(`/me/files/${trollClip}/report`, { reason: "other" }, as(alexToken));
+    expect(again.status).toBe(200);
     expect(await db.select().from(reports)).toHaveLength(1);
+    // Still a month from the first report, not from this one.
+    const after = await db.select().from(files).where(eq(files.id, trollClip)).get();
+    expect(after?.heldUntil).toBe(firstAt + HOLD_MS);
   });
 
   it("names the account when the sender was signed in", async () => {
@@ -539,12 +548,16 @@ describe("blocking a sender", () => {
       senderKey: await sha256Hex(otherKey),
     });
     await post(`/me/files/${withKey}/block`, {}, as(alexToken));
+    // Both browsers Bea sent from while signed in, the first one included.
     expect(await blockList()).toEqual([
-      expect.objectContaining({ contributorUserId: "usr_b", keys: [await sha256Hex(otherKey)] }),
+      expect.objectContaining({
+        contributorUserId: "usr_b",
+        keys: [await sha256Hex(beaKey), await sha256Hex(otherKey)].sort(),
+      }),
     ]);
   });
 
-  it("covers every browser a signed-in sender was blocked from, so none gets past by signing out", async () => {
+  it("covers every browser a signed-in sender used, from blocking one clip", async () => {
     const browserA = randomToken();
     const browserB = randomToken();
     const fromA = await clip("hop_a", "usr_a", {
@@ -552,24 +565,31 @@ describe("blocking a sender", () => {
       name: "@bea",
       senderKey: await sha256Hex(browserA),
     });
-    const fromB = await clip("hop_a", "usr_a", {
+    await clip("hop_a", "usr_a", {
       userId: "usr_b",
       name: "@bea",
       senderKey: await sha256Hex(browserB),
     });
-    await post(`/me/files/${fromA}/block`, {}, as(alexToken));
-    // B's clip went with the first block, but blocking it again (from a
-    // list loaded before) still adds its browser.
-    await db.update(files).set({ status: "complete" }).where(eq(files.id, fromB));
-    await post(`/me/files/${fromB}/block`, {}, as(alexToken));
+    // From browser B again, signed out this time.
+    const anonymousFromB = await clip("hop_a", "usr_a", {
+      name: "Someone",
+      senderKey: await sha256Hex(browserB),
+    });
+
+    const response = await post(`/me/files/${fromA}/block`, {}, as(alexToken));
     expect(await blockList()).toEqual([
       expect.objectContaining({
         contributorUserId: "usr_b",
         keys: [await sha256Hex(browserA), await sha256Hex(browserB)].sort(),
       }),
     ]);
+    // Signed out, neither browser gets through.
     expect((await pass("hop_a", cookieFor(browserA))).response.status).toBe(403);
     expect((await pass("hop_a", cookieFor(browserB))).response.status).toBe(403);
+    // And what came from them leaves the inbox, signed in or not.
+    const removed = ((await response.json()) as { removedIds: string[] }).removedIds;
+    expect(removed).toContain(anonymousFromB);
+    expect(removed).toHaveLength(3);
   });
 
   it("adds the browser to the winning block when two blocks of an account land at once", async () => {
