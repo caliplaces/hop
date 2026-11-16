@@ -14,10 +14,13 @@ struct DeleteAccountView: View {
 
     private static let red = Color(light: 0xD92D20, dark: 0xFF6369)
 
-    /// What to say about Hop+, which Apple keeps billing after the account goes.
+    /// What to say about Hop+, which Apple keeps billing after the account
+    /// goes. Hop+ from the website is cancelled with the account.
     nonisolated enum BillingNote: Equatable {
         /// Hop+ that will renew: it has to be cancelled with Apple.
         case renews
+        /// Hop+ from the website: cancelled at once, with the account.
+        case endsWithAccount
         /// The plan hasn't loaded, or couldn't: a paying athlete mustn't
         /// miss the warning, so it's given in general terms.
         case unknown
@@ -27,7 +30,9 @@ struct DeleteAccountView: View {
 
     nonisolated static func billingNote(for status: PlanStatus?) -> BillingNote {
         guard let status else { return .unknown }
-        return status.plan == .plus && status.subscription?.autoRenew == true ? .renews : .none
+        guard status.plan == .plus, let subscription = status.subscription else { return .none }
+        if subscription.isFromWebsite { return .endsWithAccount }
+        return subscription.autoRenew ? .renews : .none
     }
 
     var body: some View {
@@ -66,6 +71,12 @@ struct DeleteAccountView: View {
             switch Self.billingNote(for: hopPlus.status) {
             case .renews:
                 billing("Deleting your account doesn’t cancel Hop+. Apple keeps billing you until you cancel it.")
+            case .endsWithAccount:
+                Section {
+                    row("Your Hop+ is cancelled with your account, and the rest of this period isn’t refunded.", systemImage: "creditcard")
+                } header: {
+                    Text(verbatim: "Hop+")
+                }
             case .unknown:
                 billing("If you have Hop+, deleting your account doesn’t cancel it. Apple keeps billing you until you cancel it.")
             case .none:

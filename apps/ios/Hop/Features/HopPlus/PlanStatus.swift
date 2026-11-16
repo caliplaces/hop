@@ -19,13 +19,19 @@ nonisolated struct PlanStatus: Codable, Equatable, Sendable {
     }
 
     struct Subscription: Codable, Equatable, Sendable {
+        /// Where it was bought, which is where it's managed: "apple" (the
+        /// App Store) or "stripe" (the Hop website). Older servers don't say.
+        let provider: String?
         let productId: String
         /// End of the paid period, in milliseconds.
         let expiresAt: Int64
-        /// While Apple retries a failed renewal, Hop+ carries on until this.
+        /// While a failed renewal is retried, Hop+ carries on until this.
         let graceExpiresAt: Int64?
         let autoRenew: Bool
         let environment: String
+
+        /// Bought on the Hop website, so it's managed there, not with Apple.
+        var isFromWebsite: Bool { provider == "stripe" }
     }
 
     struct Plans: Codable, Equatable, Sendable {
@@ -80,7 +86,7 @@ nonisolated struct PlanStatus: Codable, Equatable, Sendable {
     /// No room for another clip until some go, or Hop+.
     var isFull: Bool { storage.usedBytes >= storage.limitBytes }
 
-    /// The paid period ended and Apple is retrying the payment: Hop+ lasts
+    /// The paid period ended and the payment is being retried: Hop+ lasts
     /// until the returned date unless it goes through.
     func billingGraceEnds(at now: Date = .now) -> Date? {
         guard let subscription, let grace = subscription.graceExpiresAt else { return nil }

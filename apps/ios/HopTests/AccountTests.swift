@@ -158,9 +158,10 @@ struct MyHopTests {
 
 @Suite("Deleting an account")
 struct DeleteAccountTests {
-    private func status(plan: String, autoRenew: Bool?) throws -> PlanStatus {
+    private func status(plan: String, autoRenew: Bool?, provider: String? = nil) throws -> PlanStatus {
+        let from = provider.map { #""provider":"\#($0)","# } ?? ""
         let subscription = autoRenew.map {
-            #"{"productId":"hop_plus","expiresAt":9999999999999,"graceExpiresAt":null,"autoRenew":\#($0),"environment":"Production"}"#
+            #"{\#(from)"productId":"hop_plus","expiresAt":9999999999999,"graceExpiresAt":null,"autoRenew":\#($0),"environment":"Production"}"#
         } ?? "null"
         let json = """
             {"plan":"\(plan)","storage":{"usedBytes":0,"limitBytes":1},"retentionDays":null,
@@ -173,6 +174,15 @@ struct DeleteAccountTests {
 
     @Test func warnsAboutHopPlusThatRenews() throws {
         #expect(DeleteAccountView.billingNote(for: try status(plan: "plus", autoRenew: true)) == .renews)
+    }
+
+    @Test func saysHopPlusFromTheWebsiteEndsWithTheAccount() throws {
+        for autoRenew in [true, false] {
+            let note = DeleteAccountView.billingNote(for: try status(plan: "plus", autoRenew: autoRenew, provider: "stripe"))
+            #expect(note == .endsWithAccount)
+        }
+        // From the App Store, or from a server too old to say.
+        #expect(DeleteAccountView.billingNote(for: try status(plan: "plus", autoRenew: true, provider: "apple")) == .renews)
     }
 
     @Test func warnsAnywayWhileThePlanIsUnknown() {

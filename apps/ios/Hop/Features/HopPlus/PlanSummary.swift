@@ -61,7 +61,9 @@ struct PlanSummary: View {
         if let grace = status.billingGraceEnds() {
             let date = grace.formatted(date: .abbreviated, time: .omitted)
             return (
-                String(localized: "Your payment didn’t go through. Hop+ continues until \(date) while the App Store tries again."),
+                subscription.isFromWebsite
+                    ? String(localized: "Your payment didn’t go through. Hop+ continues until \(date) while it’s tried again. Update your card on the Hop website.")
+                    : String(localized: "Your payment didn’t go through. Hop+ continues until \(date) while the App Store tries again."),
                 "exclamationmark.triangle",
                 true
             )

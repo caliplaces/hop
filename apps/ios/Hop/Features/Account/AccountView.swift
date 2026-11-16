@@ -34,7 +34,13 @@ struct AccountView: View {
                 Section("Plan") {
                     if let status = hopPlus.status {
                         PlanSummary(status: status, color: color)
-                        if status.plan == .plus {
+                        if status.plan == .plus, status.subscription?.isFromWebsite == true {
+                            // Apple's sheet can't manage it, and the app
+                            // doesn't link to payments elsewhere.
+                            Label("Billed through the Hop website, where you can manage it.", systemImage: "creditcard")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.muted)
+                        } else if status.plan == .plus {
                             Button("Manage Subscription", systemImage: "creditcard") {
                                 managingSubscription = true
                             }
