@@ -155,3 +155,32 @@ struct MyHopTests {
         #expect((21...41).contains(image.width))
     }
 }
+
+@Suite("Deleting an account")
+struct DeleteAccountTests {
+    private func status(plan: String, autoRenew: Bool?) throws -> PlanStatus {
+        let subscription = autoRenew.map {
+            #"{"productId":"hop_plus","expiresAt":9999999999999,"graceExpiresAt":null,"autoRenew":\#($0),"environment":"Production"}"#
+        } ?? "null"
+        let json = """
+            {"plan":"\(plan)","storage":{"usedBytes":0,"limitBytes":1},"retentionDays":null,
+             "subscription":\(subscription),"appAccountToken":"1b4e28ba-2fa1-11d2-883f-0016d3cca427",
+             "plans":{"free":{"storageBytes":1,"retentionDays":30},"plus":{"storageBytes":2,"retentionDays":null}},
+             "revision":1}
+            """
+        return try JSONDecoder().decode(PlanStatus.self, from: Data(json.utf8))
+    }
+
+    @Test func warnsAboutHopPlusThatRenews() throws {
+        #expect(DeleteAccountView.billingNote(for: try status(plan: "plus", autoRenew: true)) == .renews)
+    }
+
+    @Test func warnsAnywayWhileThePlanIsUnknown() {
+        #expect(DeleteAccountView.billingNote(for: nil) == .unknown)
+    }
+
+    @Test func saysNothingWhenThereIsNothingToCancel() throws {
+        #expect(DeleteAccountView.billingNote(for: try status(plan: "free", autoRenew: nil)) == .none)
+        #expect(DeleteAccountView.billingNote(for: try status(plan: "plus", autoRenew: false)) == .none)
+    }
+}

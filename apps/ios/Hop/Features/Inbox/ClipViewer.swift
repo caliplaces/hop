@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// An event's clips, full screen: swipe sideways between them, tap to pause,
-/// and save, share or delete the one showing.
+/// and save, share, report, block the sender of or delete the one showing.
 struct ClipViewer: View {
     let hopId: String
     let model: InboxModel
@@ -18,6 +18,12 @@ struct ClipViewer: View {
     /// that before the sheet's dismiss callback runs.
     @State private var shared: SharedFile?
     @State private var problem: String?
+    /// A word on how something went, such as a report sent.
+    @State private var notice: String?
+    @State private var reporting: Clip?
+    @State private var blocking: Clip?
+    /// Flipped once a sender is blocked, for the haptic.
+    @State private var blockedSender = false
     /// The clip showing, kept in the list even if a refresh drops it.
     @State private var showing: Clip?
 
@@ -84,12 +90,38 @@ struct ClipViewer: View {
         } message: {
             Text("It’s removed for good, for you and from Hop.")
         }
+        .confirmationDialog(
+            "Block \(blocking?.contributor ?? "")?",
+            isPresented: Binding(get: { blocking != nil }, set: { if !$0 { blocking = nil } }),
+            titleVisibility: .visible,
+            presenting: blocking
+        ) { clip in
+            Button("Block", role: .destructive) { Task { await block(clip) } }
+        } message: { _ in
+            Text("Their clips leave your inbox, and they can’t send you more. You can unblock them in Account.")
+        }
+        .sheet(item: $reporting) { clip in
+            ReportClipSheet(clip: clip) { removed, blockProblem in
+                if let removed {
+                    Task { await leaveAfterBlocking(removed) }
+                } else {
+                    notice = String(localized: "Reported. Thanks for telling us.")
+                    if let blockProblem { problem = blockProblem }
+                }
+            }
+        }
+        .task(id: notice) {
+            guard notice != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            notice = nil
+        }
         .sheet(item: $sharing, onDismiss: removeSharedFile) { file in
             ActivityView(items: [file.url])
                 .presentationDetents([.medium, .large])
                 .ignoresSafeArea()
         }
         .sensoryFeedback(.success, trigger: transfer.state == .saved) { _, saved in saved }
+        .sensoryFeedback(.success, trigger: blockedSender)
     }
 
     private var topBar: some View {
@@ -138,6 +170,15 @@ struct ClipViewer: View {
                     .padding(.vertical, 10)
                     .glassEffect(.regular, in: .rect(cornerRadius: 18))
             }
+            if let notice {
+                Label(notice, systemImage: "checkmark.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity)
+            }
             if let message = problem ?? failure {
                 Text(message)
                     .font(.footnote)
@@ -165,12 +206,22 @@ struct ClipViewer: View {
                     }
                     .disabled(transfer.isBusy)
 
-                    Button(role: .destructive) {
-                        confirmingDelete = true
+                    Menu {
+                        Button("Report Clip…", systemImage: "exclamationmark.bubble") {
+                            reporting = clip
+                        }
+                        Button("Block \(clip?.contributor ?? "")", systemImage: "hand.raised") {
+                            blocking = clip
+                        }
+                        Divider()
+                        Button("Delete Clip", systemImage: "trash", role: .destructive) {
+                            confirmingDelete = true
+                        }
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "ellipsis")
+                            .frame(height: 22)
                     }
-                    .accessibilityLabel("Delete")
+                    .accessibilityLabel("More")
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -234,6 +285,27 @@ struct ClipViewer: View {
     private func removeSharedFile() {
         shared?.removeFile()
         shared = nil
+    }
+
+    private func block(_ clip: Clip) async {
+        problem = nil
+        do {
+            let removed = try await Moderation.block(clip, api: session.api)
+            await leaveAfterBlocking(removed)
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    /// A block takes the sender's clips out of the inbox, the one showing
+    /// included: drop them at once, close, and bring the inbox up to date.
+    /// If the reload fails, the clips the server named are gone all the same.
+    private func leaveAfterBlocking(_ removed: Set<String>) async {
+        blockedSender.toggle()
+        showing = nil
+        model.drop(removed)
+        dismiss()
+        await model.refresh(api: session.api, activeHopId: session.me?.activeHopId)
     }
 
     private func delete() async {

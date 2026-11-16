@@ -4,6 +4,8 @@ import SwiftUI
 /// Screens the account sheet pushes.
 enum AccountRoute: Hashable {
     case profile
+    case blockedSenders
+    case deleteAccount
 }
 
 /// The athlete's account: who they are, their plan and storage, and signing out.
@@ -85,12 +87,25 @@ struct AccountView: View {
                 }
 
                 Section {
+                    NavigationLink(value: AccountRoute.blockedSenders) {
+                        Label("Blocked Senders", systemImage: "hand.raised")
+                    }
+                }
+
+                Section {
                     Button(role: .destructive) {
                         dismiss()
                         Task { await session.signOut() }
                     } label: {
                         // Red throughout, icon included.
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    NavigationLink(value: AccountRoute.deleteAccount) {
+                        Text("Delete Account")
                             .foregroundStyle(.red)
                     }
                 }
@@ -103,6 +118,10 @@ struct AccountView: View {
                 switch route {
                 case .profile:
                     if let me = session.me { EditProfileView(me: me, session: session) }
+                case .blockedSenders:
+                    BlockedSendersView(api: session.api)
+                case .deleteAccount:
+                    DeleteAccountView()
                 }
             }
             .navigationTitle("Account")
@@ -155,6 +174,8 @@ struct AccountView: View {
         switch problem {
         case .otherAccount:
             String(localized: "Hop+ on this Apple Account belongs to another Hop account.")
+        case .deletedAccount:
+            String(localized: "Hop+ on this Apple Account belongs to a deleted Hop account. Cancel it in your Apple Account’s subscriptions, then subscribe again.")
         case .testPurchase:
             String(localized: "Purchases in test builds don’t unlock Hop+.")
         case .unverified:

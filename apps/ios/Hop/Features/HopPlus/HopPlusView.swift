@@ -115,6 +115,7 @@ struct HopPlusView: View {
         init(_ problem: HopPlus.Problem) {
             self = switch problem {
             case .otherAccount: .otherAccount
+            case .deletedAccount: .deletedAccount
             case .testPurchase: .testPurchase
             case .unverified: .unverified
             }
@@ -131,6 +132,10 @@ struct HopPlusView: View {
         static let otherAccount = Notice(
             title: String(localized: "Hop+ is on another account"),
             message: String(localized: "This Apple Account’s Hop+ belongs to another Hop account. Sign in with that one to use it.")
+        )
+        static let deletedAccount = Notice(
+            title: String(localized: "Hop+ is on a deleted account"),
+            message: String(localized: "This Apple Account’s Hop+ belongs to a Hop account that was deleted. Cancel it in your Apple Account’s subscriptions, then subscribe again here.")
         )
         static let testPurchase = Notice(
             title: String(localized: "Test purchase"),
