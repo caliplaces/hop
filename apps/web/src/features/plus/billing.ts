@@ -41,29 +41,56 @@ export function billingGraceEnds(
   return subscription.expiresAt <= now && now < grace ? grace : null;
 }
 
+/** Stripe's own pages: the only places these redirects go. */
+const STRIPE_HOSTS = new Set(["checkout.stripe.com", "billing.stripe.com"]);
+
+export function isStripePage(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && STRIPE_HOSTS.has(hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Checkout refused: a subscription is still billing but behind, and the portal fixes it. */
+export const isPaymentDue = (error: unknown) =>
+  error instanceof ApiError && error.code === "payment_due";
+
 /**
  * Sends the browser to a Stripe page the API makes: Checkout for a price,
- * or the customer portal. It stays pending while the page leaves.
+ * or the customer portal. It stays pending while the page leaves. Errors
+ * are toasts, except those the page shows itself (`shown`).
  */
-function useStripeRedirect<T>(path: string, body: (input: T) => unknown) {
+function useStripeRedirect<T>(
+  path: string,
+  body: (input: T) => unknown,
+  shown: (error: unknown) => boolean = () => false,
+) {
   const { toast } = useFeedback();
   const mutation = useMutation({
-    mutationFn: (input: T) => api<BillingRedirect>(path, { method: "POST", json: body(input) }),
-    onSuccess: ({ url }) => window.location.assign(url),
-    onError: (error) =>
+    mutationFn: async (input: T) => {
+      const { url } = await api<BillingRedirect>(path, { method: "POST", json: body(input) });
+      if (!isStripePage(url)) throw new Error(`Not a Stripe page: ${url}`);
+      return url;
+    },
+    onSuccess: (url) => window.location.assign(url),
+    onError: (error) => {
+      if (shown(error)) return;
       toast(
         error instanceof ApiError
           ? error.message
           : "Couldn’t reach Hop. Check your connection and try again.",
         "error",
-      ),
+      );
+    },
   });
   return { ...mutation, opening: mutation.isPending || mutation.isSuccess };
 }
 
 /** Starts Stripe Checkout for one of the website's Hop+ prices. */
 export const useCheckout = () =>
-  useStripeRedirect<string>("/billing/web/checkout", (priceId) => ({ priceId }));
+  useStripeRedirect<string>("/billing/web/checkout", (priceId) => ({ priceId }), isPaymentDue);
 
 /** Opens Stripe's customer portal: payment method, invoices, cancelling. */
 export const usePortal = () => useStripeRedirect<void>("/billing/web/portal", () => ({}));

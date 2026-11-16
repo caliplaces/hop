@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
 import { formatBytes } from "../../lib/format";
 import { queries } from "../../lib/queries";
-import { formatPrice, useCheckout, yearlySaving } from "./billing";
+import { formatPrice, isPaymentDue, useCheckout, usePortal, yearlySaving } from "./billing";
 
 function Perk({ icon: Icon, children }: { icon: LucideIcon; children: string }) {
   return (
@@ -67,6 +67,7 @@ export function HopPlusOffer({ perks = false }: { perks?: boolean }) {
   const prices = useQuery(queries.prices());
   const plan = useQuery(queries.plan());
   const checkout = useCheckout();
+  const portal = usePortal();
   const [chosen, setChosen] = useState<string | null>(null);
 
   if (prices.isPending) return <div className="skeleton h-32 rounded-2xl" />;
@@ -109,6 +110,20 @@ export function HopPlusOffer({ perks = false }: { perks?: boolean }) {
       >
         {checkout.opening ? "Opening checkout…" : "Get Hop+"}
       </Button>
+      {isPaymentDue(checkout.error) && (
+        <div role="alert" className="mt-4 rounded-2xl bg-danger/10 p-4 text-sm">
+          <p className="text-danger">{checkout.error?.message}</p>
+          <Button
+            size="sm"
+            variant="soft"
+            className="mt-3"
+            disabled={portal.opening}
+            onClick={() => portal.mutate()}
+          >
+            {portal.opening ? "Opening…" : "Update your card"}
+          </Button>
+        </div>
+      )}
       <p className="mt-3 text-xs leading-relaxed text-muted">
         Renews automatically until you cancel, which you can do anytime from your account. Payments
         are handled by Stripe. By subscribing you agree to the{" "}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { billingGraceEnds, formatPrice, yearlySaving } from "./billing";
+import { billingGraceEnds, formatPrice, isStripePage, yearlySaving } from "./billing";
 
 const monthly = { id: "m", amount: 499, currency: "eur", interval: "month" as const };
 const yearly = { id: "y", amount: 4900, currency: "eur", interval: "year" as const };
@@ -36,5 +36,22 @@ describe("a billing grace period", () => {
     expect(billingGraceEnds({ ...subscription, graceExpiresAt: now - 1 }, now)).toBeNull();
     expect(billingGraceEnds({ ...subscription, graceExpiresAt: null }, now)).toBeNull();
     expect(billingGraceEnds(null, now)).toBeNull();
+  });
+});
+
+describe("redirects", () => {
+  it("only go to Stripe's own pages", () => {
+    expect(isStripePage("https://checkout.stripe.com/c/pay/cs_test_1")).toBe(true);
+    expect(isStripePage("https://billing.stripe.com/p/session/test_1")).toBe(true);
+    for (const url of [
+      "http://checkout.stripe.com/c/pay/cs_test_1",
+      "https://checkout.stripe.com.evil.example/",
+      "https://evil.example/?https://checkout.stripe.com",
+      "javascript:alert(1)",
+      "/app",
+      "",
+    ]) {
+      expect(isStripePage(url)).toBe(false);
+    }
   });
 });
