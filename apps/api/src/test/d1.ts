@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 
-type SqliteValue = null | number | bigint | string | Uint8Array;
+export type SqliteValue = null | number | bigint | string | Uint8Array;
 
 const migrations = import.meta.glob<string>("../../migrations/*.sql", {
   query: "?raw",
@@ -15,8 +15,11 @@ const MAX_BOUND_VALUES = 100;
  * An in-memory D1Database for tests: Node's SQLite with every migration in
  * apps/api/migrations applied, behind just enough of D1's API for
  * drizzle-orm/d1 (prepare, bind, all, raw, run, first, batch).
+ * `onQuery` sees each statement as it runs, such as to check its query plan.
  */
-export function createTestD1(): D1Database {
+export function createTestD1(
+  options: { onQuery?: (query: string, params: SqliteValue[]) => void } = {},
+): D1Database {
   const sqlite = new DatabaseSync(":memory:");
   for (const path of Object.keys(migrations).sort()) {
     for (const statement of (migrations[path] ?? "").split("--> statement-breakpoint")) {
@@ -32,13 +35,18 @@ export function createTestD1(): D1Database {
       }
       return statement(query, next);
     },
-    all: async () => ({ success: true, meta: {}, results: sqlite.prepare(query).all(...params) }),
+    all: async () => {
+      options.onQuery?.(query, params);
+      return { success: true, meta: {}, results: sqlite.prepare(query).all(...params) };
+    },
     raw: async () => {
+      options.onQuery?.(query, params);
       const prepared = sqlite.prepare(query);
       prepared.setReturnArrays(true);
       return prepared.all(...params);
     },
     run: async () => {
+      options.onQuery?.(query, params);
       const result = sqlite.prepare(query).run(...params);
       return {
         success: true,
@@ -47,6 +55,7 @@ export function createTestD1(): D1Database {
       };
     },
     first: async (column?: string) => {
+      options.onQuery?.(query, params);
       const row = sqlite.prepare(query).get(...params);
       return column ? (row?.[column] ?? null) : (row ?? null);
     },

@@ -12,6 +12,7 @@ import { reportsEmail } from "../email/report";
 import type { RenderedEmail } from "../email/send";
 import { welcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
+import { statedDay } from "../expiry";
 import { newId, verifyPayload } from "../lib/crypto";
 import { originalKey } from "../lib/files";
 import { BodyTooLargeError, fail, readBodyCapped } from "../lib/http";
@@ -81,7 +82,7 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
     clipsExpiringEmail({
       appUrl,
       clips: Math.max(Number(query("count")) || 12, 1),
-      at: Date.now() + (query("when") === "reminder" ? 1 : 7) * 24 * 60 * 60 * 1000,
+      day: statedDay(Date.now() - (query("when") === "reminder" ? 6 : 0) * 24 * 60 * 60 * 1000),
       when: query("when") === "reminder" ? "reminder" : "notice",
     }),
   // ?app=1 adds the App Store link.

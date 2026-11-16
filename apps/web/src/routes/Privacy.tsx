@@ -91,6 +91,10 @@ export function Privacy() {
           <li>
             For Event mode: the push token Apple gives your Live Activity, until the event ends.
           </li>
+          <li>
+            If you turn on notifications in the app: the push token Apple gives it on your phone,
+            until you sign out there, or after 90 days without opening the app.
+          </li>
           <li>Your email settings, the senders you’ve blocked and the reports you’ve made.</li>
         </List>
       </Section>
@@ -140,8 +144,9 @@ export function Privacy() {
           <li>Where the law requires it, for example keeping reported content for a while.</li>
         </List>
         <p>
-          Hop emails you when clips arrive. Every email has an unsubscribe link, and you can turn
-          them off in your account.
+          Hop emails you when clips arrive. Those emails have an unsubscribe link, and you can turn
+          them off in your account. Notices that clips are about to be removed, and other messages
+          about your account, come whatever that setting.
         </p>
       </Section>
 
@@ -154,8 +159,10 @@ export function Privacy() {
           </li>
           <li>Resend delivers Hop’s emails.</li>
           <li>Apple handles App Store purchases and the app’s push notifications.</li>
-          <li>Caliplaces handles sign-in.</li>
         </List>
+        <p>
+          You sign in with your Caliplaces account, which Caliplaces, the company behind Hop, runs.
+        </p>
         <p>
           Some of them process data outside the EU, under safeguards such as the EU’s Standard
           Contractual Clauses.
@@ -165,10 +172,11 @@ export function Privacy() {
       <Section title="How long it’s kept">
         <List>
           <li>
-            Clips: with Hop+, until you delete them or your account. On the free plan, 30 days after
-            they arrive. You’ll hear by email and on your phone a week before, and again the day
-            before, so you can save them or get Hop+. Clips are only ever removed after that notice,
-            then for good, from storage too.
+            Clips: with Hop+, until you delete them or your account. On the free plan, at least 30
+            days after they arrive. At least a week before any go, Hop tells you which day, by email
+            (and on your phone, if you turned notifications on), and usually again the day before,
+            so you can save them or get Hop+. Clips are only removed once that notice has reached
+            you, then for good, from storage too.
           </li>
           <li>Sign-ins: 30 days on the website, and up to a year in the app.</li>
           <li>

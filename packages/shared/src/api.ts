@@ -261,11 +261,12 @@ export type PlanStatus = {
    */
   revision: number;
   /**
-   * Free-plan clips the athlete has been told are about to expire: how many,
-   * and when the first of them go (ms since 1970). Null when none are, as
-   * always with Hop+.
+   * Free-plan clips the athlete has been told are leaving: how many, the day
+   * they were told (`on`, YYYY-MM-DD), and when the first of them may go (ms
+   * since 1970), which is after that day has ended in every time zone. Null
+   * when none are, as always with Hop+.
    */
-  expiring: { clips: number; at: number } | null;
+  expiring: { clips: number; on: string; at: number } | null;
 };
 
 /**

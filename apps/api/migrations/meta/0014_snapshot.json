@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ff18079d-10d8-4afd-8a87-a8d086cdf564",
+  "id": "3aab67c5-8099-4861-9e3a-57e9fda22e20",
   "prevId": "e289a57f-3a7b-40ae-9a2d-0d95b95d7e36",
   "tables": {
     "block_keys": {
@@ -229,6 +229,126 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "expiry_notices": {
+      "name": "expiry_notices",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "clips": {
+          "name": "clips",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "goes_at": {
+          "name": "goes_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "next_attempt_at": {
+          "name": "next_attempt_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pushed_at": {
+          "name": "pushed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "given_at": {
+          "name": "given_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "abandoned_at": {
+          "name": "abandoned_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reminded_at": {
+          "name": "reminded_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "expiry_notices_sending_idx": {
+          "name": "expiry_notices_sending_idx",
+          "columns": [
+            "next_attempt_at"
+          ],
+          "isUnique": false,
+          "where": "\"expiry_notices\".\"given_at\" is null and \"expiry_notices\".\"abandoned_at\" is null"
+        },
+        "expiry_notices_reminder_idx": {
+          "name": "expiry_notices_reminder_idx",
+          "columns": [
+            "goes_at"
+          ],
+          "isUnique": false,
+          "where": "\"expiry_notices\".\"given_at\" is not null and \"expiry_notices\".\"reminded_at\" is null"
+        }
+      },
+      "foreignKeys": {
+        "expiry_notices_user_id_users_id_fk": {
+          "name": "expiry_notices_user_id_users_id_fk",
+          "tableFrom": "expiry_notices",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "expiry_notices_user_id_batch_pk": {
+          "columns": [
+            "user_id",
+            "batch"
+          ],
+          "name": "expiry_notices_user_id_batch_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "files": {
       "name": "files",
       "columns": {
@@ -422,15 +542,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "expiry_noticed_at": {
-          "name": "expiry_noticed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "expiry_reminded_at": {
-          "name": "expiry_reminded_at",
+        "expiry_goes_at": {
+          "name": "expiry_goes_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -517,14 +630,22 @@
           "isUnique": false,
           "where": "\"files\".\"status\" = 'complete' and \"files\".\"expiry_notice_batch\" is null"
         },
-        "files_noticed_idx": {
-          "name": "files_noticed_idx",
+        "files_notice_idx": {
+          "name": "files_notice_idx",
           "columns": [
-            "expiry_notice_batch",
-            "owner_id"
+            "owner_id",
+            "expiry_notice_batch"
           ],
           "isUnique": false,
           "where": "\"files\".\"expiry_notice_batch\" is not null"
+        },
+        "files_goes_idx": {
+          "name": "files_goes_idx",
+          "columns": [
+            "expiry_goes_at"
+          ],
+          "isUnique": false,
+          "where": "\"files\".\"expiry_goes_at\" is not null"
         }
       },
       "foreignKeys": {

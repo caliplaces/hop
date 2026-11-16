@@ -164,14 +164,13 @@ export const files = sqliteTable(
     notifiedAt: integer("notified_at"),
     /**
      * Free-plan expiry (see src/expiry.ts). A clip near the end of its 30
-     * days is claimed into a notice (expiry_notice_batch, the claim time),
-     * and once that notice has gone out, expiry_noticed_at is set: the clip
-     * may go a week later, never before. expiry_reminded_at is the day-before
-     * reminder. All three clear while the athlete has Hop+.
+     * days is claimed into a notice (expiry_notice_batch, the notice's
+     * batch), and once that notice has reached the athlete, expiry_goes_at
+     * is when the clip may go: after the day the notice named has ended
+     * everywhere, never before. Both clear while the athlete has Hop+.
      */
     expiryNoticeBatch: integer("expiry_notice_batch"),
-    expiryNoticedAt: integer("expiry_noticed_at"),
-    expiryRemindedAt: integer("expiry_reminded_at"),
+    expiryGoesAt: integer("expiry_goes_at"),
   },
   (t) => [
     index("files_owner_status_activity_idx").on(t.ownerId, t.status, t.lastActivityAt),
@@ -196,10 +195,12 @@ export const files = sqliteTable(
     index("files_unnoticed_idx")
       .on(t.ownerId, t.completedAt)
       .where(sql`${t.status} = 'complete' and ${t.expiryNoticeBatch} is null`),
-    // Clips in an expiry notice: few, as they go within a week.
-    index("files_noticed_idx")
-      .on(t.expiryNoticeBatch, t.ownerId)
+    // An athlete's clips in expiry notices: few, as they go within a week.
+    index("files_notice_idx")
+      .on(t.ownerId, t.expiryNoticeBatch)
       .where(sql`${t.expiryNoticeBatch} is not null`),
+    // Clips that may go, by when.
+    index("files_goes_idx").on(t.expiryGoesAt).where(sql`${t.expiryGoesAt} is not null`),
   ],
 );
 
@@ -414,3 +415,48 @@ export const devices = sqliteTable(
 );
 
 export type DeviceRow = typeof devices.$inferSelect;
+
+/**
+ * Free-plan expiry notices (see src/expiry.ts), one per athlete and batch:
+ * the clips claimed into it (files.expiry_notice_batch) and how telling the
+ * athlete went. A notice counts once a channel took it (given_at); only then
+ * may its clips go, at goes_at.
+ */
+export const expiryNotices = sqliteTable(
+  "expiry_notices",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** When its clips were claimed: also the email's idempotency key. */
+    batch: integer("batch").notNull(),
+    /** How many clips it names, fixed at the claim so a retry says the same. */
+    clips: integer("clips").notNull(),
+    /** When they go: after the day it names has ended in every time zone. */
+    goesAt: integer("goes_at").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    /** When to try again, while it hasn't reached the athlete. */
+    nextAttemptAt: integer("next_attempt_at").notNull(),
+    /** A phone took the push: it's never pushed again. */
+    pushedAt: integer("pushed_at"),
+    /** It reached the athlete: their clips may go at goes_at. */
+    givenAt: integer("given_at"),
+    /** Tried for long enough without reaching them: its clips were let go. */
+    abandonedAt: integer("abandoned_at"),
+    /** The day-before reminder went (or was skipped). */
+    remindedAt: integer("reminded_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.batch] }),
+    // Notices still being sent, next first.
+    index("expiry_notices_sending_idx")
+      .on(t.nextAttemptAt)
+      .where(sql`${t.givenAt} is null and ${t.abandonedAt} is null`),
+    // Given notices not yet reminded of, by when their clips go.
+    index("expiry_notices_reminder_idx")
+      .on(t.goesAt)
+      .where(sql`${t.givenAt} is not null and ${t.remindedAt} is null`),
+  ],
+);
+
+export type ExpiryNoticeRow = typeof expiryNotices.$inferSelect;

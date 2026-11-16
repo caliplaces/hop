@@ -1,9 +1,29 @@
 import { EXPIRY_NOTICE_DAYS, PLANS } from "@hop/shared";
-import { and, count, eq, gt, inArray, isNotNull, isNull, lte, min, not, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  min,
+  not,
+  or,
+  sql,
+} from "drizzle-orm";
 import { type Db, getDb } from "./db";
-import { devices, files, users } from "./db/schema";
+import {
+  devices,
+  type ExpiryNoticeRow,
+  expiryNotices,
+  files,
+  type UserRow,
+  users,
+} from "./db/schema";
 import { clipsExpiringEmail, clipsExpiringPush } from "./email/clips-expiring";
-import { ResendError, sendEmail } from "./email/send";
+import { sendEmail } from "./email/send";
 import type { Env } from "./env";
 import { pushAlert } from "./lib/apns";
 import { goneStatus } from "./lib/files";
@@ -11,82 +31,142 @@ import { hasPlusSql } from "./lib/plans";
 
 /**
  * Free-plan expiry. Free clips are kept for PLANS.free.retentionDays (30),
- * then removed for good, from R2 too. Before that the athlete hears, by email
- * and on their phone:
+ * then removed for good, from R2 too. Before that the athlete is told:
  *
- *   notice    a week ahead (EXPIRY_NOTICE_DAYS): "12 clips leave on …"
- *   reminder  the day before: "Tomorrow, 12 clips leave"
+ *   notice    a week ahead (EXPIRY_NOTICE_DAYS): "12 clips leave your inbox
+ *             on Monday 23 November", by email, and on their phone if they
+ *             turned notifications on
+ *   reminder  the day before: "Last call: …", best effort
  *
- * A clip goes only once it's 30 days old and its notice went out at least a
- * week before, so none goes unannounced, including the old clips of someone
- * whose Hop+ just ended. Each athlete gets at most one notice and one
- * reminder a day, covering every clip due one. Hop+ clears all of it: a
- * later lapse starts over with a fresh notice.
+ * A notice names a calendar day, the same wherever the athlete is, and its
+ * clips stay until that day has ended everywhere (UTC−12): at least seven and
+ * a half days after it was claimed. It counts only once it reached the
+ * athlete: their verified address took the email, or, with no address, a
+ * phone took the push. Until then its clips stay, however old. A notice that
+ * can't get through is let go after GIVE_UP_AFTER_MS and claimed afresh the
+ * next day, never assumed given.
  *
- * A notice is a batch claimed once (files.expiry_notice_batch) and sent with
- * that batch as its idempotency key, as the new-clips digest does; clips
- * count as noticed (expiry_noticed_at) only once it went. A notice that keeps
- * failing is let go after a day and claimed afresh, never assumed sent.
+ * Each athlete gets at most one notice a day, covering every clip due one,
+ * and at most one reminder a day. Hop+ clears all of it, and for a while
+ * after it ends (LAPSE_MARGIN_MS) nothing is noticed, so a renewal Apple
+ * hasn't told the API of yet can't cost a subscriber their clips.
+ *
+ * The state is in expiry_notices (one row per athlete and batch) and on each
+ * clip: files.expiry_notice_batch (claimed into that notice) and
+ * files.expiry_goes_at (set once the notice is given: when it may go).
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const RETENTION_MS = (PLANS.free.retentionDays ?? 30) * DAY_MS;
 export const NOTICE_MS = EXPIRY_NOTICE_DAYS * DAY_MS;
-/** A notice still unconfirmed this long after its claim; send it again. */
-const RETRY_AFTER_MS = 5 * 60 * 1000;
-/** Resend remembers idempotency keys for a day: past that, claim afresh. */
-const GIVE_UP_AFTER_MS = 23 * 60 * 60 * 1000;
-/** Athletes handled per run; anyone left over goes next run. */
+/** A day ends last in UTC−12, 12 hours after it ends in UTC. */
+const LAST_TIME_ZONE_MS = 12 * 60 * 60 * 1000;
+/** A notice that didn't get through is tried again after this, then twice as long each time… */
+const FIRST_RETRY_MS = 5 * 60 * 1000;
+/** …up to this. */
+const MAX_RETRY_MS = 60 * 60 * 1000;
+/**
+ * A notice not through this long after its claim is let go. Well inside the
+ * day Resend remembers an idempotency key for, and early enough that the day
+ * it names is still more than a week off.
+ */
+const GIVE_UP_AFTER_MS = 6 * 60 * 60 * 1000;
+/** After Hop+ ends, nothing is noticed for this long (see above). */
+export const LAPSE_MARGIN_MS = 30 * DAY_MS;
+/** Reminders go once the clips are this close to going… */
+const REMIND_FROM_MS = 2 * DAY_MS;
+/** …and not this close: too late to help. */
+const REMIND_UNTIL_MS = 60 * 60 * 1000;
+/** At most one reminder within this long. */
+const REMINDER_GAP_MS = 23 * 60 * 60 * 1000;
+/** Athletes handled per run, for each of claiming, sending and reminding. */
 const PER_RUN = 25;
+/** Phones pushed to per athlete; registering keeps no more (routes/devices.ts). */
+export const PHONES_PER_ATHLETE = 5;
 
-/** SQL: the clip's owner has no Hop+ right now. */
-const ownerIsFree = (now: number) => not(hasPlusSql(files.ownerId, now));
+/** The day a notice claimed at `batch` names: a week on, as midnight UTC. */
+export function statedDay(batch: number): number {
+  return Math.floor((batch + NOTICE_MS) / DAY_MS) * DAY_MS;
+}
 
-/** SQL: when a noticed clip goes: 30 days old, and a week after its notice. */
-export const goesAtSql = sql<number>`max(${files.completedAt} + ${RETENTION_MS}, ${files.expiryNoticedAt} + ${NOTICE_MS})`;
+/** When clips named for `day` may go: once it has ended in every time zone. */
+export function goesAt(day: number): number {
+  return day + DAY_MS + LAST_TIME_ZONE_MS;
+}
+
+/** The day a notice named, from when its clips go. */
+function dayOf(goes: number): number {
+  return goes - DAY_MS - LAST_TIME_ZONE_MS;
+}
 
 /**
- * Sends the notices and reminders due, and clears expiry for athletes who
- * have Hop+. Runs with the five-minute email jobs.
+ * SQL: the clip is complete. The unary + keeps SQLite from reading it
+ * through the status indexes (every clip) should D1's statistics ever favour
+ * them; today's plans don't, but nothing promises that.
+ */
+const isComplete = sql`+${files.status} = 'complete'`;
+
+/**
+ * Claims, sends and reminds whatever is due, and clears expiry for athletes
+ * with Hop+. Runs with the five-minute email jobs.
  */
 export async function remindOfExpiry(env: Env, now = Date.now()): Promise<void> {
   const db = getDb(env.DB);
   await keepForHopPlus(db, now);
-  const sent = (await sendNotices(env, db, now)) + (await sendReminders(env, db, now));
-  if (sent > 0) console.log(`expiry: ${sent} notices and reminders sent`);
+  await claimNotices(env, db, now);
+  const given = await sendNotices(env, db, now);
+  const reminded = await sendReminders(env, db, now);
+  if (given + reminded > 0) console.log(`expiry: ${given} notices and ${reminded} reminders sent`);
 }
 
 /** Hop+ keeps every clip: whatever notice its clips had no longer applies. */
 async function keepForHopPlus(db: Db, now: number) {
-  await db
-    .update(files)
-    .set({ expiryNoticeBatch: null, expiryNoticedAt: null, expiryRemindedAt: null })
-    .where(and(gt(files.expiryNoticeBatch, 0), hasPlusSql(files.ownerId, now)));
+  const subscribed = db
+    .select({ id: expiryNotices.userId })
+    .from(expiryNotices)
+    .where(hasPlusSql(expiryNotices.userId, now));
+  await db.batch([
+    db
+      .update(files)
+      .set({ expiryNoticeBatch: null, expiryGoesAt: null })
+      .where(and(inArray(files.ownerId, subscribed), isNotNull(files.expiryNoticeBatch))),
+    db.delete(expiryNotices).where(hasPlusSql(expiryNotices.userId, now)),
+  ]);
 }
 
-async function sendNotices(env: Env, db: Db, now: number): Promise<number> {
-  // Notices claimed but not confirmed: the same clips, under the same key.
-  const stalled = await db
-    .selectDistinct({ ownerId: files.ownerId, batch: files.expiryNoticeBatch })
-    .from(files)
-    .where(
-      and(
-        gt(files.expiryNoticeBatch, 0),
-        lte(files.expiryNoticeBatch, now - RETRY_AFTER_MS),
-        isNull(files.expiryNoticedAt),
-      ),
-    )
-    .limit(PER_RUN);
-
-  // Athletes with clips due a notice: old enough, not yet in one, with no
-  // notice in the last day. Read athlete by athlete through files_unnoticed_idx.
+/**
+ * Claims a notice for each athlete with clips due one: free (and not lately
+ * Hop+), someone Hop can tell, and not noticed in the last day. Each claim
+ * takes all their due clips at once, atomically, so overlapping runs can't
+ * put a clip in two notices.
+ */
+async function claimNotices(env: Env, db: Db, now: number) {
   const dueBy = now - (RETENTION_MS - NOTICE_MS);
+  const hasAddressSql = and(isNotNull(users.email), eq(users.emailVerified, true));
+  const reachable = env.APNS_KEY
+    ? or(
+        hasAddressSql,
+        sql`exists (
+          select 1 from ${devices}
+          where ${devices.userId} = ${users.id} and ${devices.environment} = ${env.APNS_ENVIRONMENT}
+        )`,
+      )
+    : hasAddressSql;
   const due = await db
     .select({ id: users.id })
     .from(users)
     .where(
       and(
         isNull(users.deletedAt),
+        // First: cheap, and rules out whole Hop+ libraries.
+        not(hasPlusSql(users.id, now - LAPSE_MARGIN_MS)),
+        reachable,
+        sql`not exists (
+          select 1 from ${expiryNotices}
+          where ${expiryNotices.userId} = ${users.id}
+            and (${expiryNotices.batch} > ${now - DAY_MS} or ${expiryNotices.givenAt} > ${now - DAY_MS})
+        )`,
+        // Read through files_unnoticed_idx.
         sql`exists (
           select 1 from ${files}
           where ${files.ownerId} = ${users.id}
@@ -94,168 +174,243 @@ async function sendNotices(env: Env, db: Db, now: number): Promise<number> {
             and ${files.expiryNoticeBatch} is null
             and ${files.completedAt} <= ${dueBy}
         )`,
-        sql`not exists (
-          select 1 from ${files}
-          where ${files.ownerId} = ${users.id}
-            and ${files.expiryNoticeBatch} > ${now - DAY_MS}
-        )`,
-        not(hasPlusSql(users.id, now)),
       ),
     )
     .limit(PER_RUN);
 
-  let sent = 0;
-  for (const { ownerId, batch } of stalled) {
-    if (batch !== null && (await sendNotice(env, db, ownerId, batch, now))) sent++;
-  }
   for (const { id } of due) {
-    // Claim atomically, so overlapping runs can't put a clip in two notices.
-    const claimed = await db
-      .update(files)
-      .set({ expiryNoticeBatch: now })
-      .where(
-        and(
-          eq(files.ownerId, id),
-          eq(files.status, "complete"),
-          isNull(files.expiryNoticeBatch),
-          lte(files.completedAt, dueBy),
-        ),
-      )
-      .returning({ id: files.id });
-    if (claimed.length > 0 && (await sendNotice(env, db, id, now, now))) sent++;
+    const unnoticed = and(
+      eq(files.ownerId, id),
+      sql`${files.status} = 'complete'`,
+      isNull(files.expiryNoticeBatch),
+      lte(files.completedAt, dueBy),
+    );
+    // In one transaction: the notice, naming as many clips as it then claims.
+    // No row when there are none (another run got them).
+    await db.batch([
+      db.insert(expiryNotices).select(sql`
+        select ${files.ownerId}, ${now}, count(*), ${goesAt(statedDay(now))}, 0, ${now},
+          null, null, null, null
+        from ${files} where ${unnoticed} group by ${files.ownerId}
+      `),
+      db.update(files).set({ expiryNoticeBatch: now }).where(unnoticed),
+    ]);
   }
-  return sent;
 }
 
-/** Sends one notice; true once it's gone (and its clips count as noticed). */
-async function sendNotice(env: Env, db: Db, ownerId: string, batch: number, now: number) {
-  const inBatch = and(eq(files.ownerId, ownerId), eq(files.expiryNoticeBatch, batch));
-  if (now - batch > GIVE_UP_AFTER_MS) {
-    // A day of failures: let these clips go back to be claimed afresh, under
-    // a new key. They're never assumed noticed.
-    console.error("expiry: notice failing for a day, claiming afresh", ownerId, batch);
-    await db
-      .update(files)
-      .set({ expiryNoticeBatch: null })
-      .where(and(inBatch, isNull(files.expiryNoticedAt)));
-    return false;
-  }
-  const clips = await db
-    .select({ id: files.id })
-    .from(files)
-    .where(and(inBatch, eq(files.status, "complete")));
-  // When they go: a week from now at the earliest (from when this goes out).
-  const at = now + NOTICE_MS;
-  try {
-    if (clips.length > 0)
-      await tell(env, db, ownerId, { clips: clips.length, at, when: "notice" }, batch);
-  } catch (error) {
-    console.error("expiry: notice failed, will retry", ownerId, batch, error);
-    return false;
-  }
-  await db
-    .update(files)
-    .set({ expiryNoticedAt: now })
-    .where(and(inBatch, isNull(files.expiryNoticedAt)));
-  return clips.length > 0;
-}
-
-async function sendReminders(env: Env, db: Db, now: number): Promise<number> {
-  // Noticed clips going within a day, not yet reminded, for athletes not
-  // reminded in the last day. Best effort: the notice is what counts.
-  const dueBy = now - (NOTICE_MS - DAY_MS);
-  const due = await db
-    .selectDistinct({ ownerId: files.ownerId })
-    .from(files)
+/** Sends the notices due a try, longest waiting first. Returns how many got through. */
+async function sendNotices(env: Env, db: Db, now: number): Promise<number> {
+  const sending = await db
+    .select()
+    .from(expiryNotices)
     .where(
       and(
-        gt(files.expiryNoticeBatch, 0),
-        lte(files.expiryNoticedAt, dueBy),
-        isNull(files.expiryRemindedAt),
-        eq(files.status, "complete"),
-        ownerIsFree(now),
+        isNull(expiryNotices.givenAt),
+        isNull(expiryNotices.abandonedAt),
+        lte(expiryNotices.nextAttemptAt, now),
+      ),
+    )
+    .orderBy(asc(expiryNotices.nextAttemptAt))
+    .limit(PER_RUN);
+  let given = 0;
+  for (const notice of sending) {
+    try {
+      if (await sendNotice(env, db, notice, now)) given++;
+    } catch (error) {
+      console.error("expiry: notice failed, will retry", notice.userId, notice.batch, error);
+    }
+  }
+  return given;
+}
+
+/** One try at a notice; true once it has reached the athlete. */
+async function sendNotice(env: Env, db: Db, notice: ExpiryNoticeRow, now: number) {
+  const ofNotice = and(
+    eq(expiryNotices.userId, notice.userId),
+    eq(expiryNotices.batch, notice.batch),
+  );
+  const inNotice = and(eq(files.ownerId, notice.userId), eq(files.expiryNoticeBatch, notice.batch));
+  const letGo = () =>
+    db.batch([
+      db.update(expiryNotices).set({ abandonedAt: now }).where(ofNotice),
+      db.update(files).set({ expiryNoticeBatch: null }).where(inNotice),
+    ]);
+
+  const user = await db.select().from(users).where(eq(users.id, notice.userId)).get();
+  const left = await db
+    .select({ clips: count() })
+    .from(files)
+    .where(and(inNotice, isComplete))
+    .get();
+  if (!user || user.deletedAt || !left?.clips) {
+    // Nobody to tell, or nothing left to tell them of.
+    await letGo();
+    return false;
+  }
+  if (now - notice.batch > GIVE_UP_AFTER_MS) {
+    // Its clips stay, and are claimed afresh tomorrow under a new key.
+    console.error("expiry: notice didn't get through, letting it go", notice.userId, notice.batch);
+    await letGo();
+    return false;
+  }
+
+  // As claimed, so a retry sends the very same email under the same key.
+  const news = { clips: notice.clips, day: dayOf(notice.goesAt), when: "notice" as const };
+  const collapseId = `expiring-${notice.batch}`;
+  // Pushed once, whatever happens to the email.
+  const pushedAt =
+    notice.pushedAt ?? ((await push(env, db, user.id, news, collapseId, now)) ? now : null);
+  // By email when they have a verified address: a push can be silenced in
+  // Settings and still be taken. Otherwise the phone is all there is.
+  const reached = hasAddress(user)
+    ? await email(env, user, news, `clips-expiring/notice/${user.id}/${notice.batch}`)
+    : pushedAt !== null;
+
+  if (reached) {
+    await db.batch([
+      db
+        .update(expiryNotices)
+        .set({ givenAt: now, pushedAt, attempts: notice.attempts + 1 })
+        .where(ofNotice),
+      db.update(files).set({ expiryGoesAt: notice.goesAt }).where(inNotice),
+    ]);
+    return true;
+  }
+  const wait = Math.min(FIRST_RETRY_MS * 2 ** notice.attempts, MAX_RETRY_MS);
+  await db
+    .update(expiryNotices)
+    .set({ pushedAt, attempts: notice.attempts + 1, nextAttemptAt: now + wait })
+    .where(ofNotice);
+  return false;
+}
+
+/**
+ * Reminds athletes whose noticed clips go within REMIND_FROM_MS, once per
+ * notice and at most once a day. Best effort: the notice is what counts.
+ */
+async function sendReminders(env: Env, db: Db, now: number): Promise<number> {
+  const dueNow = and(
+    isNotNull(expiryNotices.givenAt),
+    isNull(expiryNotices.remindedAt),
+    lte(expiryNotices.goesAt, now + REMIND_FROM_MS),
+  );
+  const due = await db
+    .selectDistinct({ userId: expiryNotices.userId })
+    .from(expiryNotices)
+    .where(
+      and(
+        dueNow,
+        sql`not exists (
+          select 1 from expiry_notices as recent
+          where recent.user_id = ${expiryNotices.userId}
+            and recent.reminded_at > ${now - REMINDER_GAP_MS}
+        )`,
       ),
     )
     .limit(PER_RUN);
+
   let sent = 0;
-  for (const { ownerId } of due) {
-    const reminded = await db
-      .update(files)
-      .set({ expiryRemindedAt: now })
+  for (const { userId } of due) {
+    // Claimed first, so overlapping runs can't both remind.
+    const claimed = await db
+      .update(expiryNotices)
+      .set({ remindedAt: now })
+      .where(and(eq(expiryNotices.userId, userId), dueNow))
+      .returning({ batch: expiryNotices.batch, goesAt: expiryNotices.goesAt });
+    const first = claimed.reduce<(typeof claimed)[number] | null>(
+      (soonest, notice) => (soonest && soonest.goesAt <= notice.goesAt ? soonest : notice),
+      null,
+    );
+    if (!first || first.goesAt - now < REMIND_UNTIL_MS) continue;
+    const left = await db
+      .select({ clips: count() })
+      .from(files)
       .where(
         and(
-          eq(files.ownerId, ownerId),
-          gt(files.expiryNoticeBatch, 0),
-          lte(files.expiryNoticedAt, dueBy),
-          isNull(files.expiryRemindedAt),
-          eq(files.status, "complete"),
+          eq(files.ownerId, userId),
+          inArray(
+            files.expiryNoticeBatch,
+            claimed.map((notice) => notice.batch),
+          ),
+          isComplete,
         ),
       )
-      .returning({ at: goesAtSql });
-    if (reminded.length === 0) continue;
-    const at = Math.min(...reminded.map((clip) => clip.at));
-    try {
-      await tell(env, db, ownerId, { clips: reminded.length, at, when: "reminder" }, now);
-      sent++;
-    } catch (error) {
-      console.error("expiry: reminder failed", ownerId, error);
-    }
+      .get();
+    const user = await db.select().from(users).where(eq(users.id, userId)).get();
+    if (!left?.clips || !user || user.deletedAt) continue;
+
+    const news = { clips: left.clips, day: dayOf(first.goesAt), when: "reminder" as const };
+    // The same collapse ID as the notice: on the phone, this replaces it.
+    const pushed = await push(env, db, userId, news, `expiring-${first.batch}`, now);
+    const emailed =
+      hasAddress(user) &&
+      (await email(env, user, news, `clips-expiring/reminder/${userId}/${first.batch}`));
+    if (pushed || emailed) sent++;
   }
   return sent;
 }
 
-/**
- * Tells the athlete: by email to a verified address (whatever their new-clips
- * setting), and on every phone of theirs that took notifications. Throws if
- * the email didn't go; pushes are best effort.
- */
-async function tell(
+function hasAddress(user: UserRow): user is UserRow & { email: string } {
+  return Boolean(user.email && user.emailVerified);
+}
+
+/** Emails the athlete; true once Resend has it (now, or earlier under this key). */
+async function email(
   env: Env,
-  db: Db,
-  ownerId: string,
-  news: { clips: number; at: number; when: "notice" | "reminder" },
-  batch: number,
-) {
-  const user = await db.select().from(users).where(eq(users.id, ownerId)).get();
-  if (!user || user.deletedAt) return;
-
-  if (env.APNS_KEY) {
-    const phones = await db
-      .select({ token: devices.token })
-      .from(devices)
-      .where(and(eq(devices.userId, ownerId), eq(devices.environment, env.APNS_ENVIRONMENT)));
-    const alert = clipsExpiringPush(news);
-    await Promise.all(
-      phones.map(async ({ token }) => {
-        const outcome = await pushAlert(env, token, alert, { hop: "expiring" }).catch((error) => {
-          console.error("expiry: push failed", error);
-          return "failed" as const;
-        });
-        if (outcome === "gone") await db.delete(devices).where(eq(devices.token, token));
-      }),
-    );
-  }
-
-  if (!user.email || !user.emailVerified) return;
-  const email = await clipsExpiringEmail({ appUrl: env.APP_URL, ...news });
+  user: UserRow & { email: string },
+  news: { clips: number; day: number; when: "notice" | "reminder" },
+  idempotencyKey: string,
+): Promise<boolean> {
   try {
-    await sendEmail(env, {
-      ...email,
-      to: user.email,
-      idempotencyKey: `clips-expiring/${news.when}/${ownerId}/${batch}`,
-      category: "clips-expiring",
-    });
+    const email = await clipsExpiringEmail({ appUrl: env.APP_URL, ...news });
+    await sendEmail(env, { ...email, to: user.email, idempotencyKey, category: "clips-expiring" });
+    return true;
   } catch (error) {
-    // This key already went with a different text (a clip deleted since):
-    // the earlier email went out.
-    if (!(error instanceof ResendError && error.code === "invalid_idempotent_request")) throw error;
+    console.error("expiry: email failed", user.id, error);
+    return false;
   }
 }
 
 /**
- * The cleanup's part: free-plan clips that are 30 days old and were noticed a
- * week ago go, to be removed from R2 by the cleanup's loop (or hidden if held
- * for a report). Returns how many.
+ * Pushes to the athlete's phones this server can reach; true if any took it.
+ * Phones Apple says are gone are forgotten.
+ */
+async function push(
+  env: Env,
+  db: Db,
+  userId: string,
+  news: { clips: number; day: number; when: "notice" | "reminder" },
+  collapseId: string,
+  now: number,
+): Promise<boolean> {
+  if (!env.APNS_KEY) return false;
+  const phones = await db
+    .select({ token: devices.token })
+    .from(devices)
+    .where(and(eq(devices.userId, userId), eq(devices.environment, env.APNS_ENVIRONMENT)))
+    .limit(PHONES_PER_ATHLETE);
+  const alert = clipsExpiringPush(news);
+  const outcomes = await Promise.all(
+    phones.map(async ({ token }) => {
+      const outcome = await pushAlert(env, token, alert, {
+        data: { hop: "expiring" },
+        collapseId,
+        now,
+      }).catch((error) => {
+        console.error("expiry: push failed", error);
+        return "failed" as const;
+      });
+      if (outcome === "gone") await db.delete(devices).where(eq(devices.token, token));
+      return outcome;
+    }),
+  );
+  return outcomes.includes("sent");
+}
+
+/**
+ * The cleanup's part: free-plan clips whose notice was given and whose day
+ * has ended everywhere go, to be removed from R2 by the cleanup's loop (or
+ * hidden if held for a report). Returns how many.
  */
 export async function expireClips(db: Db, now = Date.now(), limit = 5000): Promise<number> {
   const due = db
@@ -263,12 +418,11 @@ export async function expireClips(db: Db, now = Date.now(), limit = 5000): Promi
     .from(files)
     .where(
       and(
-        gt(files.expiryNoticeBatch, 0),
-        isNotNull(files.expiryNoticedAt),
-        lte(files.expiryNoticedAt, now - NOTICE_MS),
+        // Read through files_goes_idx.
+        lte(files.expiryGoesAt, now),
+        isComplete,
         lte(files.completedAt, now - RETENTION_MS),
-        eq(files.status, "complete"),
-        ownerIsFree(now),
+        not(hasPlusSql(files.ownerId, now)),
       ),
     )
     .limit(limit);
@@ -280,19 +434,42 @@ export async function expireClips(db: Db, now = Date.now(), limit = 5000): Promi
   return gone.length;
 }
 
-/** For the plan: the athlete's noticed clips, and when the first of them go. */
+/**
+ * For the plan: how many of the athlete's clips they've been told are
+ * leaving, the day the first of them was named for, and when that is.
+ */
 export async function expiring(db: Db, userId: string) {
   const row = await db
-    .select({ clips: count(), at: min(goesAtSql) })
+    .select({ clips: count(), at: min(files.expiryGoesAt) })
     .from(files)
     .where(
       and(
+        // Read through files_notice_idx.
         eq(files.ownerId, userId),
-        gt(files.expiryNoticeBatch, 0),
-        isNotNull(files.expiryNoticedAt),
-        eq(files.status, "complete"),
+        isNotNull(files.expiryNoticeBatch),
+        isNotNull(files.expiryGoesAt),
+        isComplete,
       ),
     )
     .get();
-  return row && row.clips > 0 && row.at !== null ? { clips: row.clips, at: Number(row.at) } : null;
+  if (!row || row.clips === 0 || row.at === null) return null;
+  const at = Number(row.at);
+  return { clips: row.clips, on: new Date(dayOf(at)).toISOString().slice(0, 10), at };
+}
+
+/**
+ * The cleanup's housekeeping: notices whose clips are all gone (or were let
+ * go) and are old enough not to count toward a day's limit.
+ */
+export async function forgetOldNotices(db: Db, now = Date.now()): Promise<void> {
+  await db.delete(expiryNotices).where(
+    and(
+      lte(expiryNotices.batch, now - 2 * DAY_MS),
+      sql`not exists (
+          select 1 from ${files}
+          where ${files.ownerId} = ${expiryNotices.userId}
+            and ${files.expiryNoticeBatch} = ${expiryNotices.batch}
+        )`,
+    ),
+  );
 }
