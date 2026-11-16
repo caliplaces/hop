@@ -24,10 +24,11 @@ struct HopView: View {
         ScrollViewReader { scroller in
             grid
                 // Keeps the tile of the clip showing on screen, so closing the
-                // viewer zooms back into it.
-                .onChange(of: showing) { _, clip in
-                    guard let clip, viewing != nil else { return }
-                    scroller.scrollTo(clip, anchor: .center)
+                // viewer zooms back into it: when the viewer moves on, and when
+                // its tile comes back after a refresh dropped its page.
+                .onChange(of: ReturnTile(id: showing, isLoaded: showingIsLoaded)) { _, tile in
+                    guard let id = tile.id, tile.isLoaded, viewing != nil else { return }
+                    scroller.scrollTo(id, anchor: .center)
                 }
         }
         .navigationTitle(hop?.title ?? "")
@@ -41,6 +42,17 @@ struct HopView: View {
             ClipViewer(hopId: hopId, startAt: selection.id, model: model, showing: $showing)
                 .navigationTransition(.zoom(sourceID: showing ?? selection.id, in: zoom))
         }
+    }
+
+    private var showingIsLoaded: Bool {
+        guard let showing else { return false }
+        return list.items.contains { $0.id == showing }
+    }
+
+    /// Where closing the viewer zooms back to, and whether its tile is there.
+    private struct ReturnTile: Equatable {
+        let id: String?
+        let isLoaded: Bool
     }
 
     private var grid: some View {
