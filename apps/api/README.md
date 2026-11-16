@@ -124,6 +124,28 @@ The iPhone app's Event mode shows a Live Activity counting the clips that come i
 - Each environment has its own APNs key, restricted to the `com.onmyhop.app` topic: a sandbox key for staging (debug builds) and a production key for production (TestFlight and App Store builds). The key is the `APNS_KEY` secret; its ID and environment are `APNS_KEY_ID` and `APNS_ENVIRONMENT` in `wrangler.jsonc`. Without the secret, nothing is pushed.
 - `wrangler dev` can't reach APNs, so try pushes on staging. Locally, `POST /api/dev/hops/:hopId/arrivals` lands a fake clip in an event, for trying Event mode without uploading anything.
 
+## Profiles
+
+What others see of an athlete, on their upload page and in the app, is Hop's own profile, kept apart from their Caliplaces account:
+
+- **Name.** `users.display_name`, set with `PATCH /api/me { displayName }`. `users.name` is their Caliplaces account's, refreshed at every sign-in, and stands in until they set one; `displayName: null` goes back to it. Both follow the same rules (`displayNameSchema` in `packages/shared/src/api.ts`), and a Caliplaces name that breaks them is dropped, so their @handle shows instead:
+  - NFC-normalised and trimmed, 1 to 50 characters, with at least one letter or number;
+  - no control or invisible characters (bidi overrides, zero-width and other default-ignorable ones), except those that build an emoji;
+  - no stacks of combining marks, no leading @ (it would pass for a handle) and no check marks (they'd pass for a badge).
+- **Photo.** `PUT /api/me/avatar` with a JPEG of at most 512 KiB. The server rebuilds it from only what's needed to show it (`src/lib/jpeg.ts`): EXIF (and its GPS location), XMP, comments and anything after the image are dropped. It refuses anything over 2048 px on a side, CMYK, lossless or arithmetic-coded, or malformed. The photo is stored in R2 under a new random name (`avatars/<random>.jpg`) and served publicly at `/api/avatars/<random>.jpg`, cached for a week. `DELETE /api/me/avatar` removes it. Replacing a photo swaps the key in one transaction, then deletes the old photo, best effort: the hourly cleanup also sweeps photos no account points to, once they're an hour old.
+- **Hop+ mark.** `hopPlus` on `Me` and on a public page's owner is true while they have Hop+, and their page shows a Hop+ mark. It's deliberately not a "verified" check: paying doesn't prove who someone is. It does tell anyone who knows a handle whether that person subscribes, which the privacy policy should say.
+- **First look.** `profileReviewed` is false until the app has shown them their profile once (`PATCH /api/me { profileReviewed: true }`).
+- **Limits.** Each account gets 20 profile changes a minute (`PROFILE_LIMITER`).
+
+To take down a name or photo someone reports:
+
+```sh
+wrangler d1 execute hop-production --remote --env production \
+  --command "update users set display_name = null, avatar_key = null where handle = 'their-handle'"
+```
+
+The photo itself goes with the next hourly cleanup, and caches drop it within a week.
+
 ## Hop+ subscriptions
 
 Athletes subscribe to Hop+ in the iPhone app, through the App Store. The plans are in `packages/shared/src/limits.ts`:

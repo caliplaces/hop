@@ -58,8 +58,52 @@ export const colorSchema = z.enum(COLOR_IDS);
 
 export const claimHandleSchema = z.object({ handle: z.string(), color: colorSchema.optional() });
 
+/** An emoji, with any colour or skin-tone modifiers, and others joined to it. */
+const EMOJI =
+  /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*/gu;
+/** Check marks, which would pass for a badge next to a name. */
+const CHECK_MARKS = /[\u2611\u2705\u2713\u2714\u{1F5F8}]/u;
+
+/**
+ * The name others see on an athlete's page. Hop's own, kept apart from the
+ * one their Caliplaces account sends (which every sign-in refreshes, and is
+ * checked the same way). Names are public, so they may not disguise
+ * themselves or someone else:
+ *
+ * - no control or invisible characters (bidi overrides, zero-width and other
+ *   default-ignorable ones), except those that build an emoji;
+ * - something readable: at least one letter or number;
+ * - no stacks of combining marks ("Zalgo" text);
+ * - no leading @, which would pass for a handle, and no check marks.
+ */
+export const displayNameSchema = z
+  .string()
+  .max(200, "That name is too long.")
+  .transform((name) => name.normalize("NFC").trim().replace(/\s+/g, " "))
+  .pipe(
+    z
+      .string()
+      .min(1, "Enter a name.")
+      .max(50, "That name is too long.")
+      .refine(
+        (name) => !/[\p{C}\p{Default_Ignorable_Code_Point}]/u.test(name.replace(EMOJI, "")),
+        "That name has characters that can't be shown.",
+      )
+      .refine((name) => /[\p{L}\p{N}]/u.test(name), "Enter a name.")
+      .refine((name) => !/\p{M}{4,}/u.test(name), "That name has characters that can't be shown.")
+      .refine((name) => !name.startsWith("@"), "A name can't start with @.")
+      .refine((name) => !CHECK_MARKS.test(name), "A name can't include check marks."),
+  );
+
 export const updateProfileSchema = z
-  .object({ color: colorSchema, emailNewClips: z.boolean() })
+  .object({
+    color: colorSchema,
+    emailNewClips: z.boolean(),
+    /** null goes back to the name from their Caliplaces account. */
+    displayName: displayNameSchema.nullable(),
+    /** They've seen and confirmed their public profile. */
+    profileReviewed: z.literal(true),
+  })
   .partial()
   .refine((changes) => Object.keys(changes).length > 0, "Nothing to update.");
 
@@ -86,11 +130,23 @@ export type PublicHop = {
   slug: string;
   title: string;
   status: HopStatus;
-  owner: { handle: string; name: string | null; color: ColorId };
+  owner: {
+    handle: string;
+    name: string | null;
+    color: ColorId;
+    /** Their profile photo, relative to the site, if they set one. */
+    avatarUrl: string | null;
+    /**
+     * They have Hop+, which their page shows with a Hop+ mark. Deliberately
+     * not a "verified" check: paying doesn't prove who someone is.
+     */
+    hopPlus: boolean;
+  };
 };
 
 export type Me = {
   id: string;
+  /** The name others see: their Hop profile's, or else their Caliplaces account's. */
   name: string | null;
   email: string | null;
   handle: string | null;
@@ -99,6 +155,12 @@ export type Me = {
   color: ColorId;
   /** Whether new clips are announced by email (on unless they opted out). */
   emailNewClips: boolean;
+  /** Their profile photo, relative to the site (/api/avatars/...), if they set one. */
+  avatarUrl: string | null;
+  /** They have Hop+, which their page shows with a Hop+ mark. */
+  hopPlus: boolean;
+  /** Whether they've seen their public profile since signing up. */
+  profileReviewed: boolean;
 };
 
 export type HopSummary = {

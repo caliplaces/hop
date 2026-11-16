@@ -9,6 +9,8 @@ export type Env = {
   AUTH_LIMITER: RateLimit;
   /** Per IP, on the launch waitlist. */
   WAITLIST_LIMITER: RateLimit;
+  /** Per account, on profile changes: name and photo. */
+  PROFILE_LIMITER: RateLimit;
 
   ENVIRONMENT: "development" | "staging" | "production";
   APP_URL: string;

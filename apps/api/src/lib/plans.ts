@@ -38,3 +38,8 @@ export async function activeSubscription(db: Db, userId: string, now = Date.now(
     .orderBy(sql`${endsSql()} desc`)
     .get();
 }
+
+/** Whether this athlete has Hop+ now, which their page shows with a badge. */
+export async function hasPlus(db: Db, userId: string, now = Date.now()): Promise<boolean> {
+  return (await activeSubscription(db, userId, now)) !== undefined;
+}

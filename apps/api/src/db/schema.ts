@@ -25,6 +25,18 @@ export const users = sqliteTable("users", {
    * can tell a stale plan reply from a newer one (see GET /api/me/plan).
    */
   planRevision: integer("plan_revision").notNull().default(0),
+  /**
+   * The name others see, set in Hop. `name` is their Caliplaces account's,
+   * refreshed at every sign-in, and stands in until they set one.
+   */
+  displayName: text("display_name"),
+  /**
+   * Their profile photo in R2 (avatars/<random>.jpg), public. Unique and
+   * indexed: the cleanup looks photos up by it.
+   */
+  avatarKey: text("avatar_key").unique(),
+  /** When they confirmed their public profile, so the app asks only once. */
+  profileReviewedAt: integer("profile_reviewed_at"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

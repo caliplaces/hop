@@ -21,6 +21,9 @@ export const MAX_PARTS_PER_SIGN_REQUEST = 50;
 /** Max size of the client-generated JPEG thumbnail. */
 export const MAX_THUMBNAIL_BYTES = 512 * KiB;
 
+/** Max size of a profile photo: a square JPEG the app makes. */
+export const MAX_AVATAR_BYTES = 512 * KiB;
+
 /**
  * What each plan includes. Free keeps clips for `retentionDays`; Hop+ keeps
  * them for good (null). Retention isn't enforced yet: see the API README.
