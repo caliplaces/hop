@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 const sizes = { sm: "size-8 text-sm", md: "size-11 text-base", lg: "size-20 text-3xl" };
 
 /** A profile photo, or without one, an initial-letter avatar on the brand lime. */
@@ -11,12 +13,16 @@ export function Avatar({
   src?: string | null;
   size?: keyof typeof sizes;
 }) {
-  if (src) {
+  // A photo that didn't load (gone, or offline) falls back to the initial;
+  // a different photo is tried afresh.
+  const [failed, setFailed] = useState<string | null>(null);
+  if (src && failed !== src) {
     // The name is always shown beside it, so the photo itself says nothing more.
     return (
       <img
         src={src}
         alt=""
+        onError={() => setFailed(src)}
         className={`shrink-0 rounded-full bg-surface-2 object-cover ${sizes[size]}`}
       />
     );
