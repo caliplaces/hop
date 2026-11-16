@@ -9,16 +9,26 @@ struct HomeView: View {
     @State private var showingQRCode = false
     /// A link that arrived before Event mode settled, opened once it has.
     @State private var pendingLink: HopDeepLink?
+    @State private var tab = HomeTab.inbox
+    @State private var push = PushNotifications.shared
 
     var body: some View {
         @Bindable var eventMode = eventMode
-        TabView {
-            Tab("Inbox", systemImage: "tray.full") {
+        TabView(selection: $tab) {
+            Tab("Inbox", systemImage: "tray.full", value: .inbox) {
                 InboxView()
             }
-            Tab("My Hop", systemImage: "qrcode") {
+            Tab("My Hop", systemImage: "qrcode", value: .myHop) {
                 MyHopView()
             }
+        }
+        // A tapped notification opens in the inbox (InboxView takes it from there).
+        .onChange(of: push.opened, initial: true) { _, opened in
+            if opened != nil { tab = .inbox }
+        }
+        // Notifications may have been allowed, or turned off, in Settings.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await push.refresh() } }
         }
         // Chrome stays neutral; the athlete's colour is for real accents
         // (Event mode, the pass, Hop+), set where they appear.
@@ -78,6 +88,11 @@ struct HomeView: View {
         let isActive: Bool
         let isOnStage: Bool
     }
+}
+
+enum HomeTab: Hashable {
+    case inbox
+    case myHop
 }
 
 /// Opens the athlete's account: their plan, storage and signing out.

@@ -14,12 +14,38 @@ final class PushNotifications: NSObject {
     private(set) var authorization: UNAuthorizationStatus = .notDetermined
     /// The card asking was put away.
     private(set) var askDismissed: Bool
+    /// A notification the athlete tapped, for the app to open what it's
+    /// about. Whoever handles it sets it back to nil.
+    var opened: Opened?
+    /// Goes up as notifications of new clips arrive while Hop is open, so
+    /// the inbox can reload.
+    private(set) var arrivals = 0
+
+    /// What a notification is about, from the data the API sends with it.
+    nonisolated enum Opened: Equatable, Sendable {
+        /// New clips: in one event, or in several.
+        case clips(hopId: String?)
+        /// Free-plan clips about to leave the inbox.
+        case expiring
+
+        init?(userInfo: [AnyHashable: Any]) {
+            switch userInfo["hop"] as? String {
+            case "clips": self = .clips(hopId: userInfo["hopId"] as? String)
+            case "expiring": self = .expiring
+            default: return nil
+            }
+        }
+    }
 
     private let defaults: UserDefaults
     private let center: NotificationCenterProtocol
     private let registerWithApple: @MainActor () -> Void
+    private let unregisterWithApple: @MainActor () -> Void
     /// The signed-in session's client, to send a token to when Apple hands one over.
     private var api: APIClient?
+    /// Bumped by each start, so a sign-out finishing late can tell someone
+    /// signed in meanwhile.
+    private var starts = 0
 
     private static let tokenKey = "push.token"
     private static let dismissedKey = "push.askDismissed"
@@ -27,11 +53,13 @@ final class PushNotifications: NSObject {
     init(
         defaults: UserDefaults = .standard,
         center: NotificationCenterProtocol = UNUserNotificationCenter.current(),
-        registerWithApple: @escaping @MainActor () -> Void = { UIApplication.shared.registerForRemoteNotifications() }
+        registerWithApple: @escaping @MainActor () -> Void = { UIApplication.shared.registerForRemoteNotifications() },
+        unregisterWithApple: @escaping @MainActor () -> Void = { UIApplication.shared.unregisterForRemoteNotifications() }
     ) {
         self.defaults = defaults
         self.center = center
         self.registerWithApple = registerWithApple
+        self.unregisterWithApple = unregisterWithApple
         askDismissed = defaults.bool(forKey: Self.dismissedKey)
     }
 
@@ -47,15 +75,28 @@ final class PushNotifications: NSObject {
     /// change), which reaches the API through `received(_:)`.
     func start(api: APIClient) async {
         self.api = api
+        starts += 1
         authorization = await center.authorizationStatus()
         if authorization == .authorized || authorization == .provisional {
             registerWithApple()
         }
     }
 
-    /// Signed out: no more sending tokens anywhere.
+    /// Reads again whether notifications are allowed, as after a visit to
+    /// Settings; newly allowed, it asks Apple for the token.
+    func refresh() async {
+        let before = authorization
+        authorization = await center.authorizationStatus()
+        let allowed = authorization == .authorized || authorization == .provisional
+        if allowed, before != authorization, api != nil { registerWithApple() }
+    }
+
+    /// Signed out: no more sending tokens anywhere, and nothing tapped is
+    /// opened for whoever signs in next.
     func stop() {
         api = nil
+        opened = nil
+        arrivals = 0
     }
 
     /// From the card: asks, and registers if allowed.
@@ -99,7 +140,17 @@ final class PushNotifications: NSObject {
     func unregister(api: APIClient) async {
         stop()
         guard let token else { return }
-        try? await api.delete("api/me/devices/\(token)")
+        let before = starts
+        do {
+            try await api.delete("api/me/devices/\(token)")
+        } catch {
+            // The API still has this phone for them (offline, say): Apple
+            // stops taking pushes for its token instead, and the API forgets
+            // it at the next one. Signing in again asks for a new token. Not
+            // if someone has signed in meanwhile: the phone is theirs now.
+            guard starts == before else { return }
+            unregisterWithApple()
+        }
     }
 
     private struct DeviceBody: Encodable {
@@ -110,12 +161,46 @@ final class PushNotifications: NSObject {
 }
 
 extension PushNotifications: UNUserNotificationCenterDelegate {
-    /// Shown even while Hop is open.
+    // Completion handlers, not the async versions: UIKit wants them called on
+    // the main thread, and an async delegate method finishes on a background
+    // one, which crashes the app when a tapped notification launches it.
+
+    /// Shown even while Hop is open; new clips reload the inbox too.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        let about = Opened(userInfo: notification.request.content.userInfo)
+        nonisolated(unsafe) let finish = completionHandler
+        Task { @MainActor in
+            self.arrived(about)
+            finish([.banner, .list, .sound])
+        }
+    }
+
+    /// Tapped: the app opens what it's about.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let tapped = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        let about = tapped ? Opened(userInfo: response.notification.request.content.userInfo) : nil
+        nonisolated(unsafe) let finish = completionHandler
+        Task { @MainActor in
+            self.tapped(about)
+            finish()
+        }
+    }
+
+    func arrived(_ about: Opened?) {
+        if case .clips = about { arrivals += 1 }
+    }
+
+    func tapped(_ about: Opened?) {
+        guard let about else { return }
+        opened = about
     }
 }
 
@@ -156,6 +241,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 struct NotificationsNudge: View {
     /// The athlete's colour, for the button.
     let color: PaletteColor
+    /// On the free plan, notifications also warn before clips leave.
+    let isFree: Bool
     @State private var push = PushNotifications.shared
 
     var body: some View {
@@ -167,10 +254,12 @@ struct NotificationsNudge: View {
                         .foregroundStyle(Theme.ink)
                         .symbolRenderingMode(.hierarchical)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Hear before clips go")
+                        Text("Hear when clips arrive")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.ink)
-                        Text("On the free plan, clips are kept 30 days. Hop tells you a week before any go, and the day before.")
+                        Text(isFree
+                            ? "Hop tells you when new clips land, and a week before any leave your inbox."
+                            : "Hop tells you when new clips land.")
                             .font(.footnote)
                             .foregroundStyle(Theme.muted)
                     }

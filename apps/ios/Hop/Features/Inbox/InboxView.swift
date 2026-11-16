@@ -8,6 +8,11 @@ struct InboxView: View {
     @Environment(HopPlus.self) private var hopPlus
     @State private var model = InboxModel()
     @State private var showingHopPlus = false
+    @State private var path: [Hop] = []
+    @State private var push = PushNotifications.shared
+    /// A tapped notification being opened. Kept apart from `push.opened`, so
+    /// taking that one doesn't cancel the opening.
+    @State private var opening: PushNotifications.Opened?
     /// Event cards zoom open into their clips, and back.
     @Namespace private var zoom
 
@@ -15,7 +20,7 @@ struct InboxView: View {
     private var totalClips: Int { model.hops.reduce(0) { $0 + $1.fileCount } }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             content
                 .navigationTitle("Inbox")
                 .toolbar { AccountButton() }
@@ -26,10 +31,34 @@ struct InboxView: View {
                 .background(Theme.canvas)
                 .sheet(isPresented: $showingHopPlus) { HopPlusView() }
         }
-        // Reloads when the link moves to another event, and as clips land
-        // during Event mode.
-        .task(id: Reload(activeHopId: session.me?.activeHopId, eventClips: eventMode.clips)) {
+        // Reloads when the link moves to another event, as clips land
+        // during Event mode, and as notifications of new clips arrive.
+        .task(id: Reload(activeHopId: session.me?.activeHopId, eventClips: eventMode.clips, arrivals: push.arrivals)) {
             await refresh()
+        }
+        // A tapped notification: the event its clips are in, or Hop+ for
+        // clips about to leave.
+        .onChange(of: push.opened, initial: true) { _, opened in
+            guard let opened else { return }
+            push.opened = nil
+            opening = opened
+        }
+        .task(id: opening) {
+            guard let opening else { return }
+            await open(opening)
+            if self.opening == opening { self.opening = nil }
+        }
+    }
+
+    private func open(_ opened: PushNotifications.Opened) async {
+        switch opened {
+        case .expiring:
+            path = []
+            if hopPlus.status?.plan != .plus { showingHopPlus = true }
+        case let .clips(hopId):
+            showingHopPlus = false
+            await refresh()
+            path = model.hops.first { $0.id == hopId }.map { [$0] } ?? []
         }
     }
 
@@ -58,9 +87,9 @@ struct InboxView: View {
                     if let status = hopPlus.status, status.isNearlyFull {
                         StorageNudge(status: status, color: color) { showingHopPlus = true }
                     }
-                    // Notifications only say anything on the free plan, for now.
-                    if hopPlus.status?.plan == .free {
-                        NotificationsNudge(color: color)
+                    if let plan = hopPlus.status?.plan,
+                       session.me?.pushNewClips == true || plan == .free {
+                        NotificationsNudge(color: color, isFree: plan == .free)
                     }
                     ForEach(model.hops) { hop in
                         NavigationLink(value: hop) {
@@ -94,6 +123,7 @@ struct InboxView: View {
     private struct Reload: Equatable {
         let activeHopId: String?
         let eventClips: Int
+        let arrivals: Int
     }
 }
 
