@@ -8,6 +8,10 @@ struct HopView: View {
 
     @Environment(Session.self) private var session
     @State private var viewing: Selection?
+    /// The clip the viewer shows: it zooms open from its tile, and back into
+    /// the tile of whichever clip it's on when it closes.
+    @State private var showing: String?
+    @Namespace private var zoom
 
     private struct Selection: Identifiable {
         let id: String
@@ -17,6 +21,29 @@ struct HopView: View {
     private var list: InboxModel.ClipList { model.clips[hopId] ?? InboxModel.ClipList() }
 
     var body: some View {
+        ScrollViewReader { scroller in
+            grid
+                // Keeps the tile of the clip showing on screen, so closing the
+                // viewer zooms back into it.
+                .onChange(of: showing) { _, clip in
+                    guard let clip, viewing != nil else { return }
+                    scroller.scrollTo(clip, anchor: .center)
+                }
+        }
+        .navigationTitle(hop?.title ?? "")
+        .navigationSubtitle(hop?.summary ?? "")
+        .background(Theme.canvas)
+        .refreshable {
+            await model.refresh(api: session.api, activeHopId: session.me?.activeHopId)
+        }
+        .task { if !list.loadedOnce { await loadMore() } }
+        .fullScreenCover(item: $viewing) { selection in
+            ClipViewer(hopId: hopId, startAt: selection.id, model: model, showing: $showing)
+                .navigationTransition(.zoom(sourceID: showing ?? selection.id, in: zoom))
+        }
+    }
+
+    private var grid: some View {
         ScrollView {
             if list.loadedOnce, list.items.isEmpty {
                 ContentUnavailableView(
@@ -29,11 +56,16 @@ struct HopView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 3)], spacing: 3) {
                 ForEach(list.items) { clip in
                     Button {
+                        showing = clip.id
                         viewing = Selection(id: clip.id)
                     } label: {
                         ClipTile(clip: clip)
+                            .matchedTransitionSource(id: clip.id, in: zoom) { source in
+                                source.clipShape(.rect(cornerRadius: 10))
+                            }
                     }
                     .buttonStyle(.plain)
+                    .id(clip.id)
                     .onAppear {
                         if clip.id == list.items.last?.id { Task { await loadMore() } }
                     }
@@ -50,16 +82,6 @@ struct HopView: View {
                 }
                 .padding(24)
             }
-        }
-        .navigationTitle(hop?.title ?? "")
-        .navigationSubtitle(hop?.summary ?? "")
-        .background(Theme.canvas)
-        .refreshable {
-            await model.refresh(api: session.api, activeHopId: session.me?.activeHopId)
-        }
-        .task { if !list.loadedOnce { await loadMore() } }
-        .fullScreenCover(item: $viewing) { selection in
-            ClipViewer(hopId: hopId, startAt: selection.id, model: model)
         }
     }
 

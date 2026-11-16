@@ -8,6 +8,8 @@ struct InboxView: View {
     @Environment(HopPlus.self) private var hopPlus
     @State private var model = InboxModel()
     @State private var showingHopPlus = false
+    /// Event cards zoom open into their clips, and back.
+    @Namespace private var zoom
 
     private var color: PaletteColor { session.me?.paletteColor ?? Palette.brand }
     private var totalClips: Int { model.hops.reduce(0) { $0 + $1.fileCount } }
@@ -19,6 +21,7 @@ struct InboxView: View {
                 .toolbar { AccountButton() }
                 .navigationDestination(for: Hop.self) { hop in
                     HopView(hopId: hop.id, model: model)
+                        .navigationTransition(.zoom(sourceID: hop.id, in: zoom))
                 }
                 .background(Theme.canvas)
                 .sheet(isPresented: $showingHopPlus) { HopPlusView() }
@@ -60,6 +63,9 @@ struct InboxView: View {
                                 isLive: hop.id == session.me?.activeHopId,
                                 color: color
                             )
+                            .matchedTransitionSource(id: hop.id, in: zoom) { source in
+                                source.clipShape(.rect(cornerRadius: 28))
+                            }
                         }
                         .buttonStyle(.plain)
                     }
