@@ -358,4 +358,3 @@ export type AdminStats = {
   /** The last 30 days, oldest first; days start at midnight UTC. */
   daily: { day: string; athletes: number; events: number; clips: number; bytes: number }[];
 };
-
