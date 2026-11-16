@@ -162,8 +162,8 @@ export function Privacy() {
       <Section title="How long it’s kept">
         <List>
           <li>
-            Clips: on the free plan, 30 days after they arrive. With Hop+, until you delete them or
-            your account.
+            Clips: until you delete them, or your account. (The free plan’s 30-day limit isn’t
+            applied yet; this page will say when it is.)
           </li>
           <li>Sign-ins: 30 days on the website, and up to a year in the app.</li>
           <li>

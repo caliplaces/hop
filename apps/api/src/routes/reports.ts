@@ -87,12 +87,20 @@ export const reportRoutes = new Hono<AppEnv>()
       // Clips from before sender keys carry no way to recognise their sender.
       return fail(c, 422, "cant_block", "This clip's sender can't be blocked. You can report it.");
     }
-    const keys = await saveBlock(db, user.id, file);
+    const blockId = await saveBlock(db, user.id, file);
 
     const now = Date.now();
+    // Their account, and every browser key the block holds, read inside the
+    // query: however many keys, it's one bound value.
     const theirs = [
       ...(file.contributorUserId ? [eq(files.contributorUserId, file.contributorUserId)] : []),
-      ...(keys.length > 0 ? [inArray(files.senderKey, keys)] : []),
+      inArray(
+        files.senderKey,
+        db
+          .select({ key: blockKeys.senderKey })
+          .from(blockKeys)
+          .where(and(eq(blockKeys.ownerId, user.id), eq(blockKeys.blockId, blockId))),
+      ),
     ];
     const [, removed] = await db.batch([
       db
@@ -217,12 +225,12 @@ const KEYS_PER_INSERT = 20;
 /**
  * Blocks whoever sent `file`, every way they're known: by account if they
  * were signed in, and by this browser's key, and every other browser they
- * sent this athlete clips from while signed in. Returns those keys. A sender seen with several
+ * sent this athlete clips from while signed in. Returns the block's ID. A sender seen with several
  * browsers gets one block covering each key it was given (block_keys), so
  * signing out on any of them doesn't help. An existing block of the same
  * sender learns what it lacked.
  */
-async function saveBlock(db: Db, ownerId: string, file: FileRow): Promise<string[]> {
+async function saveBlock(db: Db, ownerId: string, file: FileRow): Promise<string> {
   const now = Date.now();
   let block = file.contributorUserId
     ? await db
@@ -298,7 +306,7 @@ async function saveBlock(db: Db, ownerId: string, file: FileRow): Promise<string
       )
       .onConflictDoNothing();
   }
-  return all;
+  return blockId;
 }
 
 function isUniqueViolation(error: unknown): boolean {

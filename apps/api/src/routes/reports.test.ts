@@ -592,6 +592,21 @@ describe("blocking a sender", () => {
     expect(removed).toHaveLength(3);
   });
 
+  it("blocks a sender with more browsers than one statement can list, and clears their clips", async () => {
+    // A signed-in sender who changed their cookie for every upload.
+    const keys = await Promise.all(Array.from({ length: 130 }, () => sha256Hex(randomToken())));
+    const theirs = [];
+    for (const senderKey of keys) {
+      theirs.push(await clip("hop_a", "usr_a", { userId: "usr_b", name: "@bea", senderKey }));
+    }
+    const response = await post(`/me/files/${theirs[0]}/block`, {}, as(alexToken));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { removed: number };
+    expect(body.removed).toBe(130);
+    expect((await blockList())[0]?.keys).toHaveLength(130);
+    expect(await status(theirs[129] ?? "")).toBe("deleting");
+  });
+
   it("adds the browser to the winning block when two blocks of an account land at once", async () => {
     const beaKey = randomToken();
     const fileId = await clip("hop_a", "usr_a", {
