@@ -271,9 +271,10 @@ export type PlanStatus = {
   subscription: {
     /**
      * Where it was bought, which is where it's managed: the App Store (in
-     * the iPhone app) or the website (Stripe).
+     * the iPhone app) or the website (Stripe). Servers from before the
+     * website sold Hop+ leave it out: the App Store.
      */
-    provider: "apple" | "stripe";
+    provider?: "apple" | "stripe";
     /** hop_plus (monthly) or hop_plus_annual, whichever the provider. */
     productId: string;
     expiresAt: number;

@@ -71,6 +71,21 @@ export function HopPlusOffer({ perks = false }: { perks?: boolean }) {
   const [chosen, setChosen] = useState<string | null>(null);
 
   if (prices.isPending) return <div className="skeleton h-32 rounded-2xl" />;
+  if (prices.isError && !prices.data) {
+    return (
+      <p className="text-sm text-muted">
+        Couldn’t load Hop+ prices.{" "}
+        <button
+          type="button"
+          className="font-medium text-fg underline underline-offset-2"
+          onClick={() => prices.refetch()}
+        >
+          Try again
+        </button>
+      </p>
+    );
+  }
+  // Loaded, and none: the website doesn't sell Hop+ here.
   const list = prices.data ?? [];
   if (list.length === 0) {
     return <p className="text-sm text-muted">Get it in the Hop iPhone app.</p>;

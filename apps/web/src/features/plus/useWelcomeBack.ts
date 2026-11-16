@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useFeedback } from "../../components/ui/feedback";
 import { api } from "../../lib/api";
-import { queries } from "../../lib/queries";
+import { newerPlan, queries } from "../../lib/queries";
 
 /**
  * Back from Stripe Checkout: reads the plan from Stripe now, rather than
@@ -22,7 +22,9 @@ export function useWelcomeBack(returning: boolean, done: () => void) {
     started.current = true;
     api<PlanStatus>("/billing/web/sync", { method: "POST" })
       .then((status) => {
-        queryClient.setQueryData(queries.plan().queryKey, status);
+        queryClient.setQueryData<PlanStatus>(queries.plan().queryKey, (current) =>
+          newerPlan(current, status),
+        );
         // The profile's Hop+ mark.
         void queryClient.invalidateQueries({ queryKey: queries.me().queryKey });
         toast(

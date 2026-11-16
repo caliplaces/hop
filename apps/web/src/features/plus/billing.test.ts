@@ -1,4 +1,6 @@
+import type { PlanStatus } from "@hop/shared";
 import { describe, expect, it } from "vitest";
+import { newerPlan } from "../../lib/queries";
 import { billingGraceEnds, formatPrice, isStripePage, yearlySaving } from "./billing";
 
 const monthly = { id: "m", amount: 499, currency: "eur", interval: "month" as const };
@@ -53,5 +55,16 @@ describe("redirects", () => {
     ]) {
       expect(isStripePage(url)).toBe(false);
     }
+  });
+});
+
+describe("the plan on show", () => {
+  const at = (revision: number, plan: "free" | "plus") => ({ revision, plan }) as PlanStatus;
+
+  it("isn't replaced by a reply that read it before a change", () => {
+    expect(newerPlan(at(3, "plus"), at(2, "free")).plan).toBe("plus");
+    expect(newerPlan(at(2, "free"), at(3, "plus")).plan).toBe("plus");
+    expect(newerPlan(at(3, "plus"), at(3, "plus"))).toEqual(at(3, "plus"));
+    expect(newerPlan(undefined, at(1, "free")).plan).toBe("free");
   });
 });

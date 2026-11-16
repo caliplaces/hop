@@ -9,6 +9,15 @@ import type {
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { api, fetchMe } from "./api";
 
+/**
+ * Of the plan on show and a new reply, the newer. The API reads the plan's
+ * revision first and bumps it with every change, so a reply with a lower
+ * one read the plan before a change.
+ */
+export function newerPlan(current: PlanStatus | undefined, next: PlanStatus): PlanStatus {
+  return current && current.revision > next.revision ? current : next;
+}
+
 /** Every query key and fetcher in one place, so pages share cache entries. */
 export const queries = {
   me: () => queryOptions({ queryKey: ["me"], queryFn: fetchMe }),
@@ -33,7 +42,14 @@ export const queries = {
       queryFn: () => api<{ hops: HopSummary[] }>("/me/hops").then((r) => r.hops),
     }),
 
-  plan: () => queryOptions({ queryKey: ["plan"], queryFn: () => api<PlanStatus>("/me/plan") }),
+  plan: () =>
+    queryOptions({
+      queryKey: ["plan"],
+      queryFn: () => api<PlanStatus>("/me/plan"),
+      // A slow reply that read the plan before a purchase mustn't replace it.
+      structuralSharing: (current, next) =>
+        newerPlan(current as PlanStatus | undefined, next as PlanStatus),
+    }),
 
   /** Hop+ prices on the website; none where it isn't sold there. */
   prices: () =>
