@@ -48,7 +48,7 @@ const onboardingRoute = createRoute({
 const myHopRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app/my-hop",
-  component: lazyRouteComponent(() => import("./routes/Hops"), "Hops"),
+  component: lazyRouteComponent(() => import("./routes/MyHop"), "MyHop"),
 });
 // Where events were managed before My Hop.
 const hopsRoute = createRoute({
