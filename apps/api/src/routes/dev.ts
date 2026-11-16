@@ -5,12 +5,14 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { files, hops } from "../db/schema";
 import { accountDeletedEmail } from "../email/account-deleted";
+import { clipsExpiringEmail } from "../email/clips-expiring";
 import { launchEmail } from "../email/launch";
 import { newClipsEmail } from "../email/new-clips";
 import { reportsEmail } from "../email/report";
 import type { RenderedEmail } from "../email/send";
 import { welcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
+import { statedDay } from "../expiry";
 import { newId, verifyPayload } from "../lib/crypto";
 import { originalKey } from "../lib/files";
 import { BodyTooLargeError, fail, readBodyCapped } from "../lib/http";
@@ -75,6 +77,14 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
       samples.slice(0, count).map((report) => ({ report, handle: "matej" })),
     );
   },
+  // ?when=reminder for the day before; ?count= for how many.
+  "clips-expiring": (appUrl, query) =>
+    clipsExpiringEmail({
+      appUrl,
+      clips: Math.max(Number(query("count")) || 12, 1),
+      day: statedDay(Date.now() - (query("when") === "reminder" ? 6 : 0) * 24 * 60 * 60 * 1000),
+      when: query("when") === "reminder" ? "reminder" : "notice",
+    }),
   // ?app=1 adds the App Store link.
   launch: (appUrl, query) =>
     launchEmail({

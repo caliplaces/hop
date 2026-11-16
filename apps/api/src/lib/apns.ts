@@ -114,3 +114,44 @@ export async function pushLiveActivity(
   console.error("apns: push failed", response.status, reason);
   return "failed";
 }
+
+/**
+ * A notification on the phone (the app's own push token, not a Live
+ * Activity's), such as clips about to expire. `data` rides along for the app
+ * to open the right screen; notifications sharing a `collapseId` replace each
+ * other on the phone.
+ *
+ * Only Apple's 410 (the app is gone from that phone) counts as "gone". A 400
+ * such as DeviceTokenNotForTopic or BadDeviceToken is more likely this
+ * server's setup (bundle ID, key, environment) than the phone, so the token
+ * is kept and the problem logged; tokens nobody refreshes expire anyway.
+ */
+export async function pushAlert(
+  env: Env,
+  token: string,
+  alert: { title: string; body: string },
+  {
+    data,
+    collapseId,
+    now = Date.now(),
+  }: { data: Record<string, string>; collapseId?: string; now?: number },
+): Promise<PushOutcome> {
+  const response = await fetch(`https://${HOSTS[env.APNS_ENVIRONMENT]}/3/device/${token}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${await providerToken(env, now)}`,
+      "apns-push-type": "alert",
+      "apns-topic": env.APPLE_BUNDLE_ID,
+      "apns-priority": "10",
+      ...(collapseId ? { "apns-collapse-id": collapseId } : {}),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ aps: { alert, sound: "default" }, ...data }),
+  });
+  if (response.ok) return "sent";
+  if (response.status === 410) return "gone";
+  const reason = ((await response.json().catch(() => null)) as { reason?: string } | null)?.reason;
+  if (reason === "ExpiredProviderToken") forgetProviderToken();
+  console.error("apns: alert failed", response.status, reason);
+  return "failed";
+}

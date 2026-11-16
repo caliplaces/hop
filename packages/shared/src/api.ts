@@ -260,7 +260,23 @@ export type PlanStatus = {
    * than one already shown is stale: it read the plan before a change.
    */
   revision: number;
+  /**
+   * Free-plan clips the athlete has been told are leaving: how many, the day
+   * the first notice named (`on`, YYYY-MM-DD), and when those may go (ms
+   * since 1970), which is after that day has ended in every time zone. Null
+   * when none are, as always with Hop+.
+   */
+  expiring: { clips: number; on: string; at: number } | null;
 };
+
+/**
+ * Registers the app's push token (the URL's last segment) for notifications,
+ * such as clips about to expire. `environment` is the APNs environment the
+ * token belongs to, as for Live Activities.
+ */
+export const deviceSchema = z.object({
+  environment: z.enum(["sandbox", "production"]),
+});
 
 /** Making a hop live: when it happened, by the server's clock. */
 export type HopActivation = { ok: true; activatedAt: number };

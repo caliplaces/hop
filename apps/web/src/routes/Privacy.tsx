@@ -2,12 +2,14 @@ import type { ReactNode } from "react";
 import { Logo } from "../components/Logo";
 
 /**
- * Who runs Hop. Filled in before launch: App Review and the GDPR both need a
- * name and an address on this page.
+ * Who runs Hop: App Review and the GDPR both need a name and an address on
+ * this page. From the Czech business register (ARES).
  */
 const OPERATOR = {
-  name: "[COMPANY NAME]",
-  address: "[REGISTERED ADDRESS]",
+  name: "Caliplaces s.r.o.",
+  address: "Uralská 689/7, Bubeneč, 160 00 Praha 6, Czech Republic",
+  registration:
+    "Company ID (IČO) 23311207, registered with the Municipal Court in Prague, file C 424636",
 };
 const CONTACT = "hello@onmyhop.com";
 const UPDATED = "16 November 2026";
@@ -51,7 +53,8 @@ export function Privacy() {
 
       <Section title="Who runs Hop">
         <p>
-          Hop (onmyhop.com and the Hop app) is run by {OPERATOR.name}, {OPERATOR.address}. For
+          Hop (onmyhop.com and the Hop app) is run by {OPERATOR.name}, {OPERATOR.address} (
+          {OPERATOR.registration}). It decides how your data is used, and answers for it. For
           anything about your data, write to{" "}
           <a className="underline underline-offset-4" href={`mailto:${CONTACT}`}>
             {CONTACT}
@@ -87,6 +90,10 @@ export function Privacy() {
           </li>
           <li>
             For Event mode: the push token Apple gives your Live Activity, until the event ends.
+          </li>
+          <li>
+            If you turn on notifications in the app: the push token Apple gives it on your phone,
+            until you sign out there, or after 90 days without opening the app.
           </li>
           <li>Your email settings, the senders you’ve blocked and the reports you’ve made.</li>
         </List>
@@ -137,8 +144,9 @@ export function Privacy() {
           <li>Where the law requires it, for example keeping reported content for a while.</li>
         </List>
         <p>
-          Hop emails you when clips arrive. Every email has an unsubscribe link, and you can turn
-          them off in your account.
+          Hop emails you when clips arrive. Those emails have an unsubscribe link, and you can turn
+          them off in your account. Notices that clips are about to be removed, and other messages
+          about your account, come whatever that setting.
         </p>
       </Section>
 
@@ -151,8 +159,10 @@ export function Privacy() {
           </li>
           <li>Resend delivers Hop’s emails.</li>
           <li>Apple handles App Store purchases and the app’s push notifications.</li>
-          <li>Caliplaces handles sign-in.</li>
         </List>
+        <p>
+          You sign in with your Caliplaces account, which Caliplaces, the company behind Hop, runs.
+        </p>
         <p>
           Some of them process data outside the EU, under safeguards such as the EU’s Standard
           Contractual Clauses.
@@ -162,8 +172,11 @@ export function Privacy() {
       <Section title="How long it’s kept">
         <List>
           <li>
-            Clips: until you delete them, or your account. (The free plan’s 30-day limit isn’t
-            applied yet; this page will say when it is.)
+            Clips: with Hop+, until you delete them or your account. On the free plan, at least 30
+            days after they arrive. At least a week before any go, Hop emails you which day (and
+            tells you on your phone too, if you turned notifications on), and usually again the day
+            before, so you can save them or get Hop+. Clips are only removed after that email has
+            gone to the address on your account, then for good, from storage too.
           </li>
           <li>Sign-ins: 30 days on the website, and up to a year in the app.</li>
           <li>

@@ -5,6 +5,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { cleanup } from "./cron";
 import { ONE_CLICK_UNSUBSCRIBE_PATH } from "./email/unsubscribe";
 import type { AppEnv, Env } from "./env";
+import { remindOfExpiry } from "./expiry";
 import { announceLaunch } from "./launch";
 import { fail } from "./lib/http";
 import { APP_SITE_ASSOCIATION_PATH, appSiteAssociation } from "./lib/oidc";
@@ -14,6 +15,7 @@ import { announceReports } from "./reports";
 import { authRoutes } from "./routes/auth";
 import { billingRoutes } from "./routes/billing";
 import { devRoutes } from "./routes/dev";
+import { deviceRoutes } from "./routes/devices";
 import { emailRoutes } from "./routes/email";
 import { liveActivityRoutes } from "./routes/live";
 import { meRoutes } from "./routes/me";
@@ -52,6 +54,7 @@ app.route("/", publicRoutes);
 app.route("/", meRoutes);
 app.route("/", uploadRoutes);
 app.route("/", reportRoutes);
+app.route("/", deviceRoutes);
 app.route("/", liveActivityRoutes);
 app.route("/", billingRoutes);
 app.route("/", waitlistRoutes);
@@ -80,6 +83,7 @@ export async function sendEmails(env: Env): Promise<void> {
     digest: announceNewClips(env),
     launch: announceLaunch(env),
     reports: announceReports(env),
+    expiry: remindOfExpiry(env),
   };
   const results = await Promise.allSettled(Object.values(jobs));
   const failed = Object.keys(jobs).filter((_, i) => results[i]?.status === "rejected");

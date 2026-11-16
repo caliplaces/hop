@@ -1,14 +1,17 @@
 import { PENDING_UPLOAD_TTL_MS } from "@hop/shared";
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { files, liveActivities, reports, sessions, users, waitlist } from "./db/schema";
+import { devices, files, liveActivities, reports, sessions, users, waitlist } from "./db/schema";
 import type { Env } from "./env";
+import { expireClips, forgetOldNotices } from "./expiry";
 import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
 import { dropEmptiedHops, eraseDeletedAccounts } from "./lib/accounts";
 import { AVATAR_PREFIX } from "./lib/avatars";
 import { finishRemoval, goneStatus } from "./lib/files";
 
 const BATCH = 100;
+/** A phone's push token not refreshed this long is forgotten: the app refreshes it every launch. */
+const KEEP_DEVICES_MS = 90 * 24 * 60 * 60 * 1000;
 /** How long a report is kept. */
 const KEEP_REPORTS_MS = 365 * 24 * 60 * 60 * 1000;
 /** Upper bound per run so one invocation stays well inside Worker limits. */
@@ -17,9 +20,10 @@ const MAX_BATCHES = 50;
 const STUCK_DELETE_MS = 10 * 60 * 1000;
 
 /**
- * Removes uploads with no activity for a day, retries removals that failed
- * midway, finishes deleting accounts, and deletes expired sessions and Live
- * Activity registrations.
+ * Removes uploads with no activity for a day and free-plan clips that have
+ * expired, retries removals that failed midway, finishes deleting accounts,
+ * and deletes expired sessions, Live Activity registrations, stale phones and
+ * old expiry notices.
  */
 export async function cleanup(env: Env) {
   const db = getDb(env.DB);
@@ -32,6 +36,12 @@ export async function cleanup(env: Env) {
   await eraseDeletedAccounts(db).catch((error) =>
     console.error("cleanup: erasing deleted accounts failed, will retry", error),
   );
+  // Free-plan clips whose notice was given and whose day has ended
+  // everywhere (src/expiry.ts): marked here, removed by the loop below.
+  const expired = await expireClips(db).catch((error) => {
+    console.error("cleanup: expiring free-plan clips failed, will retry", error);
+    return 0;
+  });
 
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
     const now = Date.now();
@@ -78,6 +88,10 @@ export async function cleanup(env: Env) {
   });
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
   await db.delete(liveActivities).where(lt(liveActivities.expiresAt, Date.now()));
+  await db.delete(devices).where(lt(devices.updatedAt, Date.now() - KEEP_DEVICES_MS));
+  await forgetOldNotices(db).catch((error) =>
+    console.error("cleanup: forgetting old expiry notices failed, will retry", error),
+  );
   // Reports are the record of what was reported, kept for a year.
   await db.delete(reports).where(lt(reports.createdAt, Date.now() - KEEP_REPORTS_MS));
   // The waitlist keeps an address only until a day after its launch email,
@@ -99,7 +113,7 @@ export async function cleanup(env: Env) {
     return 0;
   });
   console.log(
-    `cleanup: removed ${removed} uploads, ${failed} failed, ${avatars} unused photos, ${hopsDropped} deleted accounts' hops`,
+    `cleanup: removed ${removed} uploads (${expired} expired), ${failed} failed, ${avatars} unused photos, ${hopsDropped} deleted accounts' hops`,
   );
 }
 
