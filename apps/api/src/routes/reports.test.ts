@@ -28,6 +28,8 @@ let limitedKeys: string[];
 let human: boolean;
 /** Whether Resend accepts the next email. */
 let resendUp: boolean;
+/** Idempotency keys Resend has seen, with the text sent under each. */
+let resendKeys: Map<string, string>;
 let sent: { to: string[]; subject: string; text: string; html: string; key: string | null }[];
 /** The anonymous troll's browser key, and the clip they sent Alex. */
 let trollKey: string;
@@ -115,6 +117,7 @@ beforeEach(async () => {
   limitedKeys = [];
   human = true;
   resendUp = true;
+  resendKeys = new Map();
   sent = [];
   vi.stubGlobal(
     "fetch",
@@ -134,6 +137,16 @@ beforeEach(async () => {
           { status: 429 },
         );
       const body = JSON.parse(String(init?.body));
+      // Like Resend: a key used again with different content is refused.
+      const key = new Headers(init?.headers).get("idempotency-key") ?? "";
+      const earlier = resendKeys.get(key);
+      if (earlier !== undefined && earlier !== body.text) {
+        return Response.json(
+          { name: "invalid_idempotent_request", message: "Same key, different payload" },
+          { status: 409 },
+        );
+      }
+      resendKeys.set(key, body.text);
       sent.push({
         to: body.to,
         subject: body.subject,
@@ -559,6 +572,62 @@ describe("blocking a sender", () => {
     expect((await pass("hop_a", cookieFor(browserB))).response.status).toBe(403);
   });
 
+  it("adds the browser to the winning block when two blocks of an account land at once", async () => {
+    const beaKey = randomToken();
+    const fileId = await clip("hop_a", "usr_a", {
+      userId: "usr_b",
+      name: "@bea",
+      senderKey: await sha256Hex(beaKey),
+    });
+    // Another block of Bea's account lands just before this one inserts its own.
+    const raw = env.DB;
+    let raced = false;
+    const hook = <T extends object>(statement: T): T =>
+      new Proxy(statement, {
+        get(target, key, receiver) {
+          const value = Reflect.get(target, key, receiver);
+          if (key === "bind")
+            return (...args: unknown[]) =>
+              hook((value as (...a: unknown[]) => T).apply(target, args));
+          if (key === "run" || key === "all" || key === "raw" || key === "first") {
+            return async (...args: unknown[]) => {
+              if (!raced) {
+                raced = true;
+                await getDb(raw).insert(blocks).values({
+                  id: "blk_first",
+                  ownerId: "usr_a",
+                  contributorUserId: "usr_b",
+                  label: "@bea",
+                  createdAt: Date.now(),
+                });
+              }
+              return (value as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+            };
+          }
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    env.DB = new Proxy(raw, {
+      get(target, key, receiver) {
+        const value = Reflect.get(target, key, receiver);
+        if (key === "prepare") {
+          return (query: string) => {
+            const statement = (value as (q: string) => object).call(target, query);
+            return /^\s*insert into "blocks"/.test(query) ? hook(statement) : statement;
+          };
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const response = await post(`/me/files/${fileId}/block`, {}, as(alexToken));
+    env.DB = raw;
+    expect(raced).toBe(true);
+    expect(response.status).toBe(200);
+    expect(await blockList()).toEqual([
+      expect.objectContaining({ id: "blk_first", keys: [await sha256Hex(beaKey)] }),
+    ]);
+  });
+
   it("never blocks the athlete from their own Hop", async () => {
     const own = await clip("hop_a", "usr_a", {
       senderKey: await sha256Hex(trollKey),
@@ -795,6 +864,37 @@ describe("telling Hop's team", () => {
     // Two batches, two keys; the first key was the one tried before.
     expect(sent[0]?.key).not.toBe(sent[1]?.key);
     expect(await announceReports(env)).toBe(0);
+  });
+
+  it("counts a batch as sent when Resend says its key already went, and moves on", async () => {
+    await post(`/me/files/${trollClip}/report`, { reason: "spam" }, as(alexToken));
+    // The email goes, but the reply is lost: the batch stays unconfirmed.
+    const realFetch = globalThis.fetch;
+    let lostReply = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await realFetch(input, init);
+        if (lostReply && String(input) === "https://api.resend.com/emails") {
+          lostReply = false;
+          throw new TypeError("network connection lost");
+        }
+        return response;
+      }),
+    );
+    await expect(announceReports(env)).rejects.toThrow();
+    expect(sent).toHaveLength(1);
+
+    // Meanwhile the reporter deletes their account, which changes the text.
+    await deleteAccount(db, "usr_a");
+    await post("/h/bea/report", { reason: "spam", turnstileToken: "report-token" });
+    // Resend refuses the changed retry; the batch counts as sent.
+    expect(await announceReports(env)).toBe(1);
+    expect(sent).toHaveLength(1);
+    // And the next report isn't held back.
+    expect(await announceReports(env)).toBe(1);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.subject).toBe("Report: A visitor reported onmyhop.com/bea: Spam or scam");
   });
 
   it("tries again next time if the email doesn't go", async () => {

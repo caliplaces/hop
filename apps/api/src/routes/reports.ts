@@ -231,7 +231,7 @@ async function saveBlock(db: Db, ownerId: string, file: FileRow) {
       .get();
     if (known) block = await db.select().from(blocks).where(eq(blocks.id, known.blockId)).get();
   }
-  const blockId = block?.id ?? newId("blk");
+  let blockId = block?.id ?? newId("blk");
   try {
     if (!block) {
       await db.insert(blocks).values({
@@ -248,8 +248,19 @@ async function saveBlock(db: Db, ownerId: string, file: FileRow) {
         .where(eq(blocks.id, block.id));
     }
   } catch (error) {
-    // Another block of the same account landed meanwhile: that one counts.
     if (!isUniqueViolation(error)) throw error;
+    // Another block of the same account landed meanwhile: the browser's key
+    // joins that one.
+    if (file.contributorUserId) {
+      const winner = await db
+        .select({ id: blocks.id })
+        .from(blocks)
+        .where(
+          and(eq(blocks.ownerId, ownerId), eq(blocks.contributorUserId, file.contributorUserId)),
+        )
+        .get();
+      if (winner) blockId = winner.id;
+    }
   }
   if (file.senderKey) {
     // A key already blocked (under another block of theirs) stays where it is.

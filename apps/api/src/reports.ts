@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { getDb } from "./db";
 import { reports, users } from "./db/schema";
 import { reportsEmail } from "./email/report";
-import { sendEmail } from "./email/send";
+import { ResendError, sendEmail } from "./email/send";
 import type { Env } from "./env";
 
 /** The most reports one email carries; any more wait for the next run. */
@@ -63,12 +63,21 @@ export async function announceReports(env: Env): Promise<number> {
     handle: row.report.kind === "profile" ? row.subjectHandle : row.reporterHandle,
   }));
   const email = await reportsEmail(env.APP_URL, items);
-  await sendEmail(env, {
-    ...email,
-    to: env.REPORTS_EMAIL,
-    idempotencyKey: `reports/${env.ENVIRONMENT}/${batch}`,
-    category: "report",
-  });
+  try {
+    await sendEmail(env, {
+      ...email,
+      to: env.REPORTS_EMAIL,
+      idempotencyKey: `reports/${env.ENVIRONMENT}/${batch}`,
+      category: "report",
+    });
+  } catch (error) {
+    // This key was already used for a send whose text differed (an account
+    // in the batch was deleted since, say): that earlier email went out.
+    // Anything else waits for the next run, holding later reports back.
+    if (!(error instanceof ResendError && error.code === "invalid_idempotent_request")) {
+      throw error;
+    }
+  }
   await db.update(reports).set({ emailedAt: Date.now() }).where(eq(reports.emailBatch, batch));
   return rows.length;
 }
