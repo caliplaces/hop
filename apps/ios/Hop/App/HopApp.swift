@@ -21,7 +21,8 @@ struct HopApp: App {
     }
 }
 
-/// Signed out, the welcome bubble; new, claiming a handle; otherwise the app.
+/// Signed out, the welcome bubble; new, claiming a handle and then seeing
+/// their profile as others will; otherwise the app.
 struct RootView: View {
     @Environment(Session.self) private var session
     @Environment(EventMode.self) private var eventMode
@@ -36,6 +37,9 @@ struct RootView: View {
             } else if let me = session.me, me.handle == nil {
                 ClaimHopView(me: me, api: session.api)
                     .transition(.opacity)
+            } else if let me = session.me, !me.profileReviewed {
+                ProfileSetupView(me: me, session: session)
+                    .transition(.opacity)
             } else {
                 HomeView()
                     .transition(.opacity.combined(with: .scale(scale: 1.04)))
@@ -43,6 +47,7 @@ struct RootView: View {
         }
         .animation(.smooth(duration: 0.45), value: session.isSignedIn)
         .animation(.smooth(duration: 0.45), value: session.me?.handle)
+        .animation(.smooth(duration: 0.45), value: session.me?.profileReviewed)
         .task { await session.refresh() }
         .onChange(of: session.isSignedIn) { _, signedIn in
             guard !signedIn else { return }
@@ -50,6 +55,7 @@ struct RootView: View {
             // signed in. The card is cleared here too because a session that
             // expired before the profile loaded never changes `me`.
             Thumbnails.shared.removeAll()
+            AvatarImages.shared.removeAll()
             HopCard.publish(nil)
         }
         // The widgets show this athlete's QR code, and nobody's once they sign out.
@@ -65,6 +71,13 @@ struct RootView: View {
                 return
             }
             await hopPlus.run(api: session.api)
+        }
+        // The profile carries the Hop+ mark. Purchases and renewals change
+        // the plan, not the profile, so the profile is reloaded whenever the
+        // two disagree.
+        .onChange(of: hopPlus.status?.plan) { _, plan in
+            guard let plan, session.me?.isBehind(plan) == true else { return }
+            Task { await session.refresh() }
         }
         // Storage fills up while the app is away, and a purchase made
         // offline gets another go once the app is back.
