@@ -375,7 +375,9 @@ describe("blocking a sender", () => {
     const someoneElse = await clip("hop_a", "usr_a", { senderKey: await sha256Hex(randomToken()) });
 
     const response = await post(`/me/files/${trollClip}/block`, {}, as(alexToken));
-    expect(await response.json()).toEqual({ ok: true, removed: 3 });
+    const body = (await response.json()) as { ok: boolean; removed: number; removedIds: string[] };
+    expect(body).toMatchObject({ ok: true, removed: 3 });
+    expect(body.removedIds.sort()).toEqual([trollClip, another, underWay].sort());
     expect(await status(trollClip)).toBe("deleting");
     expect(await status(another)).toBe("deleting");
     expect(await status(underWay)).toBe("deleting");

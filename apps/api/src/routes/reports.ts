@@ -112,7 +112,12 @@ export const reportRoutes = new Hono<AppEnv>()
         )
         .returning({ id: files.id }),
     ]);
-    return c.json({ ok: true, removed: removed.length });
+    // Which clips went, so the app can drop them at once, before it reloads.
+    return c.json({
+      ok: true,
+      removed: removed.length,
+      removedIds: removed.map((file) => file.id),
+    });
   })
 
   /** Who the athlete has blocked, newest first. */

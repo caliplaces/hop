@@ -178,7 +178,7 @@ Anyone with an athlete's link can send them clips, and anyone can open their pag
 - **Blocking a sender.** `POST /api/me/files/:fileId/block` blocks whoever sent that clip.
   - The block covers every way they're known: their account if they were signed in, and the random key their browser keeps. That key is the `hop_sender` cookie, set by the upload routes, limited to `/api/hops` and renewed for a year with each use. Only its hash is stored, on each clip (`files.sender_key`) and block. The upload pass carries it too, so dropping the cookie doesn't make each upload a new sender. A block also ends the sender's pass.
   - Blocking by IP address would also block everyone else on the same network, such as a whole crowd on an event's Wi-Fi. Someone who clears their cookies and solves Turnstile again gets past a block, which is why reports exist for anything worse.
-  - Their clips leave the athlete's inbox at once, uploads under way included, and the team hears about the block.
+  - Their clips leave the athlete's inbox at once, uploads under way included, and the team hears about the block. The reply lists the clips that went (`removedIds`), so the app can drop them before it reloads.
   - An athlete is never blocked from their own Hop while signed in. Clips from before sender keys can't be blocked (422), only reported.
 - **Managing blocks.** `GET /api/me/blocks` lists them, and `DELETE /api/me/blocks/:id` unblocks. Clips that went with a block don't come back.
 - **When a block applies.** A blocked sender hears "You can't send clips to this Hop." when they ask for an upload pass. The upload checks again, in the same statement that reserves its place.
