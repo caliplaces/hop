@@ -78,6 +78,13 @@
       "when": 1794774305988,
       "tag": "0010_waitlist_launch",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794829330694,
+      "tag": "0011_profile",
+      "breakpoints": true
     }
   ]
 }

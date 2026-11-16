@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { type UserRow, users } from "../db/schema";
 import type { AppEnv, Env } from "../env";
+import { avatarUrl } from "../lib/avatars";
 import { newId, signPayload, verifyPayload } from "../lib/crypto";
 import { clientIp, fail, isSecureUrl, safeReturnTo } from "../lib/http";
 import {
@@ -21,6 +22,7 @@ import {
   oidcClient,
   redirectUri,
 } from "../lib/oidc";
+import { hasPlus } from "../lib/plans";
 import { createAppSession, createSession, destroySession } from "../lib/session";
 import { validate } from "../lib/validate";
 
@@ -168,16 +170,22 @@ async function signInWithCode(
     .get();
 }
 
-export function toMe(user: AppEnv["Variables"]["user"]): Me | null {
+export function toMe(
+  user: AppEnv["Variables"]["user"],
+  { verified = false }: { verified?: boolean } = {},
+): Me | null {
   if (!user) return null;
   return {
     id: user.id,
-    name: user.name,
+    name: user.displayName ?? user.name,
     email: user.email,
     handle: user.handle,
     activeHopId: user.activeHopId,
     color: colorFor(user.color, user.id).id,
     emailNewClips: user.emailNewClips,
+    avatarUrl: avatarUrl(user.avatarKey),
+    verified,
+    profileReviewed: user.profileReviewedAt !== null,
   };
 }
 
@@ -330,7 +338,12 @@ export const authRoutes = new Hono<AppEnv>()
     }
 
     const session = await createAppSession(c.env, user.id);
-    return c.json({ token: session.token, expiresAt: session.expiresAt, me: toMe(user) });
+    const verified = await hasPlus(getDb(c.env.DB), user.id);
+    return c.json({
+      token: session.token,
+      expiresAt: session.expiresAt,
+      me: toMe(user, { verified }),
+    });
   })
 
   /**

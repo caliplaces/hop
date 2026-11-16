@@ -11,6 +11,7 @@ import {
   type HopSummary,
   type InboxFile,
   type InboxPage,
+  MAX_AVATAR_BYTES,
   normalizeHandle,
   slugify,
   updateHopSchema,
@@ -24,10 +25,13 @@ import { type FileRow, files, hops, users } from "../db/schema";
 import { sendWelcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
 import { arrivalsSince } from "../lib/arrivals";
+import { AVATAR_CACHE, newAvatarKey } from "../lib/avatars";
 import { newId } from "../lib/crypto";
 import { removeFile } from "../lib/files";
-import { fail } from "../lib/http";
+import { BodyTooLargeError, fail, readBodyCapped } from "../lib/http";
+import { hasPlus } from "../lib/plans";
 import { currentUser, requireUser } from "../lib/session";
+import { SNIFF_BYTES, sniffMedia } from "../lib/sniff";
 import { presignGet } from "../lib/storage";
 import { validate } from "../lib/validate";
 import { findUserByHandle, toMe } from "./auth";
@@ -60,7 +64,11 @@ function isUniqueViolation(error: unknown): boolean {
 
 export const meRoutes = new Hono<AppEnv>()
   /** Returns { me: null } when signed out so the web app can branch without a 401. */
-  .get("/me", (c) => c.json({ me: toMe(c.get("user")) }))
+  .get("/me", async (c) => {
+    const user = c.get("user");
+    const verified = user ? await hasPlus(getDb(c.env.DB), user.id) : false;
+    return c.json({ me: toMe(user, { verified }) });
+  })
 
   .get("/handles/:handle", async (c) => {
     const handle = normalizeHandle(c.req.param("handle"));
@@ -109,18 +117,85 @@ export const meRoutes = new Hono<AppEnv>()
         console.error("Welcome email failed", error),
       ),
     );
-    return c.json({ me: toMe(claimed) });
+    return c.json({ me: toMe(claimed, { verified: await hasPlus(db, user.id) }) });
   })
 
-  /** Profile settings: page colour and email preferences. */
+  /** Profile settings: page colour, email preferences and the public profile. */
   .patch("/me", requireUser, validate("json", updateProfileSchema), async (c) => {
     const user = currentUser(c);
-    const changes = c.req.valid("json");
-    await getDb(c.env.DB)
-      .update(users)
-      .set({ ...changes, updatedAt: Date.now() })
-      .where(eq(users.id, user.id));
-    return c.json({ me: toMe({ ...user, ...changes }) });
+    const db = getDb(c.env.DB);
+    const { profileReviewed, ...changes } = c.req.valid("json");
+    const now = Date.now();
+    const set = {
+      ...changes,
+      ...(profileReviewed ? { profileReviewedAt: now } : {}),
+      updatedAt: now,
+    };
+    await db.update(users).set(set).where(eq(users.id, user.id));
+    return c.json({ me: toMe({ ...user, ...set }, { verified: await hasPlus(db, user.id) }) });
+  })
+
+  /**
+   * Sets the profile photo: a square JPEG the app makes, which strips the
+   * photo's metadata (location included) by drawing it anew. It's public,
+   * under a new random name; the old one is deleted.
+   */
+  .put("/me/avatar", async (c) => {
+    if (c.req.header("content-type") !== "image/jpeg") {
+      return fail(c, 415, "unsupported_type", "A profile photo must be a JPEG.");
+    }
+    let body: Uint8Array;
+    try {
+      body = await readBodyCapped(c.req.raw, MAX_AVATAR_BYTES);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        return fail(c, 413, "too_large", "That photo is too large.");
+      }
+      throw error;
+    }
+    if (sniffMedia(body.subarray(0, SNIFF_BYTES), body.byteLength) !== "image/jpeg") {
+      return fail(c, 415, "unsupported_type", "A profile photo must be a JPEG.");
+    }
+    const user = currentUser(c);
+    const db = getDb(c.env.DB);
+    const key = newAvatarKey();
+    await c.env.BUCKET.put(key, body, {
+      httpMetadata: { contentType: "image/jpeg", cacheControl: AVATAR_CACHE },
+    });
+    const previous = await db
+      .select({ key: users.avatarKey })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .get();
+    const now = Date.now();
+    await db.update(users).set({ avatarKey: key, updatedAt: now }).where(eq(users.id, user.id));
+    if (previous?.key) await c.env.BUCKET.delete(previous.key);
+    return c.json({
+      me: toMe(
+        { ...user, avatarKey: key, updatedAt: now },
+        { verified: await hasPlus(db, user.id) },
+      ),
+    });
+  })
+
+  /** Removes the profile photo, so their initial shows instead. */
+  .delete("/me/avatar", async (c) => {
+    const user = currentUser(c);
+    const db = getDb(c.env.DB);
+    const previous = await db
+      .select({ key: users.avatarKey })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .get();
+    const now = Date.now();
+    await db.update(users).set({ avatarKey: null, updatedAt: now }).where(eq(users.id, user.id));
+    if (previous?.key) await c.env.BUCKET.delete(previous.key);
+    return c.json({
+      me: toMe(
+        { ...user, avatarKey: null, updatedAt: now },
+        { verified: await hasPlus(db, user.id) },
+      ),
+    });
   })
 
   .get("/me/hops", async (c) => {

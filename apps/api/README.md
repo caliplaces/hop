@@ -124,6 +124,15 @@ The iPhone app's Event mode shows a Live Activity counting the clips that come i
 - Each environment has its own APNs key, restricted to the `com.onmyhop.app` topic: a sandbox key for staging (debug builds) and a production key for production (TestFlight and App Store builds). The key is the `APNS_KEY` secret; its ID and environment are `APNS_KEY_ID` and `APNS_ENVIRONMENT` in `wrangler.jsonc`. Without the secret, nothing is pushed.
 - `wrangler dev` can't reach APNs, so try pushes on staging. Locally, `POST /api/dev/hops/:hopId/arrivals` lands a fake clip in an event, for trying Event mode without uploading anything.
 
+## Profiles
+
+What others see of an athlete, on their upload page and in the app, is Hop's own profile, kept apart from their Caliplaces account:
+
+- **Name.** `users.display_name`, set with `PATCH /api/me { displayName }`. `users.name` is their Caliplaces account's, refreshed at every sign-in, and stands in until they set one; `displayName: null` goes back to it. Names are trimmed, 1 to 50 characters, and may not contain control or invisible characters (bidi overrides, zero-width joiners), so a name can't disguise itself.
+- **Photo.** `PUT /api/me/avatar` with a JPEG of at most 512 KiB (the app makes a small square one, which drops the photo's metadata, location included). It's checked by its bytes, stored in R2 under a new random name (`avatars/<random>.jpg`), and served publicly at `/api/avatars/<random>.jpg`, cached for good. The old photo is deleted. `DELETE /api/me/avatar` removes it.
+- **Badge.** `verified` on `Me` and on a public page's owner is true while they have Hop+.
+- **First look.** `profileReviewed` is false until the app has shown them their profile once (`PATCH /api/me { profileReviewed: true }`).
+
 ## Hop+ subscriptions
 
 Athletes subscribe to Hop+ in the iPhone app, through the App Store. The plans are in `packages/shared/src/limits.ts`:

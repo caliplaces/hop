@@ -58,8 +58,32 @@ export const colorSchema = z.enum(COLOR_IDS);
 
 export const claimHandleSchema = z.object({ handle: z.string(), color: colorSchema.optional() });
 
+/**
+ * The name others see on an athlete's page. Hop's own, kept apart from the
+ * one their Caliplaces account sends, which every sign-in refreshes. Control
+ * and invisible characters (bidi overrides, zero-width joiners) aren't
+ * allowed, so a name can't disguise itself.
+ */
+export const displayNameSchema = z
+  .string()
+  .transform((name) => name.trim().replace(/\s+/g, " "))
+  .pipe(
+    z
+      .string()
+      .min(1, "Enter a name.")
+      .max(50, "That name is too long.")
+      .regex(/^[^\p{C}]+$/u, "That name has characters that can't be shown."),
+  );
+
 export const updateProfileSchema = z
-  .object({ color: colorSchema, emailNewClips: z.boolean() })
+  .object({
+    color: colorSchema,
+    emailNewClips: z.boolean(),
+    /** null goes back to the name from their Caliplaces account. */
+    displayName: displayNameSchema.nullable(),
+    /** They've seen and confirmed their public profile. */
+    profileReviewed: z.literal(true),
+  })
   .partial()
   .refine((changes) => Object.keys(changes).length > 0, "Nothing to update.");
 
@@ -86,11 +110,20 @@ export type PublicHop = {
   slug: string;
   title: string;
   status: HopStatus;
-  owner: { handle: string; name: string | null; color: ColorId };
+  owner: {
+    handle: string;
+    name: string | null;
+    color: ColorId;
+    /** Their profile photo, relative to the site, if they set one. */
+    avatarUrl: string | null;
+    /** Shown with a badge: they have Hop+. */
+    verified: boolean;
+  };
 };
 
 export type Me = {
   id: string;
+  /** The name others see: their Hop profile's, or else their Caliplaces account's. */
   name: string | null;
   email: string | null;
   handle: string | null;
@@ -99,6 +132,12 @@ export type Me = {
   color: ColorId;
   /** Whether new clips are announced by email (on unless they opted out). */
   emailNewClips: boolean;
+  /** Their profile photo, relative to the API, if they set one. */
+  avatarUrl: string | null;
+  /** They have Hop+, and their page shows a badge. */
+  verified: boolean;
+  /** Whether they've seen their public profile since signing up. */
+  profileReviewed: boolean;
 };
 
 export type HopSummary = {
