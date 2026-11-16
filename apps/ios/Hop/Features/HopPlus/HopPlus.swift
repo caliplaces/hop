@@ -114,6 +114,7 @@ final class HopPlus {
         }
     }
 
+    @discardableResult
     private func send(_ purchase: Purchase, api: APIClient, for asked: Int) async -> Outcome {
         let request = startRequest()
         do {
