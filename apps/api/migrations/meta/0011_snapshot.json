@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "98905b7e-2ed5-4fe3-9523-ded11396fdf6",
+  "id": "d305a730-3a1f-47a7-a579-03555afcfc71",
   "prevId": "eccb1838-2653-4e56-bec3-9d684bb093c7",
   "tables": {
     "files": {
@@ -810,6 +810,13 @@
           "name": "users_app_account_token_unique",
           "columns": [
             "app_account_token"
+          ],
+          "isUnique": true
+        },
+        "users_avatar_key_unique": {
+          "name": "users_avatar_key_unique",
+          "columns": [
+            "avatar_key"
           ],
           "isUnique": true
         }
