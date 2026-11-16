@@ -1,5 +1,5 @@
 import type { WebPrice } from "@hop/shared";
-import { and, eq, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db";
 import { subscriptions, type UserRow, users } from "../db/schema";
 import type { Env } from "../env";
@@ -44,9 +44,18 @@ export class StripeError extends Error {
   }
 }
 
-/** Whether the website sells Hop+ here: Stripe is set up. */
+/** Whether Stripe can be reached here: to manage, cancel and catch up with Hop+ bought before. */
 export function stripeEnabled(env: Env): boolean {
   return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRODUCT_ID);
+}
+
+/**
+ * Whether the website sells Hop+ here. Only with the webhook too: without
+ * it, renewals and cancellations would never reach Hop, and a subscriber
+ * who doesn't come back to the website would lose Hop+ while still paying.
+ */
+export function sellsHopPlus(env: Env): boolean {
+  return stripeEnabled(env) && Boolean(env.STRIPE_WEBHOOK_SECRET);
 }
 
 /** Live mode in production; test mode everywhere else. */
@@ -277,14 +286,20 @@ async function expireOpenCheckouts(env: Env, customer: string): Promise<void> {
   }
 }
 
-/** A Stripe Checkout page for a Hop+ price, for the athlete's customer. */
+/**
+ * A Stripe Checkout page for a Hop+ price, for the athlete's customer.
+ * Refused once `deadline` has passed, so that a checkout whose lock has run
+ * out (see lockCheckout) never opens alongside the next one.
+ */
 export async function startCheckout(
   env: Env,
   customer: string,
   userId: string,
   priceId: string,
+  deadline: number,
 ): Promise<string> {
   await expireOpenCheckouts(env, customer);
+  if (Date.now() > deadline) throw new StripeError(504, "too_slow", "Stripe was too slow");
   const session = await stripe<{ url: string | null }>(env, "POST", "/checkout/sessions", {
     mode: "subscription",
     customer,
@@ -334,11 +349,12 @@ async function liveSubscriptions(env: Env, customer: string): Promise<StripeSubs
 }
 
 /**
- * Stores the athlete's Hop+ subscriptions as Stripe has them now: after a
- * checkout, in case its webhook is slow, and before another one, so nobody
- * pays twice. Returns those that haven't ended. A customer Stripe no longer
- * has (deleted in its dashboard, which cancels its subscriptions) is
- * forgotten, and has none.
+ * Stores the athlete's subscriptions as Stripe has them now, ended ones
+ * too: back from Checkout or the portal, in case the webhook is slow, and
+ * before another checkout, so nobody pays twice. Returns their Hop+ ones
+ * that haven't ended. A customer Stripe no longer has (deleted in its
+ * dashboard, which cancels its subscriptions) is forgotten, and whatever
+ * Hop+ is stored for the athlete is read from Stripe one by one.
  */
 export async function refreshCustomer(
   env: Env,
@@ -347,16 +363,36 @@ export async function refreshCustomer(
   customer: string,
 ): Promise<StripeSubscription[]> {
   const fetchedAt = Date.now();
-  let live: StripeSubscription[];
+  let listed: StripeSubscription[] = [];
   try {
-    live = await liveSubscriptions(env, customer);
+    const list = await stripe<{ data: StripeSubscription[] }>(env, "GET", "/subscriptions", {
+      customer,
+      status: "all",
+      limit: 100,
+    });
+    listed = list.data;
   } catch (error) {
     if (!isMissingCustomer(error)) throw error;
     await forgetCustomer(db, userId, customer);
-    return [];
   }
-  for (const subscription of live) await syncSubscription(env, db, subscription, fetchedAt);
-  return live.filter((subscription) => isHopPlus(env, subscription));
+  for (const subscription of listed) await syncSubscription(env, db, subscription, fetchedAt);
+  const seen = new Set(listed.map((subscription) => subscription.id));
+  const stored = await db
+    .select({ id: subscriptions.originalTransactionId })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.userId, userId),
+        eq(subscriptions.provider, "stripe"),
+        or(gt(subscriptions.expiresAt, fetchedAt), gt(subscriptions.graceExpiresAt, fetchedAt)),
+      ),
+    );
+  for (const { id } of stored) {
+    if (!seen.has(id)) await syncById(env, db, id);
+  }
+  return listed.filter(
+    (subscription) => isHopPlus(env, subscription) && !ENDED.has(subscription.status),
+  );
 }
 
 /**
@@ -384,7 +420,15 @@ export async function cancelForDeletion(env: Env, customer: string): Promise<voi
  * time per account, or two at once could each leave theirs open. Taken for
  * this long at most, in case a request dies holding it.
  */
-const CHECKOUT_LOCK_MS = 30 * 1000;
+export const CHECKOUT_LOCK_MS = 2 * 60 * 1000;
+
+/**
+ * When a checkout holding the lock taken at `lockedAt` may last open one:
+ * early enough that the call (at most TIMEOUT_MS) ends before the lock does.
+ */
+export function checkoutDeadline(lockedAt: number): number {
+  return lockedAt + CHECKOUT_LOCK_MS - 2 * TIMEOUT_MS;
+}
 
 /** Takes the account's checkout lock; false while another checkout is opening. */
 export async function lockCheckout(db: Db, userId: string, now: number): Promise<boolean> {
@@ -466,7 +510,39 @@ export type SyncResult =
   | "wrong_mode"
   | "never_paid"
   | "no_account"
-  | "cancelled";
+  | "cancelled"
+  | "gone";
+
+/**
+ * Ends whatever Hop+ a stored subscription gives, as of `fetchedAt`: one
+ * moved to another product, or one Stripe no longer has. Only stored Stripe
+ * subscriptions, and only with data at least as new.
+ */
+async function endStored(db: Db, subscriptionId: string, fetchedAt: number): Promise<void> {
+  const row = and(
+    eq(subscriptions.originalTransactionId, subscriptionId),
+    eq(subscriptions.provider, "stripe"),
+    lte(subscriptions.signedAt, fetchedAt),
+  );
+  await db.batch([
+    db
+      .update(users)
+      .set({ planRevision: sql`${users.planRevision} + 1` })
+      .where(
+        inArray(users.id, db.select({ id: subscriptions.userId }).from(subscriptions).where(row)),
+      ),
+    db
+      .update(subscriptions)
+      .set({
+        expiresAt: sql`min(${subscriptions.expiresAt}, ${fetchedAt})`,
+        graceExpiresAt: null,
+        autoRenew: false,
+        signedAt: fetchedAt,
+        updatedAt: Date.now(),
+      })
+      .where(row),
+  ]);
+}
 
 /**
  * Stores a subscription as Stripe gave it at `fetchedAt` (taken before
@@ -478,16 +554,34 @@ export async function syncSubscription(
   subscription: StripeSubscription,
   fetchedAt: number,
 ): Promise<SyncResult> {
-  if (!isHopPlus(env, subscription)) return "not_hop_plus";
   if (subscription.livemode !== liveMode(env)) return "wrong_mode";
+  if (!isHopPlus(env, subscription)) {
+    // Moved to another of the account's products: its Hop+ ends now.
+    await endStored(db, subscription.id, fetchedAt);
+    return "not_hop_plus";
+  }
   const owner =
-    typeof subscription.customer === "string"
+    (typeof subscription.customer === "string"
       ? await db
           .select({ id: users.id })
           .from(users)
           .where(and(eq(users.stripeCustomerId, subscription.customer), isNull(users.deletedAt)))
           .get()
-      : undefined;
+      : undefined) ??
+    // Stored before Hop forgot its customer (deleted in Stripe's dashboard):
+    // still the athlete's to update, as it ends.
+    (await db
+      .select({ id: subscriptions.userId })
+      .from(subscriptions)
+      .innerJoin(users, eq(users.id, subscriptions.userId))
+      .where(
+        and(
+          eq(subscriptions.originalTransactionId, subscription.id),
+          eq(subscriptions.provider, "stripe"),
+          isNull(users.deletedAt),
+        ),
+      )
+      .get());
   if (!owner) {
     // A checkout left open when its account was deleted, and paid after:
     // nobody has Hop+ from it, so it mustn't go on billing.
@@ -555,8 +649,10 @@ export async function syncById(env: Env, db: Db, subscriptionId: string): Promis
       `/subscriptions/${encodeURIComponent(subscriptionId)}`,
     );
   } catch (error) {
-    if (error instanceof StripeError && error.code === "resource_missing") return "no_account";
-    throw error;
+    if (!(error instanceof StripeError && error.code === "resource_missing")) throw error;
+    // Stripe no longer has it: neither does Hop+.
+    await endStored(db, subscriptionId, fetchedAt);
+    return "gone";
   }
   return syncSubscription(env, db, subscription, fetchedAt);
 }

@@ -9,12 +9,14 @@ import worker from "../index";
 import { randomToken, sha256Hex } from "../lib/crypto";
 import { storageLimitSql } from "../lib/plans";
 import {
+  checkoutDeadline,
   clearPriceCache,
   formEncode,
   hopPlusPrices,
   PAST_DUE_GRACE_MS,
   STRIPE_API_VERSION,
   type StripeSubscription,
+  startCheckout,
   stripeTerms,
   syncSubscription,
 } from "../lib/stripe";
@@ -148,9 +150,11 @@ async function stripeApi(input: RequestInfo | URL, init?: RequestInit): Promise<
     return Response.json({ url: "https://billing.stripe.com/p/session/test_1" });
   }
   if (method === "GET" && path === "/subscriptions") {
+    // Every status but "canceled", unless asked for all.
+    const all = params.get("status") === "all";
     return list(
       [...fake.subscriptions.values()].filter(
-        (s) => s.customer === params.get("customer") && s.status !== "canceled",
+        (s) => s.customer === params.get("customer") && (all || s.status !== "canceled"),
       ),
     );
   }
@@ -468,13 +472,38 @@ describe("checking out", () => {
     expect(fake.calls).toEqual([]);
     expect((await alex())?.stripeCheckoutAt).toBe(now - 1000);
 
-    // One that died holding it lets go after half a minute.
+    // A slow one keeps it; one that died holding it lets go after two minutes.
     await db
       .update(users)
-      .set({ stripeCheckoutAt: now - 31_000 })
+      .set({ stripeCheckoutAt: now - 90_000 })
+      .where(eq(users.id, "usr_a"));
+    expect((await checkout()).status).toBe(409);
+    await db
+      .update(users)
+      .set({ stripeCheckoutAt: now - 121_000 })
       .where(eq(users.id, "usr_a"));
     expect((await checkout()).status).toBe(200);
     expect((await alex())?.stripeCheckoutAt).toBeNull();
+  });
+
+  it("doesn't open a checkout once its lock may have run out", async () => {
+    await expect(
+      startCheckout(env, "cus_alex", "usr_a", MONTHLY, Date.now() - 1),
+    ).rejects.toThrow();
+    expect(
+      fake.calls.filter((c) => c.method === "POST" && c.path === "/checkout/sessions"),
+    ).toEqual([]);
+    expect(checkoutDeadline(1_000_000)).toBeLessThanOrEqual(1_000_000 + 2 * 60 * 1000 - 10_000);
+  });
+
+  it("isn't sold without the webhook, which keeps renewals in step", async () => {
+    env = { ...env, STRIPE_WEBHOOK_SECRET: undefined };
+    expect(await (await call("/billing/web/prices")).json()).toEqual({ prices: [] });
+    expect((await checkout()).status).toBe(503);
+    // What was bought before can still be managed.
+    await linkAlex();
+    expect((await call("/billing/web/portal", { method: "POST" })).status).toBe(200);
+    expect((await call("/billing/web/sync", { method: "POST" })).status).toBe(200);
   });
 
   it("lets go of the lock when Stripe fails too", async () => {
@@ -687,6 +716,38 @@ describe("Stripe's webhook", () => {
     expect(fake.subscriptions.get("sub_alex")?.status).toBe("canceled");
   });
 
+  it("ends Hop+ for a subscription moved to another product", async () => {
+    fake.subscriptions.set("sub_alex", subscription());
+    await webhook("customer.subscription.created", { id: "sub_alex" });
+    const before = await plan();
+    expect(before.plan).toBe("plus");
+    fake.subscriptions.set("sub_alex", subscription({ product: "prod_invoai" }));
+    await webhook("customer.subscription.updated", { id: "sub_alex" });
+    const after = await plan();
+    expect(after.plan).toBe("free");
+    expect(after.revision).toBeGreaterThan(before.revision);
+  });
+
+  it("ends Hop+ for a subscription Stripe no longer has", async () => {
+    fake.subscriptions.set("sub_alex", subscription());
+    await webhook("customer.subscription.created", { id: "sub_alex" });
+    fake.subscriptions.delete("sub_alex");
+    expect((await webhook("customer.subscription.deleted", { id: "sub_alex" })).status).toBe(200);
+    expect((await plan()).plan).toBe("free");
+  });
+
+  it("cancels a deleted account's subscription even if a row of it was left behind", async () => {
+    // Stored by a request under way as the account went (the cleanup erases it later).
+    await syncSubscription(env, db, subscription(), Date.now() - 1000);
+    await db
+      .update(users)
+      .set({ deletedAt: Date.now(), stripeCustomerId: null })
+      .where(eq(users.id, "usr_a"));
+    fake.subscriptions.set("sub_alex", subscription());
+    expect((await webhook("customer.subscription.updated", { id: "sub_alex" })).status).toBe(200);
+    expect(fake.subscriptions.get("sub_alex")?.status).toBe("canceled");
+  });
+
   it("cancels a subscription paid for after its account was deleted", async () => {
     // The checkout was open when Alex deleted the account, and paid after.
     await db
@@ -834,6 +895,36 @@ describe("catching up with Stripe", () => {
     expect((await alex())?.stripeCustomerId).toBeNull();
   });
 
+  it("sees a cancellation the webhook hasn't brought yet", async () => {
+    await linkAlex();
+    fake.subscriptions.set("sub_alex", subscription());
+    await call("/billing/web/sync", { method: "POST" });
+    expect((await plan()).plan).toBe("plus");
+    // Cancelled at once in Stripe's dashboard.
+    fake.subscriptions.set("sub_alex", subscription({ status: "canceled", ended_at: nowS() - 5 }));
+    fake.calls = [];
+    const response = await call("/billing/web/sync", { method: "POST" });
+    expect(((await response.json()) as PlanStatus).plan).toBe("free");
+    // One list, ended ones and all: nothing asked of Stripe one by one.
+    expect(stripeCalls()).toEqual(["GET /subscriptions"]);
+    // So Hop+ can be bought again.
+    expect((await checkout()).status).toBe(200);
+  });
+
+  it("ends Hop+ whose customer was deleted in Stripe", async () => {
+    // Stored while the customer existed; deleting it cancelled the subscription.
+    await linkAlex("cus_gone");
+    await syncSubscription(env, db, subscription({ customer: "cus_gone" }), Date.now() - 1000);
+    expect((await plan()).plan).toBe("plus");
+    fake.subscriptions.set(
+      "sub_alex",
+      subscription({ customer: "cus_gone", status: "canceled", ended_at: nowS() - 5 }),
+    );
+    const response = await call("/billing/web/sync", { method: "POST" });
+    expect(((await response.json()) as PlanStatus).plan).toBe("free");
+    expect((await alex())?.stripeCustomerId).toBeNull();
+  });
+
   it("is just the plan for someone who never bought on the website", async () => {
     const response = await call("/billing/web/sync", { method: "POST" });
     expect(((await response.json()) as PlanStatus).plan).toBe("free");
@@ -876,8 +967,17 @@ describe("deleting an account with Hop+ from the website", () => {
     const row = await alex();
     expect(row?.deletedAt).toBeNull();
     expect(row?.stripeCustomerId).toBe("cus_alex");
+    // Free to try again, or to check out.
+    expect(row?.stripeCheckoutAt).toBeNull();
     // Still signed in, to try again.
     expect((await call("/me/plan")).status).toBe(200);
+  });
+
+  it("waits for a checkout that's opening, which may be making the customer", async () => {
+    await db.update(users).set({ stripeCheckoutAt: Date.now() }).where(eq(users.id, "usr_a"));
+    const response = await deleteMe();
+    expect(response.status).toBe(409);
+    expect((await alex())?.deletedAt).toBeNull();
   });
 
   it("goes ahead when Stripe no longer has the customer, which can't be billed", async () => {

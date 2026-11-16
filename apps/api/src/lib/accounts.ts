@@ -107,6 +107,7 @@ export function erasure(db: Db, owned: Owned, now: number) {
         appAccountToken: null,
         // Stripe keeps the customer, and its invoices, as the law requires.
         stripeCustomerId: null,
+        stripeCheckoutAt: null,
         emailNewClips: false,
         pushNewClips: false,
         profileReviewedAt: null,

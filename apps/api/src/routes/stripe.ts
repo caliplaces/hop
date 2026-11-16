@@ -8,6 +8,7 @@ import { activeSubscription } from "../lib/plans";
 import { currentUser, requireUser } from "../lib/session";
 import {
   cancel,
+  checkoutDeadline,
   customerFor,
   forgetCustomer,
   hopPlusPrices,
@@ -18,6 +19,7 @@ import {
   portalUrl,
   refreshCustomer,
   StripeError,
+  sellsHopPlus,
   startCheckout,
   stripeEnabled,
   subscriptionOf,
@@ -57,9 +59,9 @@ const limitWebhookBody = bodyLimit({
 const decoder = new TextDecoder();
 
 export const stripeRoutes = new Hono<AppEnv>()
-  /** The Hop+ prices on sale on the website; none where Stripe isn't set up. */
+  /** The Hop+ prices on sale on the website; none where it isn't sold there. */
   .get("/billing/web/prices", requireUser, async (c) => {
-    if (!stripeEnabled(c.env)) return c.json({ prices: [] as WebPrice[] });
+    if (!sellsHopPlus(c.env)) return c.json({ prices: [] as WebPrice[] });
     try {
       return c.json({ prices: await hopPlusPrices(c.env) });
     } catch (error) {
@@ -69,7 +71,7 @@ export const stripeRoutes = new Hono<AppEnv>()
 
   /** A Stripe Checkout page for Hop+ at one of those prices. */
   .post("/billing/web/checkout", requireUser, validate("json", webCheckoutSchema), async (c) => {
-    if (!stripeEnabled(c.env)) return unavailable(c);
+    if (!sellsHopPlus(c.env)) return unavailable(c);
     const user = currentUser(c);
     if (await tooManyCalls(c, user.id)) {
       return fail(c, 429, "rate_limited", "Too many tries. Try again in a minute.");
@@ -77,6 +79,7 @@ export const stripeRoutes = new Hono<AppEnv>()
     const db = getDb(c.env.DB);
     const { priceId } = c.req.valid("json");
     const lockedAt = Date.now();
+    const deadline = checkoutDeadline(lockedAt);
     if (!(await lockCheckout(db, user.id, lockedAt))) {
       return fail(
         c,
@@ -113,7 +116,7 @@ export const stripeRoutes = new Hono<AppEnv>()
       let customer = await customerFor(c.env, db, user);
       try {
         return c.json<BillingRedirect>({
-          url: await startCheckout(c.env, customer, user.id, priceId),
+          url: await startCheckout(c.env, customer, user.id, priceId, deadline),
         });
       } catch (error) {
         if (!isMissingCustomer(error)) throw error;
@@ -121,7 +124,7 @@ export const stripeRoutes = new Hono<AppEnv>()
         await forgetCustomer(db, user.id, customer);
         customer = await customerFor(c.env, db, user);
         return c.json<BillingRedirect>({
-          url: await startCheckout(c.env, customer, user.id, priceId),
+          url: await startCheckout(c.env, customer, user.id, priceId, deadline),
         });
       }
     } catch (error) {

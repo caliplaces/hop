@@ -298,14 +298,14 @@ wrangler secret put APPLE_SANDBOX_USERS --env production
 
 The website sells Hop+ through Stripe Checkout, and Stripe's customer portal handles everything after: payment method, invoices, switching plans, cancelling (`src/lib/stripe.ts`, `src/routes/stripe.ts`). Stripe Tax isn't on: the price set on the product is what's charged.
 
-- `GET /api/billing/web/prices`: the Hop+ product's active monthly and yearly prices (the newest of each), cached for five minutes. None where Stripe isn't set up, and the website then doesn't offer Hop+.
+- `GET /api/billing/web/prices`: the Hop+ product's active monthly and yearly prices (the newest of each), cached for five minutes. None where Stripe isn't set up, webhook included, and the website then doesn't offer Hop+: without the webhook, renewals would never reach Hop.
 - `POST /api/billing/web/checkout` `{ priceId }`: a Checkout page, for cards only (Apple Pay and Google Pay among them): bank debits mark a subscription active before the money arrives, and can fail or be reversed weeks later. The athlete gets a Stripe customer the first time (`users.stripe_customer_id`). It catches up with Stripe first, then:
   - refuses with `409 already_plus` with Hop+ from anywhere, so a checkout paid moments ago counts;
   - refuses with `409 payment_due` while a subscription is still billing but behind, since fixing the card in the portal brings Hop+ back;
   - cancels a subscription still waiting for its first payment;
-  - expires any checkout left open, so only the newest can be paid. One checkout opens at a time per account (`users.stripe_checkout_at`, a 30-second lock), or two at once could each leave theirs open (`409 checkout_opening`).
+  - expires any checkout left open, so only the newest can be paid. One checkout opens at a time per account (`users.stripe_checkout_at`, a two-minute lock), or two at once could each leave theirs open (`409 checkout_opening`). A checkout that has run so long that its lock may run out before Stripe answers doesn't open one. Deleting the account takes the same lock, then reads the customer, so a checkout can't make one unseen.
 - `POST /api/billing/web/portal`: a portal page, for athletes with a customer, with Hop's own portal configuration (`STRIPE_PORTAL_CONFIGURATION`): the account's default is shared with its other products and could let a subscription switch to one of them.
-- `POST /api/billing/web/sync`: reads their subscriptions from Stripe now and returns the plan, for coming back from Checkout before the webhook lands.
+- `POST /api/billing/web/sync`: reads their subscriptions from Stripe now, ended ones too, and returns the plan, for coming back from Checkout or the portal before the webhook lands. Stored Hop+ that Stripe didn't list (its customer was deleted) is read one by one.
 - `POST /api/stripe/webhook`: Stripe's events.
 
 Checkout, the portal and syncing are rate limited per account (`BILLING_LIMITER`), since Stripe's own limit is shared with the account's other products. A customer Stripe no longer has (deleted in its dashboard, which cancels its subscriptions) is forgotten, and the next checkout makes a new one.
@@ -313,7 +313,7 @@ Checkout, the portal and syncing are rate limited per account (`BILLING_LIMITER`
 How it's kept right:
 
 - **Only Stripe's word.** A webhook must carry a valid `Stripe-Signature` (HMAC-SHA256 with the endpoint's signing secret, at most five minutes old). Even then it only names a subscription, which is fetched from Stripe and stored as it is now. Data fetched earlier never overwrites data fetched later, so retried and out-of-order events can't roll it back.
-- **Only Hop+.** The Stripe account sells other products: only subscriptions whose every item is `STRIPE_PRODUCT_ID` count, and only for a customer Hop made for a live account.
+- **Only Hop+.** The Stripe account sells other products: only subscriptions whose every item is `STRIPE_PRODUCT_ID` count, and only for a customer Hop made for a live account. One moved to another product, or one Stripe no longer has, ends its Hop+ there and then.
 - **Test and live mode.** Live mode only in production; test mode locally and on staging. An event or subscription in the other mode is refused.
 - **What it gives.** Stored with the App Store's in `subscriptions`, as `provider = 'stripe'`, the subscription ID as its key, and `hop_plus` or `hop_plus_annual` for its period. Paid up: Hop+ to the period's end. Past due, while Stripe retries the renewal: Hop+ carries on as a billing grace period, for up to 16 days. Cancelled: until it ended. Unpaid or paused: it ended when the unpaid period began. Never paid (incomplete): not stored.
 - **Deleted accounts.** Deleting an account cancels every subscription its Stripe customer has (Hop made it, and nothing else uses it) and expires its open checkouts first. A checkout paid after all (Stripe can't expire one being paid) makes a subscription whose metadata names the deleted account: the webhook cancels it. Stripe keeps the customer and its invoices, as accounting law requires; Hop forgets which one it was.
