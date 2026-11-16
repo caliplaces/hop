@@ -62,14 +62,16 @@ struct ClipViewer: View {
         .task(id: model.clips[hopId]?.refreshes) {
             guard let showing else { return }
             await model.load(upTo: showing, in: hopId, api: session.api)
+            // It may now be among the last loaded: carry on past it.
+            guard !Task.isCancelled else { return }
+            await model.loadMore(in: hopId, near: showing, api: session.api)
         }
         .onChange(of: current) {
             showing = clip
             transfer.reset()
             problem = nil
-            if let position, position >= clips.count - 3 {
-                Task { await model.loadMore(in: hopId, api: session.api) }
-            }
+            let showing = clip
+            Task { await model.loadMore(in: hopId, near: showing, api: session.api) }
         }
         .confirmationDialog("Delete this clip?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await delete() } }

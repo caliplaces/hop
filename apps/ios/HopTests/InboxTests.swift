@@ -256,6 +256,34 @@ struct InboxModelTests {
         #expect(model.clips["jam"]?.isLoading == false)
     }
 
+    @Test func loadsTheNextPageOnceTheClipShowingIsAmongTheLast() async throws {
+        let ids = ["a", "b", "c", "d", "e"]
+        let page = ids.enumerated().map { clipJSON($1, hop: "jam", createdAt: 10 - $0) }.joined(separator: ",")
+        server.reply = { request in
+            let query = request.url?.query() ?? ""
+            switch request.url?.path {
+            case "/api/me/hops":
+                return (200, #"{"hops":[\#(hopJSON("jam", title: "Jam", createdAt: 1, files: 6))]}"#)
+            case "/api/me/files" where query.contains("cursor="):
+                return (200, #"{"files":[\#(clipJSON("f", hop: "jam", createdAt: 1))],"nextCursor":null}"#)
+            default:
+                return (200, #"{"files":[\#(page)],"nextCursor":"6:e"}"#)
+            }
+        }
+        let model = InboxModel()
+        let api = server.client(token: "hs_t")
+        await model.refresh(api: api, activeHopId: nil)
+        let pages = { (request: URLRequest) in request.url?.query()?.contains("cursor=") == true }
+
+        // Well before the end: nothing to load yet.
+        await model.loadMore(in: "jam", near: try clip("a", at: 10), api: api)
+        #expect(!server.requests.contains { pages($0.request) })
+
+        // Among the last few, as when recovery lands on the last loaded clip.
+        await model.loadMore(in: "jam", near: try clip("e", at: 6), api: api)
+        #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b", "c", "d", "e", "f"])
+    }
+
     @Test func keepsTheClipShowingInTheAPIsOrder() throws {
         let items = try [clip("a", at: 6), clip("b", at: 5), clip("c", at: 3)]
         #expect(InboxModel.clips(items, keeping: nil).map(\.id) == ["a", "b", "c"])
