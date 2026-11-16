@@ -88,6 +88,26 @@ describe("contributorNameSchema", () => {
     expect(contributorNameSchema.parse("Coach\u0000 Peter")).toBe("Coach Peter");
     expect(contributorNameSchema.safeParse("@").success).toBe(false);
   });
+
+  it("can't pass for a verified handle, or hide anything", () => {
+    // Invisible characters before the @ don't save it, nor does a fullwidth one.
+    expect(contributorNameSchema.parse("\u200B@coach_official")).toBe("coach_official");
+    expect(contributorNameSchema.parse("＠coach_official")).toBe("coach_official");
+    expect(contributorNameSchema.parse("Coach\u202E Peter")).toBe("Coach Peter");
+    expect(contributorNameSchema.parse("✅ Lea")).toBe("Lea");
+    // No towers of accents ("Zalgo").
+    expect(contributorNameSchema.parse(`Le${"\u0301".repeat(30)}a`)).not.toMatch(/\p{M}{4,}/u);
+    // Nothing visible is no name.
+    expect(contributorNameSchema.safeParse("\u3164\u200B").success).toBe(false);
+    expect(contributorNameSchema.safeParse("\u2800\u2800").success).toBe(false);
+  });
+
+  it("keeps emoji whole, and any language", () => {
+    expect(contributorNameSchema.parse("Mum 👩‍👧")).toBe("Mum 👩‍👧");
+    expect(contributorNameSchema.parse("🔥")).toBe("🔥");
+    expect(contributorNameSchema.parse("Zoë Ångström")).toBe("Zoë Ångström");
+    expect(contributorNameSchema.parse("كريم")).toBe("كريم");
+  });
 });
 
 describe("updateProfileSchema", () => {
