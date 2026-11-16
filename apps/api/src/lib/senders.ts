@@ -1,0 +1,63 @@
+import { and, eq, or, type SQL, sql } from "drizzle-orm";
+import type { Context } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
+import type { Db } from "../db";
+import { blocks } from "../db/schema";
+import type { AppEnv } from "../env";
+import { randomToken, sha256Hex } from "./crypto";
+import { isSecureUrl } from "./http";
+
+/**
+ * Senders: whoever uploads to someone's Hop, usually without an account.
+ *
+ * An athlete can block a sender. One who was signed in is blocked by account.
+ * Anyone else is blocked by a random key their browser keeps (the hop_sender
+ * cookie), not by IP address: at an event the whole crowd can share one
+ * network, and blocking one troll mustn't block them all. Clearing cookies
+ * gets around it, so blocking is a nuisance filter, with reporting (which
+ * reaches Hop's team) for anything worse.
+ *
+ * Only a hash of the key is stored, on each clip and block.
+ */
+const SENDER_COOKIE = "hop_sender";
+const KEY = /^[A-Za-z0-9_-]{43}$/;
+const YEAR_S = 365 * 24 * 60 * 60;
+
+/**
+ * The browser's sender key as stored (hashed), giving it one if it has none.
+ * Upload routes only: the cookie is limited to /api/hops.
+ */
+export async function senderKey(c: Context<AppEnv>): Promise<string> {
+  let key = getCookie(c, SENDER_COOKIE);
+  if (!key || !KEY.test(key)) {
+    key = randomToken();
+    setCookie(c, SENDER_COOKIE, key, {
+      httpOnly: true,
+      secure: isSecureUrl(c.env.APP_URL),
+      sameSite: "Lax",
+      path: "/api/hops",
+      maxAge: YEAR_S,
+    });
+  }
+  return sha256Hex(key);
+}
+
+/** SQL: whether this athlete blocked this sender (by key, or by account). */
+export function blockedSql(ownerId: string, sender: string, contributorUserId: string | null): SQL {
+  const who: SQL[] = [eq(blocks.senderKey, sender)];
+  if (contributorUserId) who.push(eq(blocks.contributorUserId, contributorUserId));
+  return sql`exists (select 1 from ${blocks} where ${and(eq(blocks.ownerId, ownerId), or(...who))})`;
+}
+
+/** Whether this athlete blocked this sender. */
+export async function isBlocked(
+  db: Db,
+  ownerId: string,
+  sender: string,
+  contributorUserId: string | null,
+): Promise<boolean> {
+  const row = await db.get<{ blocked: number }>(
+    sql`select ${blockedSql(ownerId, sender, contributorUserId)} as blocked`,
+  );
+  return Boolean(row?.blocked);
+}

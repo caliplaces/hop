@@ -7,6 +7,7 @@ import { files, hops } from "../db/schema";
 import { accountDeletedEmail } from "../email/account-deleted";
 import { launchEmail } from "../email/launch";
 import { newClipsEmail } from "../email/new-clips";
+import { reportEmail } from "../email/report";
 import type { RenderedEmail } from "../email/send";
 import { welcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
@@ -31,6 +32,25 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
   // ?handle= (empty) shows an account deleted before it claimed a handle.
   "account-deleted": (appUrl, query) =>
     accountDeletedEmail({ appUrl, handle: query("handle") ?? "matej" }),
+  // ?kind=profile shows a page report; a clip report otherwise.
+  report: (appUrl, query) =>
+    reportEmail({
+      appUrl,
+      handle: "matej",
+      report: {
+        id: "rep_preview",
+        kind: query("kind") === "profile" ? "profile" : "clip",
+        reason: "harassment",
+        note: "They keep sending the same clip with a rude caption.",
+        reporterId: query("kind") === "profile" ? null : "usr_preview",
+        reporterIpHash: null,
+        subjectUserId: null,
+        fileId: query("kind") === "profile" ? null : "fil_preview",
+        contributorName: query("kind") === "profile" ? null : "SmokyMonkey441",
+        senderKey: "preview",
+        createdAt: Date.now(),
+      },
+    }),
   // ?app=1 adds the App Store link.
   launch: (appUrl, query) =>
     launchEmail({

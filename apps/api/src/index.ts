@@ -17,6 +17,7 @@ import { emailRoutes } from "./routes/email";
 import { liveActivityRoutes } from "./routes/live";
 import { meRoutes } from "./routes/me";
 import { publicRoutes } from "./routes/public";
+import { reportRoutes } from "./routes/reports";
 import { uploadRoutes } from "./routes/uploads";
 import { waitlistRoutes } from "./routes/waitlist";
 
@@ -49,6 +50,7 @@ app.route("/email", emailRoutes);
 app.route("/", publicRoutes);
 app.route("/", meRoutes);
 app.route("/", uploadRoutes);
+app.route("/", reportRoutes);
 app.route("/", liveActivityRoutes);
 app.route("/", billingRoutes);
 app.route("/", waitlistRoutes);

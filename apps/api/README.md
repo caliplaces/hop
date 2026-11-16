@@ -84,6 +84,7 @@ Hop sends its own emails through [Resend](https://resend.com) from `EMAIL_FROM` 
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Welcome         | An athlete claims their handle                                                                                                                              |
 | New clips       | Clips arrived and uploads have been quiet for 10 minutes, or an hour after the first one (`src/notify.ts`)                                                  |
+| Report          | A clip or page is reported: to `REPORTS_EMAIL`, with the IDs needed to look at it                                                                           |
 | Account deleted | An athlete deletes their account: what went, that the handle stays reserved, what to do if it wasn't them, and that Hop+ is billed by Apple until cancelled |
 
 The new-clips digest runs every 5 minutes. A clip counts as announced once `files.notified_at` is set; each run claims an athlete's unannounced clips in one statement before sending, and hands them back if the send fails. Athletes turn it off in account settings, from the unsubscribe link in each email (a page that asks first), or with their mail app's one-click unsubscribe (`List-Unsubscribe`, RFC 8058).
@@ -166,6 +167,32 @@ The photo itself goes with the next hourly cleanup, and caches drop it within a 
 A deleted account's sessions are refused, even one a sign-in under way created just after. A request already running when they delete could still write to the tombstone (a name, a photo, a clip sent to someone, a Live Activity). So for a week after a deletion, every cleanup run erases the account again. A handle claim only lands on an account with no handle that isn't deleted. Uploads re-check that the hop is still open when they reserve their place. Each of these cleanup steps runs on its own, so one failing doesn't stop the rest.
 
 Deleting the account doesn't cancel Hop+, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. The purchase carries the deleted account's token, so restoring it on a new account fails with `deleted_account`, which tells them to cancel it and subscribe again.
+
+## Reports and blocks
+
+Anyone with an athlete's link can send them clips, and anyone can open their page. App Review requires a way to report content and to block whoever sends it (Guideline 1.2). Each report is kept in `reports` for a year and emailed to `REPORTS_EMAIL` (hello@onmyhop.com), so someone on the team looks at it, ideally within a day.
+
+- **Reporting a clip.** `POST /api/me/files/:fileId/report { reason, note? }`, by the athlete it was sent to, from the app.
+- **Reporting a page.** `POST /api/h/:handle/report { reason, note? }`, by anyone, from the upload page. Limited per IP.
+- **Blocking a sender.** `POST /api/me/files/:fileId/block` blocks whoever sent that clip, from sending the athlete more.
+  - A sender who was signed in is blocked by account.
+  - Anyone else is blocked by a random key their browser keeps: the `hop_sender` cookie, set by the upload routes and limited to `/api/hops`. Only its hash is stored, on each clip (`files.sender_key`) and block.
+  - Blocking by IP address would also block everyone else on the same network, such as a whole crowd on an event's Wi-Fi. A sender who clears their cookies gets past a block, so for anything worse there's the report.
+  - Clips from before sender keys can't be blocked (422), only reported.
+- **Managing blocks.** `GET /api/me/blocks` lists them, and `DELETE /api/me/blocks/:id` unblocks.
+- **When a block applies.** A blocked sender hears "You can't send clips to this Hop." when they ask for an upload pass. The upload itself checks again, in the same statement that reserves its place.
+- **Limits.** Reports and blocks are limited by `REPORT_LIMITER`.
+- **Deleted accounts.** Their blocks go, and their name is dropped from reports they made. Reports about them stay as the record.
+
+To look at a reported clip, find its key with the clip ID from the email, then fetch it:
+
+```sh
+wrangler d1 execute hop-production --remote --env production \
+  --command "select r2_key, owner_id, contributor_name from files where id = 'fil_…'"
+wrangler r2 object get hop-production/<r2_key> --remote --file clip
+```
+
+To take down a reported name or photo, see Profiles above. To delete a clip that breaks the law, use the athlete's own `DELETE /api/me/files/:fileId`, or delete its row and objects together, as `removeFile` in `src/lib/files.ts` does.
 
 ## Hop+ subscriptions
 

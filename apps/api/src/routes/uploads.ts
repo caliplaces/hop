@@ -25,11 +25,15 @@ import { newId, randomToken, sha256Hex, signPayload, verifyPayload } from "../li
 import { originalKey, removeFile, thumbnailKey } from "../lib/files";
 import { BodyTooLargeError, clientIp, fail, readBodyCapped } from "../lib/http";
 import { storageLimitSql } from "../lib/plans";
+import { blockedSql, isBlocked, senderKey } from "../lib/senders";
 import { SNIFF_BYTES, sniffMedia } from "../lib/sniff";
 import { normalizeEtag, presignUploadPart } from "../lib/storage";
 import { verifyTurnstile } from "../lib/turnstile";
 import { validate } from "../lib/validate";
 import { pushArrivals } from "../live";
+
+/** What a blocked sender hears: plainly, without saying who or why. */
+const BLOCKED_MESSAGE = "You can't send clips to this Hop.";
 
 /** A pass proves the contributor solved Turnstile for this hop recently. */
 type HopPass = { purpose: "hop-pass"; exp: number; hopId: string; passId: string };
@@ -83,10 +87,17 @@ export const uploadRoutes = new Hono<AppEnv>()
       return fail(c, 429, "rate_limited", "Too many attempts. Try again in a minute.");
     }
     const hopId = c.req.param("hopId");
-    const hop = await getDb(c.env.DB).select().from(hops).where(eq(hops.id, hopId)).get();
+    const db = getDb(c.env.DB);
+    const hop = await db.select().from(hops).where(eq(hops.id, hopId)).get();
     if (!hop) return fail(c, 404, "not_found");
     if (hop.status !== "open")
       return fail(c, 403, "hop_closed", "This Hop isn't accepting uploads.");
+    // Before the challenge, so a blocked sender hears it before solving one.
+    // Uploads check again: this is only the early word.
+    const sender = await senderKey(c);
+    if (await isBlocked(db, hop.ownerId, sender, c.get("user")?.id ?? null)) {
+      return fail(c, 403, "blocked", BLOCKED_MESSAGE);
+    }
 
     if (!(await verifyTurnstile(c.env, c.req.valid("json").turnstileToken, ip, "upload"))) {
       return fail(c, 403, "turnstile_failed", "We couldn't verify you're human. Please try again.");
@@ -157,6 +168,7 @@ export const uploadRoutes = new Hono<AppEnv>()
         : (user.name ?? randomContributorName())
       : (input.contributorName ?? randomContributorName());
 
+    const sender = await senderKey(c);
     const fileId = newId("fil");
     const r2Key = originalKey(hop.id, fileId);
     const uploadToken = randomToken();
@@ -168,14 +180,14 @@ export const uploadRoutes = new Hono<AppEnv>()
       insert into ${files} (
         id, hop_id, owner_id, r2_key, original_name, mime, size, part_size, part_count,
         status, pass_id, upload_token_hash, contributor_name, contributor_user_id, note,
-        uploader_ip_hash, created_at, last_activity_at
+        uploader_ip_hash, sender_key, created_at, last_activity_at
       )
       select
         ${fileId}, ${hop.id}, ${hop.ownerId}, ${r2Key}, ${input.name},
         ${input.type || "application/octet-stream"}, ${input.size}, ${PART_BYTES}, ${parts},
         'pending', ${pass.passId}, ${await sha256Hex(uploadToken)}, ${contributorName},
         ${user?.id ?? null}, ${input.note || null}, ${await sha256Hex(`${c.env.SESSION_SECRET}:${ip}`)},
-        ${now}, ${now}
+        ${sender}, ${now}, ${now}
       where (
         select coalesce(sum(size), 0) from ${files}
         where owner_id = ${hop.ownerId}
@@ -183,8 +195,13 @@ export const uploadRoutes = new Hono<AppEnv>()
       ) + ${input.size} <= ${storageLimitSql(hop.ownerId, now)}
         -- Still open: closed, or its owner's account deleted, since it was read.
         and (select status from ${hops} where id = ${hop.id}) = 'open'
+        -- And not from someone the owner blocked.
+        and not ${blockedSql(hop.ownerId, sender, user?.id ?? null)}
     `);
     if (reserved.meta.changes !== 1) {
+      if (await isBlocked(db, hop.ownerId, sender, user?.id ?? null)) {
+        return fail(c, 403, "blocked", BLOCKED_MESSAGE);
+      }
       const still = await db
         .select({ status: hops.status })
         .from(hops)

@@ -125,6 +125,12 @@ export const files = sqliteTable(
     }),
     note: text("note"),
     uploaderIpHash: text("uploader_ip_hash"),
+    /**
+     * SHA-256 of the sender's browser key (the hop_sender cookie, see
+     * lib/senders.ts), so an athlete can block whoever sent a clip without
+     * blocking everyone else on the same network.
+     */
+    senderKey: text("sender_key"),
     createdAt: integer("created_at").notNull(),
     /** Bumped on create, part signing and completion; drives quota reservation and cleanup. */
     lastActivityAt: integer("last_activity_at").notNull(),
@@ -257,3 +263,65 @@ export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
+
+/**
+ * Reports of a clip (by the athlete it was sent to) or of an athlete's page
+ * (by anyone). Each is emailed to REPORTS_EMAIL; the row is the record, kept
+ * for a year (see cron.ts).
+ */
+export const reports = sqliteTable(
+  "reports",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: ["clip", "profile"] }).notNull(),
+    reason: text("reason", {
+      enum: ["sexual", "violence", "harassment", "spam", "other"],
+    }).notNull(),
+    note: text("note"),
+    /** The athlete reporting a clip; null for a page reported by a visitor. */
+    reporterId: text("reporter_id").references(() => users.id, { onDelete: "set null" }),
+    /** SHA-256 of a visitor's IP, for page reports. */
+    reporterIpHash: text("reporter_ip_hash"),
+    /** The account reported: the page's owner, or a clip's signed-in sender. */
+    subjectUserId: text("subject_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The clip reported. Not a foreign key: the report outlives the clip. */
+    fileId: text("file_id"),
+    /** The clip's sender as it showed them, and their browser key. */
+    contributorName: text("contributor_name"),
+    senderKey: text("sender_key"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("reports_created_idx").on(t.createdAt)],
+);
+
+/**
+ * Senders an athlete blocked: by account when they sent while signed in,
+ * otherwise by browser key. Uploads from a blocked sender are refused.
+ */
+export const blocks = sqliteTable(
+  "blocks",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    contributorUserId: text("contributor_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    senderKey: text("sender_key"),
+    /** How they appeared on the clip that was blocked, for the athlete's list. */
+    label: text("label"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("blocks_owner_user_idx")
+      .on(t.ownerId, t.contributorUserId)
+      .where(sql`${t.contributorUserId} is not null`),
+    uniqueIndex("blocks_owner_sender_idx")
+      .on(t.ownerId, t.senderKey)
+      .where(sql`${t.senderKey} is not null`),
+  ],
+);
+
+export type ReportRow = typeof reports.$inferSelect;
+export type BlockRow = typeof blocks.$inferSelect;

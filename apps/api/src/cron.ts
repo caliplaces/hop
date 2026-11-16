@@ -1,7 +1,7 @@
 import { PENDING_UPLOAD_TTL_MS } from "@hop/shared";
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { files, liveActivities, sessions, users, waitlist } from "./db/schema";
+import { files, liveActivities, reports, sessions, users, waitlist } from "./db/schema";
 import type { Env } from "./env";
 import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
 import { dropEmptiedHops, eraseDeletedAccounts } from "./lib/accounts";
@@ -9,6 +9,8 @@ import { AVATAR_PREFIX } from "./lib/avatars";
 import { finishRemoval } from "./lib/files";
 
 const BATCH = 100;
+/** How long a report is kept. */
+const KEEP_REPORTS_MS = 365 * 24 * 60 * 60 * 1000;
 /** Upper bound per run so one invocation stays well inside Worker limits. */
 const MAX_BATCHES = 50;
 /** A removal still "deleting" after this long failed midway and is retried. */
@@ -72,6 +74,8 @@ export async function cleanup(env: Env) {
   });
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
   await db.delete(liveActivities).where(lt(liveActivities.expiresAt, Date.now()));
+  // Reports are the record of what was reported, kept for a year.
+  await db.delete(reports).where(lt(reports.createdAt, Date.now() - KEEP_REPORTS_MS));
   // The waitlist keeps an address only until a day after its launch email,
   // or a week after the first try if it never got through.
   await db

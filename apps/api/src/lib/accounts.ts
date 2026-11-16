@@ -14,9 +14,11 @@ import {
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { Db } from "../db";
 import {
+  blocks,
   files,
   hops,
   liveActivities,
+  reports,
   sessions,
   subscriptions,
   users,
@@ -122,6 +124,10 @@ export function erasure(db: Db, owned: Owned, now: number) {
         contributorName: sql`case when ${files.contributorName} like '@%' then ${files.contributorName} else null end`,
       })
       .where(owned(files.contributorUserId)),
+    // Who they blocked, and that they made the reports they made. The
+    // reports themselves stay, as the record of what was reported.
+    db.delete(blocks).where(owned(blocks.ownerId)),
+    db.update(reports).set({ reporterId: null }).where(owned(reports.reporterId)),
     db.delete(sessions).where(owned(sessions.userId)),
     db.delete(liveActivities).where(owned(liveActivities.userId)),
     db.delete(subscriptions).where(owned(subscriptions.userId)),
