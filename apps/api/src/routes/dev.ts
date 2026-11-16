@@ -7,7 +7,7 @@ import { files, hops } from "../db/schema";
 import { accountDeletedEmail } from "../email/account-deleted";
 import { launchEmail } from "../email/launch";
 import { newClipsEmail } from "../email/new-clips";
-import { reportEmail } from "../email/report";
+import { reportsEmail } from "../email/report";
 import type { RenderedEmail } from "../email/send";
 import { welcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
@@ -32,25 +32,48 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
   // ?handle= (empty) shows an account deleted before it claimed a handle.
   "account-deleted": (appUrl, query) =>
     accountDeletedEmail({ appUrl, handle: query("handle") ?? "matej" }),
-  // ?kind=profile shows a page report; a clip report otherwise.
-  report: (appUrl, query) =>
-    reportEmail({
-      appUrl,
-      handle: "matej",
-      report: {
-        id: "rep_preview",
-        kind: query("kind") === "profile" ? "profile" : "clip",
-        reason: "harassment",
+  // ?count=3 shows several in one email.
+  report: (appUrl, query) => {
+    const base = {
+      reporterId: "usr_preview",
+      reporterIpHash: null,
+      subjectUserId: null,
+      fileId: "fil_preview",
+      contributorName: "SmokyMonkey441",
+      senderKey: "preview",
+      clipNote: "lol look at this",
+      clipName: "IMG_0412.MOV",
+      emailedAt: null,
+      createdAt: Date.now(),
+    };
+    const samples = [
+      {
+        ...base,
+        id: "rep_1",
+        kind: "clip" as const,
+        reason: "harassment" as const,
         note: "They keep sending the same clip with a rude caption.",
-        reporterId: query("kind") === "profile" ? null : "usr_preview",
-        reporterIpHash: null,
-        subjectUserId: null,
-        fileId: query("kind") === "profile" ? null : "fil_preview",
-        contributorName: query("kind") === "profile" ? null : "SmokyMonkey441",
-        senderKey: "preview",
-        createdAt: Date.now(),
       },
-    }),
+      { ...base, id: "rep_2", kind: "block" as const, reason: "other" as const, note: null },
+      {
+        ...base,
+        id: "rep_3",
+        kind: "profile" as const,
+        reason: "sexual" as const,
+        note: "Their photo",
+        reporterId: null,
+        fileId: null,
+        contributorName: null,
+        clipNote: null,
+        clipName: null,
+      },
+    ];
+    const count = Math.min(Math.max(Number(query("count")) || 1, 1), samples.length);
+    return reportsEmail(
+      appUrl,
+      samples.slice(0, count).map((report) => ({ report, handle: "matej" })),
+    );
+  },
   // ?app=1 adds the App Store link.
   launch: (appUrl, query) =>
     launchEmail({

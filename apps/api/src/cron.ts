@@ -38,6 +38,8 @@ export async function cleanup(env: Env) {
     const due = or(
       and(eq(files.status, "pending"), lt(files.lastActivityAt, now - PENDING_UPLOAD_TTL_MS)),
       and(eq(files.status, "deleting"), lt(files.lastActivityAt, now - STUCK_DELETE_MS)),
+      // Deleted clips held for a report, once the hold is over.
+      and(eq(files.status, "held"), lt(files.heldUntil, now)),
     );
     const candidates = await db.select({ id: files.id }).from(files).where(due).limit(BATCH);
     if (candidates.length === 0) break;

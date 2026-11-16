@@ -118,6 +118,11 @@ export const reportSchema = z.object({
 });
 export type ReportInput = z.infer<typeof reportSchema>;
 
+/** Reporting a page needs no account, so it needs a Turnstile pass instead. */
+export const pageReportSchema = reportSchema.extend({
+  turnstileToken: z.string().min(1).max(4096),
+});
+
 /** Someone an athlete blocked from sending them clips. */
 export type Block = {
   id: string;

@@ -1,10 +1,10 @@
 /** @jsxImportSource hono/jsx */
+import type { ReportReason } from "@hop/shared";
 import type { ReportRow } from "../db/schema";
-import type { Env } from "../env";
-import { EmailDocument, renderEmail, Subtitle, Text, Title } from "./layout";
-import { type RenderedEmail, sendEmail } from "./send";
+import { Divider, EmailDocument, renderEmail, Subtitle, Text, Title } from "./layout";
+import type { RenderedEmail } from "./send";
 
-const REASONS: Record<ReportRow["reason"], string> = {
+const REASONS: Record<ReportReason, string> = {
   sexual: "Sexual content",
   violence: "Violence or threats",
   harassment: "Harassment or hate",
@@ -12,86 +12,73 @@ const REASONS: Record<ReportRow["reason"], string> = {
   other: "Something else",
 };
 
-export type ReportEmailInput = {
-  appUrl: string;
+export type ReportItem = {
   report: ReportRow;
-  /** The handle of the athlete who reported a clip, or whose page was reported. */
+  /** The athlete's handle: who reported or blocked, or whose page was reported. */
   handle: string | null;
 };
 
-/**
- * Tells Hop's team about a report, so someone looks at it. Facts only, with
- * the IDs needed to find the clip or the account (see "Reports and blocks"
- * in the README).
- */
-export async function reportEmail({
-  appUrl,
-  report,
-  handle,
-}: ReportEmailInput): Promise<RenderedEmail> {
+/** One report as a heading and its facts, for the email in both forms. */
+function describe(appUrl: string, { report, handle }: ReportItem) {
   const host = new URL(appUrl).host;
-  const what =
-    report.kind === "clip"
-      ? `A clip sent to ${handle ? `@${handle}` : "an athlete"} was reported by them.`
-      : `The page ${host}/${handle ?? "?"} was reported by a visitor.`;
-  const facts: [string, string][] = [
-    ["Reason", REASONS[report.reason]],
+  const athlete = handle ? `@${handle}` : "an athlete";
+  const heading = {
+    clip: `${athlete} reported a clip: ${REASONS[report.reason]}`,
+    block: `${athlete} blocked a sender`,
+    profile: `A visitor reported ${host}/${handle ?? "?"}: ${REASONS[report.reason]}`,
+  }[report.kind];
+  const facts: [string, string | null][] = [
+    ["Their words", report.note],
+    ["Sent as", report.contributorName],
+    ["Note on the clip", report.clipNote],
+    ["File name", report.clipName],
+    ["Clip", report.fileId],
+    ["Reported account", report.subjectUserId],
     ["Report", report.id],
-    ...(report.fileId ? ([["Clip", report.fileId]] as [string, string][]) : []),
-    ...(report.contributorName
-      ? ([["Sent as", report.contributorName]] as [string, string][])
-      : []),
-    ...(report.subjectUserId
-      ? ([["Reported account", report.subjectUserId]] as [string, string][])
-      : []),
-    ...(report.reporterId ? ([["Reported by", report.reporterId]] as [string, string][]) : []),
-    ["Sender key", report.senderKey ? "yes (they can be blocked)" : "none"],
+    ["When", new Date(report.createdAt).toISOString()],
   ];
-  const subject = `Report: ${report.kind === "clip" ? "a clip" : `${host}/${handle ?? "?"}`} (${REASONS[report.reason]})`;
+  return { heading, facts: facts.filter((fact): fact is [string, string] => Boolean(fact[1])) };
+}
+
+/**
+ * Tells Hop's team about new reports and blocks, so someone looks at them.
+ * Facts only, with the IDs needed to find the clip or the account (see
+ * "Reports and blocks" in the README).
+ */
+export async function reportsEmail(appUrl: string, items: ReportItem[]): Promise<RenderedEmail> {
+  const described = items.map((item) => describe(appUrl, item));
+  const subject =
+    items.length === 1
+      ? `Report: ${described[0]?.heading ?? ""}`
+      : `${items.length} new reports and blocks`;
 
   const html = await renderEmail(
     <EmailDocument
       appUrl={appUrl}
       title={subject}
-      preheader={what}
-      footer={<p style={{ margin: "0" }}>Sent to Hop's team for every report.</p>}
+      preheader={described.map((item) => item.heading).join(" · ")}
+      footer={<p style={{ margin: "0" }}>Sent to Hop's team for every report and block.</p>}
     >
-      <Title>Something was reported</Title>
-      <Text>{what}</Text>
-      {report.note && (
+      <Title>{items.length === 1 ? "Something was reported" : "New reports"}</Title>
+      {described.map(({ heading, facts }, index) => (
         <>
-          <Subtitle>Their words</Subtitle>
-          <Text>{report.note}</Text>
+          {index > 0 && <Divider />}
+          <Subtitle>{heading}</Subtitle>
+          {facts.map(([label, value]) => (
+            <Text muted>
+              {label}: {value}
+            </Text>
+          ))}
         </>
-      )}
-      <Subtitle>Details</Subtitle>
-      {facts.map(([label, value]) => (
-        <Text muted>
-          {label}: {value}
-        </Text>
       ))}
     </EmailDocument>,
   );
 
-  const text = [
-    "Something was reported",
-    "",
-    what,
-    ...(report.note ? ["", "Their words:", report.note] : []),
-    "",
-    ...facts.map(([label, value]) => `${label}: ${value}`),
-  ].join("\n");
+  const text = described
+    .map(({ heading, facts }) =>
+      [heading, ...facts.map(([label, value]) => `${label}: ${value}`)].join("\n"),
+    )
+    .join("\n\n");
 
   return { subject, html, text };
-}
-
-/** Sends a report to REPORTS_EMAIL. Each report is sent once. */
-export async function sendReportEmail(env: Env, input: Omit<ReportEmailInput, "appUrl">) {
-  const email = await reportEmail({ ...input, appUrl: env.APP_URL });
-  await sendEmail(env, {
-    ...email,
-    to: env.REPORTS_EMAIL,
-    idempotencyKey: `report/${input.report.id}`,
-    category: "report",
-  });
 }

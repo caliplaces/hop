@@ -35,8 +35,18 @@ import { pushArrivals } from "../live";
 /** What a blocked sender hears: plainly, without saying who or why. */
 const BLOCKED_MESSAGE = "You can't send clips to this Hop.";
 
-/** A pass proves the contributor solved Turnstile for this hop recently. */
-type HopPass = { purpose: "hop-pass"; exp: number; hopId: string; passId: string };
+/**
+ * A pass proves the contributor solved Turnstile for this hop recently. It
+ * names the sender (their browser key, hashed: lib/senders.ts), so every
+ * upload under it counts as theirs. Passes from before had none.
+ */
+type HopPass = {
+  purpose: "hop-pass";
+  exp: number;
+  hopId: string;
+  passId: string;
+  sender?: string;
+};
 const HOP_PASS_TTL_MS = 2 * 60 * 60 * 1000;
 /** Thumbnails can still be attached shortly after the upload completes. */
 const THUMBNAIL_GRACE_MS = 60 * 60 * 1000;
@@ -92,7 +102,7 @@ export const uploadRoutes = new Hono<AppEnv>()
     if (!hop) return fail(c, 404, "not_found");
     if (hop.status !== "open")
       return fail(c, 403, "hop_closed", "This Hop isn't accepting uploads.");
-    // Before the challenge, so a blocked sender hears it before solving one.
+    // Before the challenge is checked, so a blocked sender hears it at once.
     // Uploads check again: this is only the early word.
     const sender = await senderKey(c);
     if (await isBlocked(db, hop.ownerId, sender, c.get("user")?.id ?? null)) {
@@ -108,6 +118,7 @@ export const uploadRoutes = new Hono<AppEnv>()
       exp,
       hopId,
       passId: randomToken(12),
+      sender,
     });
     return c.json({ pass, expiresAt: exp });
   })
@@ -168,7 +179,9 @@ export const uploadRoutes = new Hono<AppEnv>()
         : (user.name ?? randomContributorName())
       : (input.contributorName ?? randomContributorName());
 
-    const sender = await senderKey(c);
+    // The pass's sender, whatever cookie comes with the upload: dropping the
+    // cookie can't make each upload a new sender, out of reach of a block.
+    const sender = pass.sender ?? (await senderKey(c));
     const fileId = newId("fil");
     const r2Key = originalKey(hop.id, fileId);
     const uploadToken = randomToken();

@@ -17,7 +17,9 @@ import { isSecureUrl } from "./http";
  * gets around it, so blocking is a nuisance filter, with reporting (which
  * reaches Hop's team) for anything worse.
  *
- * Only a hash of the key is stored, on each clip and block.
+ * Only a hash of the key is stored, on each clip and block. The upload pass
+ * carries it too (uploads.ts), so a pass's uploads all count as one sender,
+ * with or without the cookie, and a block ends the pass.
  */
 const SENDER_COOKIE = "hop_sender";
 const KEY = /^[A-Za-z0-9_-]{43}$/;
@@ -25,25 +27,28 @@ const YEAR_S = 365 * 24 * 60 * 60;
 
 /**
  * The browser's sender key as stored (hashed), giving it one if it has none.
+ * Each use keeps it another year, so a block lasts while they keep sending.
  * Upload routes only: the cookie is limited to /api/hops.
  */
 export async function senderKey(c: Context<AppEnv>): Promise<string> {
   let key = getCookie(c, SENDER_COOKIE);
-  if (!key || !KEY.test(key)) {
-    key = randomToken();
-    setCookie(c, SENDER_COOKIE, key, {
-      httpOnly: true,
-      secure: isSecureUrl(c.env.APP_URL),
-      sameSite: "Lax",
-      path: "/api/hops",
-      maxAge: YEAR_S,
-    });
-  }
+  if (!key || !KEY.test(key)) key = randomToken();
+  setCookie(c, SENDER_COOKIE, key, {
+    httpOnly: true,
+    secure: isSecureUrl(c.env.APP_URL),
+    sameSite: "Lax",
+    path: "/api/hops",
+    maxAge: YEAR_S,
+  });
   return sha256Hex(key);
 }
 
-/** SQL: whether this athlete blocked this sender (by key, or by account). */
+/**
+ * SQL: whether this athlete blocked this sender (by key, or by account).
+ * Never the athlete themselves, signed in to their own Hop.
+ */
 export function blockedSql(ownerId: string, sender: string, contributorUserId: string | null): SQL {
+  if (contributorUserId === ownerId) return sql`0`;
   const who: SQL[] = [eq(blocks.senderKey, sender)];
   if (contributorUserId) who.push(eq(blocks.contributorUserId, contributorUserId));
   return sql`exists (select 1 from ${blocks} where ${and(eq(blocks.ownerId, ownerId), or(...who))})`;

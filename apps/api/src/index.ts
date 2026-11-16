@@ -10,6 +10,7 @@ import { fail } from "./lib/http";
 import { APP_SITE_ASSOCIATION_PATH, appSiteAssociation } from "./lib/oidc";
 import { loadSession } from "./lib/session";
 import { announceNewClips } from "./notify";
+import { announceReports } from "./reports";
 import { authRoutes } from "./routes/auth";
 import { billingRoutes } from "./routes/billing";
 import { devRoutes } from "./routes/dev";
@@ -72,10 +73,14 @@ app.onError((error, c) => {
 
 /**
  * The five-minute email jobs, side by side, so one failing can't hold up the
- * other. A failure is logged, and fails the run, so it shows up.
+ * others. A failure is logged, and fails the run, so it shows up.
  */
 export async function sendEmails(env: Env): Promise<void> {
-  const jobs = { digest: announceNewClips(env), launch: announceLaunch(env) };
+  const jobs = {
+    digest: announceNewClips(env),
+    launch: announceLaunch(env),
+    reports: announceReports(env),
+  };
   const results = await Promise.allSettled(Object.values(jobs));
   const failed = Object.keys(jobs).filter((_, i) => results[i]?.status === "rejected");
   results.forEach((result, i) => {

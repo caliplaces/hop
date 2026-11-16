@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b6ebdb29-485a-42a4-8cb1-33db8d0199de",
+  "id": "58180d7a-4b93-440a-ad19-954a79a797ed",
   "prevId": "f4f8d737-1e17-4444-8415-79e635bbabc1",
   "tables": {
     "blocks": {
@@ -235,6 +235,13 @@
         "sender_key": {
           "name": "sender_key",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "held_until": {
+          "name": "held_until",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -658,6 +665,27 @@
           "notNull": false,
           "autoincrement": false
         },
+        "clip_note": {
+          "name": "clip_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "clip_name": {
+          "name": "clip_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "emailed_at": {
+          "name": "emailed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -670,6 +698,33 @@
         "reports_created_idx": {
           "name": "reports_created_idx",
           "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "reports_unemailed_idx": {
+          "name": "reports_unemailed_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false,
+          "where": "\"reports\".\"emailed_at\" is null"
+        },
+        "reports_once_idx": {
+          "name": "reports_once_idx",
+          "columns": [
+            "kind",
+            "reporter_id",
+            "file_id"
+          ],
+          "isUnique": true,
+          "where": "\"reports\".\"reporter_id\" is not null and \"reports\".\"file_id\" is not null"
+        },
+        "reports_page_idx": {
+          "name": "reports_page_idx",
+          "columns": [
+            "reporter_ip_hash",
+            "subject_user_id",
             "created_at"
           ],
           "isUnique": false

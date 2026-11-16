@@ -1,3 +1,4 @@
+import { REPORT_REASONS } from "@hop/shared";
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
@@ -110,8 +111,12 @@ export const files = sqliteTable(
     size: integer("size").notNull(),
     partSize: integer("part_size").notNull(),
     partCount: integer("part_count").notNull(),
-    /** "deleting" rows are being removed; see lib/files.ts removeFile. */
-    status: text("status", { enum: ["pending", "complete", "deleting"] })
+    /**
+     * "deleting" rows are being removed; see lib/files.ts removeFile. "held"
+     * clips were reported, then deleted: gone for the athlete, kept for Hop's
+     * team until held_until.
+     */
+    status: text("status", { enum: ["pending", "complete", "deleting", "held"] })
       .notNull()
       .default("pending"),
     multipartUploadId: text("multipart_upload_id"),
@@ -131,6 +136,12 @@ export const files = sqliteTable(
      * blocking everyone else on the same network.
      */
     senderKey: text("sender_key"),
+    /**
+     * Set when the clip is reported: until then, deleting it (by the athlete,
+     * a block or deleting their account) only hides it, so Hop's team can
+     * still look at it. See lib/files.ts.
+     */
+    heldUntil: integer("held_until"),
     createdAt: integer("created_at").notNull(),
     /** Bumped on create, part signing and completion; drives quota reservation and cleanup. */
     lastActivityAt: integer("last_activity_at").notNull(),
@@ -273,10 +284,9 @@ export const reports = sqliteTable(
   "reports",
   {
     id: text("id").primaryKey(),
-    kind: text("kind", { enum: ["clip", "profile"] }).notNull(),
-    reason: text("reason", {
-      enum: ["sexual", "violence", "harassment", "spam", "other"],
-    }).notNull(),
+    /** A clip or a page reported, or a sender blocked (which tells the team too). */
+    kind: text("kind", { enum: ["clip", "profile", "block"] }).notNull(),
+    reason: text("reason", { enum: REPORT_REASONS }).notNull(),
     note: text("note"),
     /** The athlete reporting a clip; null for a page reported by a visitor. */
     reporterId: text("reporter_id").references(() => users.id, { onDelete: "set null" }),
@@ -289,9 +299,22 @@ export const reports = sqliteTable(
     /** The clip's sender as it showed them, and their browser key. */
     contributorName: text("contributor_name"),
     senderKey: text("sender_key"),
+    /** The clip's note and file name, which outlive it here. */
+    clipNote: text("clip_note"),
+    clipName: text("clip_name"),
+    /** When the team's email about it went out (see src/reports.ts). */
+    emailedAt: integer("emailed_at"),
     createdAt: integer("created_at").notNull(),
   },
-  (t) => [index("reports_created_idx").on(t.createdAt)],
+  (t) => [
+    index("reports_created_idx").on(t.createdAt),
+    index("reports_unemailed_idx").on(t.createdAt).where(sql`${t.emailedAt} is null`),
+    // An athlete reports (or blocks from) each clip once.
+    uniqueIndex("reports_once_idx")
+      .on(t.kind, t.reporterId, t.fileId)
+      .where(sql`${t.reporterId} is not null and ${t.fileId} is not null`),
+    index("reports_page_idx").on(t.reporterIpHash, t.subjectUserId, t.createdAt),
+  ],
 );
 
 /**

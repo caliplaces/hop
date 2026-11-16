@@ -170,29 +170,38 @@ Deleting the account doesn't cancel Hop+, which Apple bills until it's cancelled
 
 ## Reports and blocks
 
-Anyone with an athlete's link can send them clips, and anyone can open their page. App Review requires a way to report content and to block whoever sends it (Guideline 1.2). Each report is kept in `reports` for a year and emailed to `REPORTS_EMAIL` (hello@onmyhop.com), so someone on the team looks at it, ideally within a day.
+Anyone with an athlete's link can send them clips, and anyone can open their page. App Review requires a way to report content and to block whoever sends it (Guideline 1.2).
 
-- **Reporting a clip.** `POST /api/me/files/:fileId/report { reason, note? }`, by the athlete it was sent to, from the app.
-- **Reporting a page.** `POST /api/h/:handle/report { reason, note? }`, by anyone, from the upload page. Limited per IP.
-- **Blocking a sender.** `POST /api/me/files/:fileId/block` blocks whoever sent that clip, from sending the athlete more.
-  - A sender who was signed in is blocked by account.
-  - Anyone else is blocked by a random key their browser keeps: the `hop_sender` cookie, set by the upload routes and limited to `/api/hops`. Only its hash is stored, on each clip (`files.sender_key`) and block.
-  - Blocking by IP address would also block everyone else on the same network, such as a whole crowd on an event's Wi-Fi. A sender who clears their cookies gets past a block, so for anything worse there's the report.
-  - Clips from before sender keys can't be blocked (422), only reported.
-- **Managing blocks.** `GET /api/me/blocks` lists them, and `DELETE /api/me/blocks/:id` unblocks.
-- **When a block applies.** A blocked sender hears "You can't send clips to this Hop." when they ask for an upload pass. The upload itself checks again, in the same statement that reserves its place.
+- **Reporting a clip.** `POST /api/me/files/:fileId/report { reason, note? }`, by the athlete it was sent to, from the app. The report keeps the clip's sender, note and file name.
+  - The clip is held for 30 days (`files.held_until`). Deleting it in that time only hides it (status `held`), and so does a block or deleting the account. The team can still look, and the hourly cleanup removes it once the hold is over.
+- **Reporting a page.** `POST /api/h/:handle/report { reason, note?, turnstileToken }`, by anyone, from the upload page. It's behind Turnstile and a limit per IP (per /64 for IPv6). The same visitor reporting the same page again within a day changes nothing.
+- **Blocking a sender.** `POST /api/me/files/:fileId/block` blocks whoever sent that clip.
+  - The block covers every way they're known: their account if they were signed in, and the random key their browser keeps. That key is the `hop_sender` cookie, set by the upload routes, limited to `/api/hops` and renewed for a year with each use. Only its hash is stored, on each clip (`files.sender_key`) and block. The upload pass carries it too, so dropping the cookie doesn't make each upload a new sender. A block also ends the sender's pass.
+  - Blocking by IP address would also block everyone else on the same network, such as a whole crowd on an event's Wi-Fi. Someone who clears their cookies and solves Turnstile again gets past a block, which is why reports exist for anything worse.
+  - Their clips leave the athlete's inbox at once, uploads under way included, and the team hears about the block.
+  - An athlete is never blocked from their own Hop while signed in. Clips from before sender keys can't be blocked (422), only reported.
+- **Managing blocks.** `GET /api/me/blocks` lists them, and `DELETE /api/me/blocks/:id` unblocks. Clips that went with a block don't come back.
+- **When a block applies.** A blocked sender hears "You can't send clips to this Hop." when they ask for an upload pass. The upload checks again, in the same statement that reserves its place.
+- **How the team hears.** Each report and block is kept in `reports` for a year. Every five minutes, the email job sends the new ones to `REPORTS_EMAIL` (hello@onmyhop.com) in one email (`src/reports.ts`). A flood of reports is at most one email a run, and a send that fails is tried again on the next. Someone should look within a day.
 - **Limits.** Reports and blocks are limited by `REPORT_LIMITER`.
-- **Deleted accounts.** Their blocks go, and their name is dropped from reports they made. Reports about them stay as the record.
+- **Deleted accounts.** Their blocks go, and their name is dropped from reports they made. Where they were the sender, a name is dropped from reports and others' blocks, and an @handle stays. Reports about them stay as the record.
 
 To look at a reported clip, find its key with the clip ID from the email, then fetch it:
 
 ```sh
 wrangler d1 execute hop-production --remote --env production \
-  --command "select r2_key, owner_id, contributor_name from files where id = 'fil_…'"
+  --command "select r2_key, status, held_until from files where id = 'fil_…'"
 wrangler r2 object get hop-production/<r2_key> --remote --file clip
 ```
 
-To take down a reported name or photo, see Profiles above. To delete a clip that breaks the law, use the athlete's own `DELETE /api/me/files/:fileId`, or delete its row and objects together, as `removeFile` in `src/lib/files.ts` does.
+To keep a clip longer, for example while working with the authorities, push its hold back:
+
+```sh
+wrangler d1 execute hop-production --remote --env production \
+  --command "update files set held_until = <ms since 1970> where id = 'fil_…'"
+```
+
+To take down a reported name or photo, see Profiles above.
 
 ## Hop+ subscriptions
 

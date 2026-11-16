@@ -7,6 +7,7 @@ import {
   isNull,
   ne,
   notExists,
+  notInArray,
   or,
   type SQL,
   sql,
@@ -24,6 +25,7 @@ import {
   users,
   waitlist,
 } from "../db/schema";
+import { goneStatus } from "./files";
 
 /**
  * Deleting an account.
@@ -46,6 +48,10 @@ import {
 
 /** How long after a deletion the cleanup keeps erasing the account again. */
 export const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** SQL: a sender's name if it's an @handle (kept reserved anyway), else null. */
+const keepHandle = (column: AnySQLiteColumn) =>
+  sql<string | null>`case when ${column} like '@%' then ${column} else null end`;
 
 /** Matches rows belonging to the accounts being erased. */
 type Owned = (column: AnySQLiteColumn) => SQL;
@@ -121,13 +127,23 @@ export function erasure(db: Db, owned: Owned, now: number) {
       .update(files)
       .set({
         contributorUserId: null,
-        contributorName: sql`case when ${files.contributorName} like '@%' then ${files.contributorName} else null end`,
+        contributorName: keepHandle(files.contributorName),
       })
       .where(owned(files.contributorUserId)),
     // Who they blocked, and that they made the reports they made. The
     // reports themselves stay, as the record of what was reported.
     db.delete(blocks).where(owned(blocks.ownerId)),
     db.update(reports).set({ reporterId: null }).where(owned(reports.reporterId)),
+    // Where they're the sender someone blocked or reported, a name goes as on
+    // clips (above); an @handle stays.
+    db
+      .update(blocks)
+      .set({ label: keepHandle(blocks.label) })
+      .where(owned(blocks.contributorUserId)),
+    db
+      .update(reports)
+      .set({ contributorName: keepHandle(reports.contributorName) })
+      .where(and(owned(reports.subjectUserId), ne(reports.kind, "profile"))),
     db.delete(sessions).where(owned(sessions.userId)),
     db.delete(liveActivities).where(owned(liveActivities.userId)),
     db.delete(subscriptions).where(owned(subscriptions.userId)),
@@ -136,10 +152,11 @@ export function erasure(db: Db, owned: Owned, now: number) {
       .set({ status: "closed" })
       .where(and(owned(hops.ownerId), eq(hops.status, "open"))),
     // Due at once: the cleanup removes "deleting" clips idle for ten minutes.
+    // A reported clip is held for Hop's team first (see lib/files.ts).
     db
       .update(files)
-      .set({ status: "deleting", lastActivityAt: 0 })
-      .where(and(owned(files.ownerId), ne(files.status, "deleting"))),
+      .set({ status: goneStatus(now), lastActivityAt: 0 })
+      .where(and(owned(files.ownerId), notInArray(files.status, ["deleting", "held"]))),
   ] as const;
 }
 

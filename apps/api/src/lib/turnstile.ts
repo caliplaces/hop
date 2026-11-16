@@ -4,7 +4,7 @@ import type { Env } from "../env";
  * Action names set on the widget, checked so a token minted for one form
  * (or another site) doesn't count for another.
  */
-export type TurnstileAction = "upload" | "waitlist";
+export type TurnstileAction = "upload" | "waitlist" | "report";
 
 type SiteverifyResponse = { success?: boolean; hostname?: string; action?: string };
 
