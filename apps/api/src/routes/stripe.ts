@@ -103,7 +103,7 @@ export const stripeRoutes = new Hono<AppEnv>()
           c,
           409,
           "payment_due",
-          "Your Hop+ subscription has a payment due. Update your card in Manage subscription to keep it.",
+          "Your Hop+ subscription has a payment due. Update your card to get Hop+ back.",
         );
       }
       // Never paid (a payment left waiting): it mustn't go through later as well.
