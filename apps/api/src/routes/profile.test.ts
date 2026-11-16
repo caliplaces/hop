@@ -8,11 +8,12 @@ import type { Env } from "../env";
 import worker from "../index";
 import { randomToken, sha256Hex } from "../lib/crypto";
 import { createTestD1 } from "../test/d1";
+import { BASELINE_JPEG } from "../test/jpegs";
 import { createTestR2 } from "../test/r2";
 
 const DAY = 24 * 60 * 60 * 1000;
-/** The start of a JPEG, then filler: what the sniffer looks for. */
-const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new Array(200).fill(7)]);
+/** A real (tiny) JPEG: the server rebuilds photos, so a bare signature won't do. */
+const JPEG = BASELINE_JPEG;
 const PNG = new Uint8Array([
   0x89,
   0x50,
@@ -30,6 +31,7 @@ let db: ReturnType<typeof getDb>;
 let objects: ReturnType<typeof createTestR2>["objects"];
 let faults: ReturnType<typeof createTestR2>["faults"];
 let token: string;
+let allowChanges: boolean;
 
 beforeEach(async () => {
   const DB = createTestD1();
@@ -42,7 +44,9 @@ beforeEach(async () => {
     ENVIRONMENT: "production",
     APP_URL: "https://onmyhop.com",
     SESSION_SECRET: "test-secret",
+    PROFILE_LIMITER: { limit: async () => ({ success: allowChanges }) } as RateLimit,
   } as Env;
+  allowChanges = true;
   db = getDb(DB);
   const now = Date.now();
   await db.insert(users).values({
@@ -125,6 +129,12 @@ describe("the public name", () => {
       `Al${char(0x34f)}ex`, // ...and hidden inside a name
       char(0x301), // a lone accent
       `${char(0x34f)} ${char(0x301)}`,
+      "@simone", // passes for a handle
+      `Simone ${char(0x2713)}`, // a check mark passes for a badge
+      `Simone ${char(0x2705)}`,
+      `A${char(0x301).repeat(8)}`, // stacked marks
+      char(0x2800).repeat(3), // braille blanks: nothing readable
+      char(0x3164), // a Hangul filler
     ]) {
       expect((await patch({ displayName })).status).toBe(400);
     }
@@ -132,7 +142,16 @@ describe("the public name", () => {
   });
 
   it("takes any real name: accents, other scripts, emoji", async () => {
-    for (const displayName of ["Matěj Matiaško", "李小龍", "Zoë 🏃", "J.R. O'Neil-Smith"]) {
+    const char = (code: number) => String.fromCodePoint(code);
+    // Woman running: an emoji built with a zero-width joiner, which is fine there.
+    const runner = `${char(0x1f3c3)}${char(0x200d)}${char(0x2640)}${char(0xfe0f)}`;
+    for (const displayName of [
+      "Matěj Matiaško",
+      "李小龍",
+      "Zoë 🏃",
+      "J.R. O'Neil-Smith",
+      `Mia ${runner}`,
+    ]) {
       const response = await patch({ displayName });
       expect(response.status).toBe(200);
       expect(((await response.json()) as { me: Me }).me.name).toBe(displayName);
@@ -205,6 +224,47 @@ describe("the profile photo", () => {
     expect(objects.size).toBe(1);
   });
 
+  it("is served without its location or anything hidden in it", async () => {
+    const exif = new TextEncoder().encode("Exif\0\0GPSLatitude 50.0755 GPSLongitude 14.4378");
+    const length = exif.length + 2;
+    const tagged = new Uint8Array([
+      0xff,
+      0xd8,
+      0xff,
+      0xe1,
+      length >> 8,
+      length & 0xff,
+      ...exif,
+      ...JPEG.subarray(2),
+      ...new TextEncoder().encode("<html>hosted here</html>"),
+    ]);
+    const response = await upload(tagged);
+    expect(response.status).toBe(200);
+    const [stored] = [...objects.values()];
+    expect(stored?.body).toEqual(JPEG);
+  });
+
+  it("is refused when it's a JPEG's first bytes and something else", async () => {
+    const fake = new Uint8Array([0xff, 0xd8, 0xff, ...new TextEncoder().encode("<html></html>")]);
+    expect((await upload(fake)).status).toBe(415);
+    expect(objects.size).toBe(0);
+  });
+
+  it("only ever deletes photos, whatever the stored key says", async () => {
+    const clip = "hops/hop_a/clip.mp4";
+    objects.set(clip, { body: JPEG, uploaded: new Date() });
+    await db.update(users).set({ avatarKey: clip }).where(eq(users.id, "usr_a"));
+    expect((await upload(JPEG)).status).toBe(200);
+    expect(objects.has(clip)).toBe(true);
+  });
+
+  it("can't be changed over and over", async () => {
+    allowChanges = false;
+    expect((await upload(JPEG)).status).toBe(429);
+    expect((await patch({ displayName: "Alex" })).status).toBe(429);
+    expect(objects.size).toBe(0);
+  });
+
   it("must be a JPEG of a sensible size", async () => {
     expect((await upload(PNG)).status).toBe(415);
     expect((await upload(JPEG, "image/png")).status).toBe(415);
@@ -246,10 +306,10 @@ describe("the profile photo", () => {
   });
 });
 
-describe("the verified badge", () => {
+describe("the Hop+ mark", () => {
   it("shows while they have Hop+", async () => {
-    expect((await me()).verified).toBe(false);
-    expect((await page()).owner.verified).toBe(false);
+    expect((await me()).hopPlus).toBe(false);
+    expect((await page()).owner.hopPlus).toBe(false);
     const now = Date.now();
     await db.insert(subscriptions).values({
       originalTransactionId: "2000000000",
@@ -262,7 +322,7 @@ describe("the verified badge", () => {
       createdAt: now,
       updatedAt: now,
     });
-    expect((await me()).verified).toBe(true);
-    expect((await page()).owner.verified).toBe(true);
+    expect((await me()).hopPlus).toBe(true);
+    expect((await page()).owner.hopPlus).toBe(true);
   });
 });

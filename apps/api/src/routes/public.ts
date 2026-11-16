@@ -9,7 +9,7 @@ import { fail } from "../lib/http";
 import { hasPlus } from "../lib/plans";
 import { findUserByHandle } from "./auth";
 
-function toPublicHop(hop: HopRow, owner: UserRow, verified: boolean): PublicHop {
+function toPublicHop(hop: HopRow, owner: UserRow, hopPlus: boolean): PublicHop {
   return {
     id: hop.id,
     slug: hop.slug,
@@ -20,7 +20,7 @@ function toPublicHop(hop: HopRow, owner: UserRow, verified: boolean): PublicHop 
       name: owner.displayName ?? owner.name,
       color: colorFor(owner.color, owner.id).id,
       avatarUrl: avatarUrl(owner.avatarKey),
-      verified,
+      hopPlus,
     },
   };
 }

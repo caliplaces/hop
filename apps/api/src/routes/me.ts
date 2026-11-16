@@ -20,18 +20,18 @@ import {
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { getDb } from "../db";
+import { type Db, getDb } from "../db";
 import { type FileRow, files, hops, users } from "../db/schema";
 import { sendWelcomeEmail } from "../email/welcome";
 import type { AppEnv, Env } from "../env";
 import { arrivalsSince } from "../lib/arrivals";
-import { AVATAR_CACHE, newAvatarKey } from "../lib/avatars";
+import { AVATAR_CACHE, AVATAR_PREFIX, newAvatarKey } from "../lib/avatars";
 import { newId } from "../lib/crypto";
 import { removeFile } from "../lib/files";
 import { BodyTooLargeError, fail, readBodyCapped } from "../lib/http";
+import { sanitizeJpeg } from "../lib/jpeg";
 import { hasPlus } from "../lib/plans";
 import { currentUser, requireUser } from "../lib/session";
-import { SNIFF_BYTES, sniffMedia } from "../lib/sniff";
 import { presignGet } from "../lib/storage";
 import { validate } from "../lib/validate";
 import { findUserByHandle, toMe } from "./auth";
@@ -66,8 +66,8 @@ export const meRoutes = new Hono<AppEnv>()
   /** Returns { me: null } when signed out so the web app can branch without a 401. */
   .get("/me", async (c) => {
     const user = c.get("user");
-    const verified = user ? await hasPlus(getDb(c.env.DB), user.id) : false;
-    return c.json({ me: toMe(user, { verified }) });
+    const hopPlus = user ? await hasPlus(getDb(c.env.DB), user.id) : false;
+    return c.json({ me: toMe(user, { hopPlus }) });
   })
 
   .get("/handles/:handle", async (c) => {
@@ -117,12 +117,15 @@ export const meRoutes = new Hono<AppEnv>()
         console.error("Welcome email failed", error),
       ),
     );
-    return c.json({ me: toMe(claimed, { verified: await hasPlus(db, user.id) }) });
+    return c.json({ me: toMe(claimed, { hopPlus: await hasPlus(db, user.id) }) });
   })
 
   /** Profile settings: page colour, email preferences and the public profile. */
   .patch("/me", requireUser, validate("json", updateProfileSchema), async (c) => {
     const user = currentUser(c);
+    if (await tooManyProfileChanges(c.env, user.id)) {
+      return fail(c, 429, "rate_limited", "Too many changes. Try again in a minute.");
+    }
     const db = getDb(c.env.DB);
     const { profileReviewed, ...changes } = c.req.valid("json");
     const now = Date.now();
@@ -132,15 +135,20 @@ export const meRoutes = new Hono<AppEnv>()
       updatedAt: now,
     };
     await db.update(users).set(set).where(eq(users.id, user.id));
-    return c.json({ me: toMe({ ...user, ...set }, { verified: await hasPlus(db, user.id) }) });
+    return c.json({ me: toMe({ ...user, ...set }, { hopPlus: await hasPlus(db, user.id) }) });
   })
 
   /**
-   * Sets the profile photo: a square JPEG the app makes, which strips the
-   * photo's metadata (location included) by drawing it anew. It's public,
-   * under a new random name; the old one is deleted.
+   * Sets the profile photo. It's public, so the server rebuilds it from only
+   * what's needed to show it (lib/jpeg.ts): no location or other metadata,
+   * nothing hidden after it, and no huge picture in a small file. It's
+   * stored under a new random name; the old one is deleted.
    */
   .put("/me/avatar", async (c) => {
+    const user = currentUser(c);
+    if (await tooManyProfileChanges(c.env, user.id)) {
+      return fail(c, 429, "rate_limited", "Too many changes. Try again in a minute.");
+    }
     if (c.req.header("content-type") !== "image/jpeg") {
       return fail(c, 415, "unsupported_type", "A profile photo must be a JPEG.");
     }
@@ -153,27 +161,22 @@ export const meRoutes = new Hono<AppEnv>()
       }
       throw error;
     }
-    if (sniffMedia(body.subarray(0, SNIFF_BYTES), body.byteLength) !== "image/jpeg") {
-      return fail(c, 415, "unsupported_type", "A profile photo must be a JPEG.");
+    const photo = sanitizeJpeg(body);
+    if (!photo) {
+      return fail(c, 415, "unsupported_type", "That photo can't be used. Try another.");
     }
-    const user = currentUser(c);
     const db = getDb(c.env.DB);
     const key = newAvatarKey();
-    await c.env.BUCKET.put(key, body, {
+    await c.env.BUCKET.put(key, photo, {
       httpMetadata: { contentType: "image/jpeg", cacheControl: AVATAR_CACHE },
     });
-    const previous = await db
-      .select({ key: users.avatarKey })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .get();
     const now = Date.now();
-    await db.update(users).set({ avatarKey: key, updatedAt: now }).where(eq(users.id, user.id));
-    if (previous?.key) await removeAvatar(c.env, previous.key);
+    const previous = await swapAvatar(db, user.id, key, now);
+    if (previous) await removeAvatar(c.env, previous);
     return c.json({
       me: toMe(
         { ...user, avatarKey: key, updatedAt: now },
-        { verified: await hasPlus(db, user.id) },
+        { hopPlus: await hasPlus(db, user.id) },
       ),
     });
   })
@@ -182,18 +185,13 @@ export const meRoutes = new Hono<AppEnv>()
   .delete("/me/avatar", async (c) => {
     const user = currentUser(c);
     const db = getDb(c.env.DB);
-    const previous = await db
-      .select({ key: users.avatarKey })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .get();
     const now = Date.now();
-    await db.update(users).set({ avatarKey: null, updatedAt: now }).where(eq(users.id, user.id));
-    if (previous?.key) await removeAvatar(c.env, previous.key);
+    const previous = await swapAvatar(db, user.id, null, now);
+    if (previous) await removeAvatar(c.env, previous);
     return c.json({
       me: toMe(
         { ...user, avatarKey: null, updatedAt: now },
-        { verified: await hasPlus(db, user.id) },
+        { hopPlus: await hasPlus(db, user.id) },
       ),
     });
   })
@@ -418,13 +416,34 @@ export const meRoutes = new Hono<AppEnv>()
   });
 
 /**
+ * Puts `key` (or none) in place of the account's photo, in one transaction,
+ * and returns the one it replaced. Overlapping uploads each get the photo
+ * they replaced, so none is left behind.
+ */
+async function swapAvatar(db: Db, userId: string, key: string | null, now: number) {
+  const [previous] = await db.batch([
+    db.select({ key: users.avatarKey }).from(users).where(eq(users.id, userId)),
+    db.update(users).set({ avatarKey: key, updatedAt: now }).where(eq(users.id, userId)),
+  ]);
+  return previous[0]?.key ?? null;
+}
+
+/**
  * Deletes a photo no longer in use, best effort: if R2 fails, the hourly
  * cleanup finds it unreferenced and deletes it then (see sweepAvatars).
+ * Only ever a photo, whatever the key says.
  */
 async function removeAvatar(env: Env, key: string): Promise<void> {
+  if (!key.startsWith(AVATAR_PREFIX)) return;
   try {
     await env.BUCKET.delete(key);
   } catch (error) {
     console.warn("avatar: delete failed, cleanup will retry", error);
   }
+}
+
+/** Per account, so a script can't churn through photos and names. */
+async function tooManyProfileChanges(env: Env, userId: string): Promise<boolean> {
+  const { success } = await env.PROFILE_LIMITER.limit({ key: `profile:${userId}` });
+  return !success;
 }

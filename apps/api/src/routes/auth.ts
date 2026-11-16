@@ -1,4 +1,4 @@
-import { colorFor, type Me } from "@hop/shared";
+import { colorFor, displayNameSchema, type Me } from "@hop/shared";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -145,10 +145,14 @@ async function signInWithCode(
 
   const email = typeof info.email === "string" ? info.email : null;
   const emailVerified = info.email_verified === true;
-  const name =
-    (typeof info.name === "string" && info.name.trim()) ||
-    (typeof info.preferred_username === "string" && info.preferred_username.trim()) ||
-    null;
+  // Shown publicly until they set a Hop name, so it follows the same rules;
+  // one that doesn't is dropped, and their @handle shows instead.
+  const offered =
+    (typeof info.name === "string" && info.name) ||
+    (typeof info.preferred_username === "string" && info.preferred_username) ||
+    "";
+  const checked = displayNameSchema.safeParse(offered);
+  const name = checked.success ? checked.data : null;
 
   const now = Date.now();
   return getDb(env.DB)
@@ -172,7 +176,7 @@ async function signInWithCode(
 
 export function toMe(
   user: AppEnv["Variables"]["user"],
-  { verified = false }: { verified?: boolean } = {},
+  { hopPlus = false }: { hopPlus?: boolean } = {},
 ): Me | null {
   if (!user) return null;
   return {
@@ -184,7 +188,7 @@ export function toMe(
     color: colorFor(user.color, user.id).id,
     emailNewClips: user.emailNewClips,
     avatarUrl: avatarUrl(user.avatarKey),
-    verified,
+    hopPlus,
     profileReviewed: user.profileReviewedAt !== null,
   };
 }
@@ -338,11 +342,11 @@ export const authRoutes = new Hono<AppEnv>()
     }
 
     const session = await createAppSession(c.env, user.id);
-    const verified = await hasPlus(getDb(c.env.DB), user.id);
+    const hopPlus = await hasPlus(getDb(c.env.DB), user.id);
     return c.json({
       token: session.token,
       expiresAt: session.expiresAt,
-      me: toMe(user, { verified }),
+      me: toMe(user, { hopPlus }),
     });
   })
 
