@@ -392,6 +392,7 @@ describe("new clips on the phone", () => {
       since: T0 - 20 * MIN,
       createdAt: T0 - 20 * MIN,
       expiresAt: T0 + 60 * MIN,
+      pushedAt: T0 - 15 * MIN,
     });
 
     await announceNewClips(env, T0 + 50 * MIN);
@@ -413,10 +414,55 @@ describe("new clips on the phone", () => {
       since: T0 - 20 * MIN,
       createdAt: T0 - 20 * MIN,
       expiresAt: T0 + 60 * MIN,
+      pushedAt: T0 - 15 * MIN,
     });
     await announceNewClips(env, T0);
     expect(pushes).toEqual([]);
     expect(sent).toHaveLength(1);
+  });
+
+  it("pushes clips an Event mode update Apple refused never showed", async () => {
+    await athlete("matej");
+    await phone("matej");
+    await clip("matej", T0 - 15 * MIN);
+    // Registered, but no update got through.
+    await db.insert(liveActivities).values({
+      token: "e".repeat(64),
+      userId: "matej",
+      hopId: "hop-matej",
+      since: T0 - 20 * MIN,
+      createdAt: T0 - 20 * MIN,
+      expiresAt: T0 + 60 * MIN,
+    });
+    // One got through, but before this clip.
+    await clip("matej", T0 - 12 * MIN, "Later");
+    await db.update(liveActivities).set({ pushedAt: T0 - 14 * MIN });
+    await announceNewClips(env, T0);
+    expect(pushes.map((push) => push.alert.body)).toEqual([`${i("Later")} sent you a clip.`]);
+  });
+
+  it("keeps fresh batches going while email retries keep timing out", async () => {
+    // Three athletes whose emails keep failing, then one with new clips.
+    for (const id of ["a", "b", "c"]) {
+      await athlete(id);
+      await clip(id, T0 - 15 * MIN);
+    }
+    resend = failure;
+    await announceNewClips(env, T0);
+    await athlete("fresh", { email: null });
+    await phone("fresh");
+    await clip("fresh", T0 + 2 * MIN);
+
+    // Each retry times out after a minute: past half the run's budget,
+    // retries stop, and the fresh batch is still claimed and pushed.
+    let elapsed = 0;
+    resend = () => {
+      elapsed += 60 * 1000;
+      return failure();
+    };
+    await announceNewClips(env, T0 + 15 * MIN, () => elapsed);
+    expect(attempts.slice(3)).toHaveLength(2);
+    expect(pushes).toHaveLength(1);
   });
 
   it("forgets a phone Apple says is gone", async () => {

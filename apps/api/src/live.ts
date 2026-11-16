@@ -65,7 +65,18 @@ export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
         console.error("live activity: push failed", error);
         return "failed" as const;
       });
-      if (outcome === "gone") {
+      if (outcome === "sent") {
+        // Counted on the phone: the new-clips push leaves these out (notify.ts).
+        await db
+          .update(liveActivities)
+          .set({ pushedAt: now })
+          .where(
+            and(
+              eq(liveActivities.token, activity.token),
+              or(isNull(liveActivities.pushedAt), lte(liveActivities.pushedAt, now)),
+            ),
+          );
+      } else if (outcome === "gone") {
         await db.delete(liveActivities).where(eq(liveActivities.token, activity.token));
       } else if (outcome === "failed" && alerting) {
         // It didn't reach the phone: hand the alert back for the next clip,

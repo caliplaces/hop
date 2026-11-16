@@ -227,6 +227,11 @@ export const liveActivities = sqliteTable(
     since: integer("since").notNull(),
     /** When a push last lit the screen up; quieter updates in between. */
     alertedAt: integer("alerted_at"),
+    /**
+     * When an update last reached the phone: clips finished by then (and
+     * since `since`) are counted there, so the new-clips push leaves them out.
+     */
+    pushedAt: integer("pushed_at"),
     createdAt: integer("created_at").notNull(),
     expiresAt: integer("expires_at").notNull(),
   },

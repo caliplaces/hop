@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "faa04460-e667-4e35-9c3b-e9b28dd715e1",
+  "id": "3618d777-5f72-4777-8889-0e5ded4dfa65",
   "prevId": "47c5f547-e29d-4d38-9a93-e5a7335974b6",
   "tables": {
     "block_keys": {
@@ -809,6 +809,13 @@
         },
         "alerted_at": {
           "name": "alerted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pushed_at": {
+          "name": "pushed_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
