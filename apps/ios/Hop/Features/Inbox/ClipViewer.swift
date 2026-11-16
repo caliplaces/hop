@@ -101,9 +101,9 @@ struct ClipViewer: View {
             Text("Their clips leave your inbox, and they can’t send you more. You can unblock them in Account.")
         }
         .sheet(item: $reporting) { clip in
-            ReportClipSheet(clip: clip) { blocked, blockProblem in
-                if blocked {
-                    Task { await leaveAfterBlocking() }
+            ReportClipSheet(clip: clip) { removed, blockProblem in
+                if let removed {
+                    Task { await leaveAfterBlocking(removed) }
                 } else {
                     notice = String(localized: "Reported. Thanks for telling us.")
                     if let blockProblem { problem = blockProblem }
@@ -290,18 +290,20 @@ struct ClipViewer: View {
     private func block(_ clip: Clip) async {
         problem = nil
         do {
-            try await Moderation.block(clip, api: session.api)
-            await leaveAfterBlocking()
+            let removed = try await Moderation.block(clip, api: session.api)
+            await leaveAfterBlocking(removed)
         } catch {
             problem = error.localizedDescription
         }
     }
 
     /// A block takes the sender's clips out of the inbox, the one showing
-    /// included: close, and bring the inbox up to date.
-    private func leaveAfterBlocking() async {
+    /// included: drop them at once, close, and bring the inbox up to date.
+    /// If the reload fails, the clips the server named are gone all the same.
+    private func leaveAfterBlocking(_ removed: Set<String>) async {
         blockedSender.toggle()
         showing = nil
+        model.drop(removed)
         dismiss()
         await model.refresh(api: session.api, activeHopId: session.me?.activeHopId)
     }

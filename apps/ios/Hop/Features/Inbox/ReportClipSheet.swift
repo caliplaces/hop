@@ -4,9 +4,9 @@ import SwiftUI
 /// block whoever sent it too.
 struct ReportClipSheet: View {
     let clip: Clip
-    /// Called once it's sent: whether the sender was blocked too, and any
-    /// reason they couldn't be.
-    let onReported: (_ blocked: Bool, _ blockProblem: String?) -> Void
+    /// Called once it's sent: the clips that left the inbox if the sender
+    /// was blocked too (nil if not), and any reason they couldn't be.
+    let onReported: (_ removed: Set<String>?, _ blockProblem: String?) -> Void
 
     @Environment(Session.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -68,6 +68,7 @@ struct ReportClipSheet: View {
                     }
                 }
             }
+            .disabled(sending)
             .navigationTitle("Report Clip")
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.ink)
@@ -90,7 +91,11 @@ struct ReportClipSheet: View {
     }
 
     private func send() async {
+        // What the form says now is what's sent, even if it's touched while
+        // sending (it's disabled meanwhile anyway).
         guard let reason else { return }
+        let note = note
+        let block = alsoBlock
         sending = true
         problem = nil
         defer { sending = false }
@@ -101,17 +106,16 @@ struct ReportClipSheet: View {
             return
         }
         // Reported either way; blocking is the extra.
-        var blocked = false
+        var removed: Set<String>?
         var blockProblem: String?
-        if alsoBlock {
+        if block {
             do {
-                try await Moderation.block(clip, api: session.api)
-                blocked = true
+                removed = try await Moderation.block(clip, api: session.api)
             } catch {
                 blockProblem = error.localizedDescription
             }
         }
-        onReported(blocked, blockProblem)
+        onReported(removed, blockProblem)
         dismiss()
     }
 }

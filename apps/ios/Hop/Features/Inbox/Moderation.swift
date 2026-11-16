@@ -34,9 +34,18 @@ nonisolated enum Moderation {
         )
     }
 
-    /// Stops whoever sent `clip` from sending more.
-    static func block(_ clip: Clip, api: APIClient) async throws {
-        try await api.post("api/me/files/\(clip.id)/block")
+    /// Stops whoever sent `clip` from sending more. Their clips leave the
+    /// inbox: returns which, so the app can drop them at once.
+    @discardableResult
+    static func block(_ clip: Clip, api: APIClient) async throws -> Set<String> {
+        let reply: BlockReply = try await api.post("api/me/files/\(clip.id)/block", body: Empty())
+        return Set(reply.removedIds ?? [])
+    }
+
+    private struct Empty: Encodable {}
+
+    private struct BlockReply: Decodable {
+        let removedIds: [String]?
     }
 
     private struct ReportBody: Encodable {

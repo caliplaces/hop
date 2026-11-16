@@ -48,12 +48,14 @@ struct ModerationTests {
         }
     }
 
-    @Test func blocksWhoeverSentAClip() async throws {
-        server.reply = { _ in (200, #"{"ok":true}"#) }
-        try await Moderation.block(clip("fil_9"), api: server.client(token: "hs_test"))
+    @Test func blocksWhoeverSentAClipAndSaysWhichClipsWent() async throws {
+        server.reply = { _ in (200, #"{"ok":true,"removed":2,"removedIds":["fil_9","fil_7"]}"#) }
+        let removed = try await Moderation.block(clip("fil_9"), api: server.client(token: "hs_test"))
+        #expect(removed == ["fil_9", "fil_7"])
         let request = try #require(server.requests.first?.request)
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/me/files/fil_9/block")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
     }
 
     @Test func explainsASenderThatCantBeBlocked() async throws {
@@ -109,4 +111,38 @@ struct ModerationTests {
         #expect(model.senders?.map(\.id) == ["blk_1"])
         #expect(model.problem == nil)
     }
+}
+
+@MainActor
+@Suite("Dropping blocked clips")
+struct DropClipsTests {
+    let server = StubServer(host: "drop-\(UUID().uuidString.lowercased()).test")
+
+    @Test func takesThemOutOfEveryEventAndItsCounts() async throws {
+        server.reply = { request in
+            switch request.url?.path {
+            case "/api/me/hops":
+                (200, #"{"hops":[{"id":"hop_1","slug":"a","title":"A","status":"open","createdAt":2,"fileCount":3,"totalBytes":30},{"id":"hop_2","slug":"b","title":"B","status":"open","createdAt":1,"fileCount":1,"totalBytes":10}]}"#)
+            case "/api/me/files":
+                request.url?.query?.contains("hop_2") == true
+                    ? (200, #"{"files":[\#(clipJSON("fil_4", size: 10))],"nextCursor":null}"#)
+                    : (200, #"{"files":[\#(clipJSON("fil_1", size: 10)),\#(clipJSON("fil_2", size: 10)),\#(clipJSON("fil_3", size: 10))],"nextCursor":null}"#)
+            default: (404, "{}")
+            }
+        }
+        let model = InboxModel()
+        await model.refresh(api: server.client(), activeHopId: nil)
+        model.drop(["fil_1", "fil_3", "fil_4", "fil_unloaded"])
+        #expect(model.clips["hop_1"]?.items.map(\.id) == ["fil_2"])
+        #expect(model.clips["hop_2"]?.items.isEmpty == true)
+        #expect(model.hops.map(\.fileCount) == [1, 0])
+        #expect(model.hops.map(\.totalBytes) == [10, 0])
+    }
+}
+
+private func clipJSON(_ id: String, size: Int) -> String {
+    """
+    {"id":"\(id)","hopId":"x","name":"IMG.MOV","mime":"video/quicktime","size":\(size),
+     "hasThumbnail":false,"contributorName":"Troll","contributorVerified":false,"note":null,"createdAt":1}
+    """
 }
