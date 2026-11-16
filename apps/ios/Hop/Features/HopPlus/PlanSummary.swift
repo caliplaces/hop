@@ -9,9 +9,15 @@ struct PlanSummary: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(status.plan == .plus ? "Hop+" : "Free")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(status.plan == .plus ? color.color : Theme.ink)
+                HStack(spacing: 6) {
+                    Text(status.plan == .plus ? "Hop+" : "Free")
+                        .font(.title3.weight(.bold))
+                    if status.plan == .plus {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundStyle(color.color)
+                            .accessibilityHidden(true)
+                    }
+                }
                 Spacer()
                 Text("\(status.storage.usedBytes.storageText) of \(status.storage.limitBytes.storageText)")
                     .font(.subheadline.monospacedDigit())
@@ -112,5 +118,61 @@ struct StorageNudge: View {
         return status.isFull
             ? String(localized: "New clips can’t arrive. Get Hop+ for \(room), kept for good.")
             : String(localized: "Get Hop+ for \(room), and every clip kept for good.")
+    }
+}
+
+/// Free-plan clips about to go, at the top of the inbox: how many and when,
+/// and Hop+ as the way to keep them (the reminders by email and on the phone
+/// say the same). Tapping it opens Hop+.
+struct ExpiryNudge: View {
+    let expiring: PlanStatus.Expiring
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                    .symbolRenderingMode(.hierarchical)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(Self.title(expiring))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.ink)
+                    Text("Save the ones you want, or get Hop+ to keep every clip for good.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.muted)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.muted)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect(cornerRadius: 22))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// "12 clips leave on 23 November", or "tomorrow" or "today" when
+    /// that's the day here: the day the email named, in this calendar.
+    nonisolated static func title(_ expiring: PlanStatus.Expiring, now: Date = .now, calendar: Calendar = .current) -> String {
+        let day: String
+        if let date = expiring.day(in: calendar) {
+            // Past here already (far east of UTC), they're still there until it
+            // has ended everywhere: today, then.
+            day = date <= now
+                ? String(localized: "today")
+                : calendar.isDate(date, inSameDayAs: calendar.date(byAdding: .day, value: 1, to: now) ?? now)
+                    ? String(localized: "tomorrow")
+                    : String(localized: "on \(date.formatted(Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone).day().month(.wide)))")
+        } else {
+            day = String(localized: "soon")
+        }
+        return expiring.clips == 1
+            ? String(localized: "1 clip leaves \(day)")
+            : String(localized: "\(expiring.clips) clips leave \(day)")
     }
 }

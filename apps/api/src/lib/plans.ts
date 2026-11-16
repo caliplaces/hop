@@ -1,5 +1,5 @@
 import { PLANS } from "@hop/shared";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, type SQLWrapper, sql } from "drizzle-orm";
 import type { Db } from "../db";
 import { subscriptions } from "../db/schema";
 
@@ -7,8 +7,11 @@ import { subscriptions } from "../db/schema";
 const endsSql = () =>
   sql`max(${subscriptions.expiresAt}, coalesce(${subscriptions.graceExpiresAt}, 0))`;
 
-/** SQL: whether this athlete has Hop+ at `now` (a live, unrevoked subscription). */
-export function hasPlusSql(userId: string, now: number) {
+/**
+ * SQL: whether this athlete has Hop+ at `now` (a live, unrevoked
+ * subscription). `userId` can be a column, to ask it of each row.
+ */
+export function hasPlusSql(userId: string | SQLWrapper, now: number) {
   return sql`exists (
     select 1 from ${subscriptions}
     where ${subscriptions.userId} = ${userId}
@@ -37,4 +40,9 @@ export async function activeSubscription(db: Db, userId: string, now = Date.now(
     )
     .orderBy(sql`${endsSql()} desc`)
     .get();
+}
+
+/** Whether this athlete has Hop+ now, which their page shows with a badge. */
+export async function hasPlus(db: Db, userId: string, now = Date.now()): Promise<boolean> {
+  return (await activeSubscription(db, userId, now)) !== undefined;
 }

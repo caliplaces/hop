@@ -115,6 +115,7 @@ struct HopPlusView: View {
         init(_ problem: HopPlus.Problem) {
             self = switch problem {
             case .otherAccount: .otherAccount
+            case .deletedAccount: .deletedAccount
             case .testPurchase: .testPurchase
             case .unverified: .unverified
             }
@@ -131,6 +132,10 @@ struct HopPlusView: View {
         static let otherAccount = Notice(
             title: String(localized: "Hop+ is on another account"),
             message: String(localized: "This Apple Account’s Hop+ belongs to another Hop account. Sign in with that one to use it.")
+        )
+        static let deletedAccount = Notice(
+            title: String(localized: "Hop+ is on a deleted account"),
+            message: String(localized: "This Apple Account’s Hop+ belongs to a Hop account that was deleted. Cancel it in your Apple Account’s subscriptions, then subscribe again here.")
         )
         static let testPurchase = Notice(
             title: String(localized: "Test purchase"),
@@ -181,6 +186,15 @@ struct HopPlusHeader: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
                     .glassEffect(.regular.tint(color.color.opacity(0.35)), in: .capsule)
+            }
+
+            if status.plan == .free, let expiring = status.expiring {
+                // Why they're here, if the banner about clips leaving sent them.
+                Text("\(Image(systemName: "clock.badge.exclamationmark")) \(ExpiryNudge.title(expiring)). With Hop+, they stay.")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
             }
 
             if status.plan == .free, status.storage.usedBytes > 0 {

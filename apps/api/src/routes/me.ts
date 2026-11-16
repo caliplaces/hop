@@ -11,23 +11,29 @@ import {
   type HopSummary,
   type InboxFile,
   type InboxPage,
+  MAX_AVATAR_BYTES,
   normalizeHandle,
   slugify,
   updateHopSchema,
   updateProfileSchema,
 } from "@hop/shared";
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { getDb } from "../db";
+import { type Db, getDb } from "../db";
 import { type FileRow, files, hops, users } from "../db/schema";
+import { sendAccountDeletedEmail } from "../email/account-deleted";
 import { sendWelcomeEmail } from "../email/welcome";
-import type { AppEnv } from "../env";
+import type { AppEnv, Env } from "../env";
+import { deleteAccount } from "../lib/accounts";
 import { arrivalsSince } from "../lib/arrivals";
+import { AVATAR_CACHE, AVATAR_PREFIX, newAvatarKey } from "../lib/avatars";
 import { newId } from "../lib/crypto";
 import { removeFile } from "../lib/files";
-import { fail } from "../lib/http";
-import { currentUser, requireUser } from "../lib/session";
+import { BodyTooLargeError, fail, readBodyCapped } from "../lib/http";
+import { sanitizeJpeg } from "../lib/jpeg";
+import { hasPlus } from "../lib/plans";
+import { currentUser, destroySession, requireUser } from "../lib/session";
 import { presignGet } from "../lib/storage";
 import { validate } from "../lib/validate";
 import { findUserByHandle, toMe } from "./auth";
@@ -60,7 +66,11 @@ function isUniqueViolation(error: unknown): boolean {
 
 export const meRoutes = new Hono<AppEnv>()
   /** Returns { me: null } when signed out so the web app can branch without a 401. */
-  .get("/me", (c) => c.json({ me: toMe(c.get("user")) }))
+  .get("/me", async (c) => {
+    const user = c.get("user");
+    const hopPlus = user ? await hasPlus(getDb(c.env.DB), user.id) : false;
+    return c.json({ me: toMe(user, { hopPlus }) });
+  })
 
   .get("/handles/:handle", async (c) => {
     const handle = normalizeHandle(c.req.param("handle"));
@@ -84,23 +94,37 @@ export const meRoutes = new Hono<AppEnv>()
     const db = getDb(c.env.DB);
     const hopId = newId("hop");
     const now = Date.now();
+    let claimedNow: { id: string }[];
     try {
-      await db.batch([
-        db.insert(hops).values({
-          id: hopId,
-          ownerId: user.id,
-          slug: DEFAULT_HOP_SLUG,
-          title: DEFAULT_HOP_TITLE,
-          createdAt: now,
-        }),
+      // Only an account that still has no handle, and isn't deleted: another
+      // claim, or a deletion, may have landed since this request began. The
+      // hop is only made if the claim was.
+      [claimedNow] = await db.batch([
         db
           .update(users)
           .set({ handle, activeHopId: hopId, color: input.color ?? user.color, updatedAt: now })
-          .where(eq(users.id, user.id)),
+          .where(and(eq(users.id, user.id), isNull(users.handle), isNull(users.deletedAt)))
+          .returning({ id: users.id }),
+        db.insert(hops).select(
+          db
+            .select({
+              id: sql<string>`${hopId}`.as("id"),
+              ownerId: users.id,
+              slug: sql<string>`${DEFAULT_HOP_SLUG}`.as("slug"),
+              title: sql<string>`${DEFAULT_HOP_TITLE}`.as("title"),
+              status: sql<"open">`'open'`.as("status"),
+              createdAt: sql<number>`${now}`.as("created_at"),
+            })
+            .from(users)
+            .where(and(eq(users.id, user.id), eq(users.activeHopId, hopId))),
+        ),
       ]);
     } catch (error) {
       if (isUniqueViolation(error)) return fail(c, 409, "handle_taken", "That handle is taken.");
       throw error;
+    }
+    if (claimedNow.length === 0) {
+      return fail(c, 409, "handle_already_set", "Your handle is already set.");
     }
     const claimed = { ...user, handle, activeHopId: hopId, color: input.color ?? user.color };
     // After the response: a slow or failing email never holds up claiming a handle.
@@ -109,18 +133,107 @@ export const meRoutes = new Hono<AppEnv>()
         console.error("Welcome email failed", error),
       ),
     );
-    return c.json({ me: toMe(claimed) });
+    return c.json({ me: toMe(claimed, { hopPlus: await hasPlus(db, user.id) }) });
   })
 
-  /** Profile settings: page colour and email preferences. */
+  /** Profile settings: page colour, email preferences and the public profile. */
   .patch("/me", requireUser, validate("json", updateProfileSchema), async (c) => {
     const user = currentUser(c);
-    const changes = c.req.valid("json");
-    await getDb(c.env.DB)
-      .update(users)
-      .set({ ...changes, updatedAt: Date.now() })
-      .where(eq(users.id, user.id));
-    return c.json({ me: toMe({ ...user, ...changes }) });
+    if (await tooManyProfileChanges(c.env, user.id)) {
+      return fail(c, 429, "rate_limited", "Too many changes. Try again in a minute.");
+    }
+    const db = getDb(c.env.DB);
+    const { profileReviewed, ...changes } = c.req.valid("json");
+    const now = Date.now();
+    const set = {
+      ...changes,
+      ...(profileReviewed ? { profileReviewedAt: now } : {}),
+      updatedAt: now,
+    };
+    // The row as saved, so changes made meanwhile (another device) show too.
+    const saved = await db.update(users).set(set).where(eq(users.id, user.id)).returning().get();
+    return c.json({
+      me: toMe(saved ?? { ...user, ...set }, { hopPlus: await hasPlus(db, user.id) }),
+    });
+  })
+
+  /**
+   * Deletes the account, for good. Everything that identifies them goes at
+   * once and they're signed out everywhere; their clips are removed within
+   * the hour. The handle stays reserved. See lib/accounts.ts.
+   */
+  .delete("/me", requireUser, async (c) => {
+    const user = currentUser(c);
+    const was = await deleteAccount(getDb(c.env.DB), user.id);
+    if (was?.avatarKey) await removeAvatar(c.env, was.avatarKey);
+    if (was) {
+      // After the response: a slow or failing email never holds it up.
+      c.executionCtx.waitUntil(
+        sendAccountDeletedEmail(c.env, was).catch((error) =>
+          console.error("Account deleted email failed", error),
+        ),
+      );
+    }
+    await destroySession(c);
+    return c.json({ ok: true });
+  })
+
+  /**
+   * Sets the profile photo. It's public, so the server rebuilds it from only
+   * what's needed to show it (lib/jpeg.ts): no location or other metadata,
+   * nothing hidden after it, and no huge picture in a small file. It's
+   * stored under a new random name; the old one is deleted.
+   */
+  .put("/me/avatar", async (c) => {
+    const user = currentUser(c);
+    if (await tooManyProfileChanges(c.env, user.id)) {
+      return fail(c, 429, "rate_limited", "Too many changes. Try again in a minute.");
+    }
+    if (c.req.header("content-type") !== "image/jpeg") {
+      return fail(c, 415, "unsupported_type", "A profile photo must be a JPEG.");
+    }
+    let body: Uint8Array;
+    try {
+      body = await readBodyCapped(c.req.raw, MAX_AVATAR_BYTES);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        return fail(c, 413, "too_large", "That photo is too large.");
+      }
+      throw error;
+    }
+    const photo = sanitizeJpeg(body);
+    if (!photo) {
+      return fail(c, 415, "unsupported_type", "That photo can't be used. Try another.");
+    }
+    const db = getDb(c.env.DB);
+    const key = newAvatarKey();
+    await c.env.BUCKET.put(key, photo, {
+      httpMetadata: { contentType: "image/jpeg", cacheControl: AVATAR_CACHE },
+    });
+    const now = Date.now();
+    const previous = await swapAvatar(db, user.id, key, now);
+    if (previous) await removeAvatar(c.env, previous);
+    return c.json({
+      me: toMe(
+        { ...user, avatarKey: key, updatedAt: now },
+        { hopPlus: await hasPlus(db, user.id) },
+      ),
+    });
+  })
+
+  /** Removes the profile photo, so their initial shows instead. */
+  .delete("/me/avatar", async (c) => {
+    const user = currentUser(c);
+    const db = getDb(c.env.DB);
+    const now = Date.now();
+    const previous = await swapAvatar(db, user.id, null, now);
+    if (previous) await removeAvatar(c.env, previous);
+    return c.json({
+      me: toMe(
+        { ...user, avatarKey: null, updatedAt: now },
+        { hopPlus: await hasPlus(db, user.id) },
+      ),
+    });
   })
 
   .get("/me/hops", async (c) => {
@@ -341,3 +454,36 @@ export const meRoutes = new Hono<AppEnv>()
     await removeFile(c.env, db, file);
     return c.json({ ok: true });
   });
+
+/**
+ * Puts `key` (or none) in place of the account's photo, in one transaction,
+ * and returns the one it replaced. Overlapping uploads each get the photo
+ * they replaced, so none is left behind.
+ */
+async function swapAvatar(db: Db, userId: string, key: string | null, now: number) {
+  const [previous] = await db.batch([
+    db.select({ key: users.avatarKey }).from(users).where(eq(users.id, userId)),
+    db.update(users).set({ avatarKey: key, updatedAt: now }).where(eq(users.id, userId)),
+  ]);
+  return previous[0]?.key ?? null;
+}
+
+/**
+ * Deletes a photo no longer in use, best effort: if R2 fails, the hourly
+ * cleanup finds it unreferenced and deletes it then (see sweepAvatars).
+ * Only ever a photo, whatever the key says.
+ */
+async function removeAvatar(env: Env, key: string): Promise<void> {
+  if (!key.startsWith(AVATAR_PREFIX)) return;
+  try {
+    await env.BUCKET.delete(key);
+  } catch (error) {
+    console.warn("avatar: delete failed, cleanup will retry", error);
+  }
+}
+
+/** Per account, so a script can't churn through photos and names. */
+async function tooManyProfileChanges(env: Env, userId: string): Promise<boolean> {
+  const { success } = await env.PROFILE_LIMITER.limit({ key: `profile:${userId}` });
+  return !success;
+}

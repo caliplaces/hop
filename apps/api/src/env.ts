@@ -9,6 +9,10 @@ export type Env = {
   AUTH_LIMITER: RateLimit;
   /** Per IP, on the launch waitlist. */
   WAITLIST_LIMITER: RateLimit;
+  /** Per account, or per IP for page reports: reports and blocks. */
+  REPORT_LIMITER: RateLimit;
+  /** Per account, on profile changes: name and photo. */
+  PROFILE_LIMITER: RateLimit;
 
   ENVIRONMENT: "development" | "staging" | "production";
   APP_URL: string;
@@ -32,6 +36,13 @@ export type Env = {
   R2_SECRET_ACCESS_KEY?: string;
   /** Sender for Hop's emails, e.g. "Hop <hello@onmyhop.com>". */
   EMAIL_FROM: string;
+  /** Where reports of clips and pages go: Hop's team. */
+  REPORTS_EMAIL: string;
+  /**
+   * Hop's team: account IDs (usr_…), comma-separated, who may see the
+   * private stats page (/admin). A secret, so the list isn't in the repo.
+   */
+  ADMIN_USER_IDS?: string;
   /** Resend API key. Optional locally, where emails are logged instead of sent. */
   RESEND_API_KEY?: string;
   /**

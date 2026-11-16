@@ -29,6 +29,7 @@ struct MyHopView: View {
                     .ignoresSafeArea()
             }
             .navigationTitle("My Hop")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { AccountButton() }
             .sheet(isPresented: $settingUpEvent, onDismiss: {
                 if startedEvent {
@@ -62,9 +63,10 @@ struct MyHopView: View {
                         UIPasteboard.general.url = link
                         copied = true
                     } label: {
-                        Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(maxWidth: .infinity)
+                        ActionLabel(
+                            title: copied ? "Copied" : "Copy",
+                            systemImage: copied ? "checkmark" : "doc.on.doc"
+                        )
                     }
                     Menu {
                         ShareLink("Share link", item: link)
@@ -76,12 +78,10 @@ struct MyHopView: View {
                             )
                         }
                     } label: {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: .infinity)
+                        ActionLabel(title: "Share", systemImage: "square.and.arrow.up")
                     }
                     Link(destination: link) {
-                        Label("Open", systemImage: "safari")
-                            .frame(maxWidth: .infinity)
+                        ActionLabel(title: "Open", systemImage: "safari")
                     }
                 }
                 .buttonStyle(.glass)
@@ -142,5 +142,26 @@ struct MyHopView: View {
         .buttonStyle(.glassProminent)
         .controlSize(.extraLarge)
         .tint(color.color)
+    }
+}
+
+/// A button's icon and title on one line, filling the button. When both
+/// don't fit, as with "Copied" in a third of a phone or at large text sizes,
+/// it keeps the title alone, then the icon alone; it never wraps.
+private struct ActionLabel: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            Label(title, systemImage: systemImage)
+                .contentTransition(.symbolEffect(.replace))
+            Text(title)
+            Image(systemName: systemImage)
+                .contentTransition(.symbolEffect(.replace))
+                .accessibilityLabel(Text(title))
+        }
+        .lineLimit(1)
+        .frame(maxWidth: .infinity)
     }
 }

@@ -1,6 +1,13 @@
 import StoreKit
 import SwiftUI
 
+/// Screens the account sheet pushes.
+enum AccountRoute: Hashable {
+    case profile
+    case blockedSenders
+    case deleteAccount
+}
+
 /// The athlete's account: who they are, their plan and storage, and signing out.
 struct AccountView: View {
     @Environment(Session.self) private var session
@@ -17,7 +24,11 @@ struct AccountView: View {
         NavigationStack {
             Form {
                 if let me = session.me {
-                    Section { profile(me) }
+                    Section {
+                        NavigationLink(value: AccountRoute.profile) {
+                            profile(me)
+                        }
+                    }
                 }
 
                 Section("Plan") {
@@ -31,9 +42,15 @@ struct AccountView: View {
                             Button {
                                 showingHopPlus = true
                             } label: {
-                                Label("Get Hop+", systemImage: "plus.circle.fill")
+                                Text("Get Hop+")
                                     .font(.headline)
+                                    .foregroundStyle(color.onColor)
+                                    .frame(maxWidth: .infinity)
                             }
+                            .buttonStyle(.glassProminent)
+                            .controlSize(.large)
+                            .tint(color.color)
+                            .listRowSeparator(.hidden)
                         }
                     } else if let error = hopPlus.loadError {
                         Label(error, systemImage: "wifi.exclamationmark")
@@ -69,14 +86,50 @@ struct AccountView: View {
                     Text("Bought Hop+ on another device? Restoring brings it here.")
                 }
 
+                if let me = session.me {
+                    NewClipsSection(me: me)
+                }
+
                 Section {
-                    Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                    NavigationLink(value: AccountRoute.blockedSenders) {
+                        Label("Blocked Senders", systemImage: "hand.raised")
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) {
                         dismiss()
-                        Task { await session.signOut() }
+                        Task {
+                            await session.signOut { await PushNotifications.shared.unregister(api: $0) }
+                        }
+                    } label: {
+                        // Red throughout, icon included.
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    NavigationLink(value: AccountRoute.deleteAccount) {
+                        Text("Delete Account")
+                            .foregroundStyle(.red)
                     }
                 }
             }
-            .tint(color.color)
+            .tint(Theme.ink)
+            // By value, not with the view itself: a link holding its view
+            // keeps that view's state, so an edit cancelled on one visit
+            // would still be there on the next.
+            .navigationDestination(for: AccountRoute.self) { route in
+                switch route {
+                case .profile:
+                    if let me = session.me { EditProfileView(me: me, session: session) }
+                case .blockedSenders:
+                    BlockedSendersView(api: session.api)
+                case .deleteAccount:
+                    DeleteAccountView()
+                }
+            }
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -106,17 +159,13 @@ struct AccountView: View {
 
     private func profile(_ me: Me) -> some View {
         HStack(spacing: 14) {
-            Circle()
-                .fill(me.paletteColor.color.gradient)
-                .frame(width: 48, height: 48)
-                .overlay {
-                    Text(initial(me))
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(me.paletteColor.onColor)
-                }
+            Avatar(me: me, size: 52)
             VStack(alignment: .leading, spacing: 2) {
-                Text(me.name ?? me.email ?? String(localized: "Signed in"))
-                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(me.name ?? me.email ?? String(localized: "Signed in"))
+                        .font(.headline)
+                    if me.hopPlus { HopPlusBadge(color: me.paletteColor) }
+                }
                 if let link = me.link {
                     Text(verbatim: link.spoken)
                         .font(.subheadline)
@@ -127,14 +176,12 @@ struct AccountView: View {
         .padding(.vertical, 4)
     }
 
-    private func initial(_ me: Me) -> String {
-        String((me.name ?? me.handle ?? me.email ?? "?").prefix(1)).uppercased()
-    }
-
     private func explanation(_ problem: HopPlus.Problem) -> String {
         switch problem {
         case .otherAccount:
             String(localized: "Hop+ on this Apple Account belongs to another Hop account.")
+        case .deletedAccount:
+            String(localized: "Hop+ on this Apple Account belongs to a deleted Hop account. Cancel it in your Apple Account’s subscriptions, then subscribe again.")
         case .testPurchase:
             String(localized: "Purchases in test builds don’t unlock Hop+.")
         case .unverified:

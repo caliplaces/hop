@@ -1,7 +1,7 @@
 import type { ColorId, Me } from "@hop/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, LogOut } from "lucide-react";
-import { useRef } from "react";
+import { ExternalLink, LogOut, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button, buttonClass } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
@@ -11,6 +11,7 @@ import { api, signOut } from "../../lib/api";
 import { hopUrl } from "../../lib/format";
 import { queries } from "../../lib/queries";
 import { ColorPicker } from "./ColorPicker";
+import { DeleteAccount } from "./DeleteAccount";
 
 export type AthleteMe = Me & { handle: string };
 
@@ -82,11 +83,24 @@ export function AccountDialog({
 }) {
   const setColor = useSetColor(me);
   const setEmailNewClips = useSetEmailNewClips();
+  const [deleting, setDeleting] = useState(false);
+  const close = () => {
+    setDeleting(false);
+    onClose();
+  };
+
+  if (deleting) {
+    return (
+      <Dialog open={open} onClose={close} size="sm" hideClose>
+        <DeleteAccount handle={me.handle} onCancel={() => setDeleting(false)} />
+      </Dialog>
+    );
+  }
 
   return (
-    <Dialog open={open} onClose={onClose} size="sm">
+    <Dialog open={open} onClose={close} size="sm">
       <div className="flex items-center gap-3">
-        <Avatar name={me.name ?? me.handle} />
+        <Avatar name={me.name ?? me.handle} src={me.avatarUrl} />
         <div className="min-w-0">
           <p className="truncate font-semibold">{me.name ?? `@${me.handle}`}</p>
           <p className="truncate text-sm text-muted">@{me.handle}</p>
@@ -124,6 +138,19 @@ export function AccountDialog({
         <Button variant="soft" className="justify-start" onClick={() => signOut()}>
           <LogOut className="size-4" /> Sign out
         </Button>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between gap-4 border-t border-line pt-4 text-sm">
+        <a className="text-muted underline-offset-4 hover:underline" href="/privacy">
+          Privacy
+        </a>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 font-medium text-danger underline-offset-4 hover:underline"
+          onClick={() => setDeleting(true)}
+        >
+          <Trash2 className="size-4" /> Delete account
+        </button>
       </div>
     </Dialog>
   );

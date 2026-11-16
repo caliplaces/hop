@@ -18,6 +18,8 @@ let db: ReturnType<typeof getDb>;
 let tokenRequests: { body: URLSearchParams; authorization: string | null }[];
 /** The nonce the next ID token carries; tests set it from the flow they started. */
 let idTokenNonce: string;
+/** The name Caliplaces sends for the signed-in account. */
+let userinfoName: string;
 /** Whether the sign-in rate limiter lets the next request through. */
 let allowSignIn: boolean;
 
@@ -62,7 +64,7 @@ function caliplaces(url: string, init: RequestInit = {}): Response {
   if (url === `${ISSUER}/oidc/v1/userinfo`) {
     return Response.json({
       sub: "caliplaces-user-1",
-      name: "Alex Rider",
+      name: userinfoName,
       email: "alex@example.com",
       email_verified: true,
     });
@@ -72,7 +74,9 @@ function caliplaces(url: string, init: RequestInit = {}): Response {
 
 function call(path: string, init: RequestInit = {}) {
   const request = new Request(`https://onmyhop.com/api${path}`, init);
-  return worker.fetch(request, env, {} as ExecutionContext);
+  // Work left running after a response (emails) isn't awaited here.
+  const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+  return worker.fetch(request, env, ctx as unknown as ExecutionContext);
 }
 
 function post(path: string, body?: unknown, headers: Record<string, string> = {}) {
@@ -130,6 +134,7 @@ beforeEach(() => {
   db = getDb(DB);
   tokenRequests = [];
   idTokenNonce = "";
+  userinfoName = "Alex Rider";
   allowSignIn = true;
   vi.stubGlobal(
     "fetch",
@@ -248,6 +253,33 @@ describe("app sign-in", () => {
     expect(await me(bearer)).toBeNull();
   });
 
+  it("starts a new, empty account for a Caliplaces login whose Hop account was deleted", async () => {
+    const signIn = async () => {
+      const { flow, state } = await start();
+      const response = await post("/auth/app/session", {
+        flow,
+        callbackUrl: `${APP_REDIRECT}?code=the-code&state=${state}`,
+      });
+      return (await response.json()) as {
+        token: string;
+        me: { id: string; handle: string | null };
+      };
+    };
+    const first = await signIn();
+    await db.update(users).set({ handle: "alex" }).where(eq(users.id, first.me.id));
+    const deleted = await call("/me", {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${first.token}`, "content-type": "application/json" },
+    });
+    expect(deleted.status).toBe(200);
+
+    const again = await signIn();
+    expect(again.me.id).not.toBe(first.me.id);
+    expect(again.me.handle).toBeNull();
+    expect(await me({ authorization: `Bearer ${again.token}` })).toMatchObject({ id: again.me.id });
+    expect(await me({ authorization: `Bearer ${first.token}` })).toBeNull();
+  });
+
   it("rejects a tampered, expired or website flow", async () => {
     const { flow, state } = await start();
     const callbackUrl = `${APP_REDIRECT}?code=the-code&state=${state}`;
@@ -349,6 +381,22 @@ describe("app sign-in", () => {
     });
     expect(response.status).toBe(200);
     expect(tokenRequests[0]?.body.get("redirect_uri")).toBe(APP_REDIRECT);
+  });
+
+  it("keeps a Caliplaces name only if it follows Hop's rules for public names", async () => {
+    const signIn = async () => {
+      const { flow, state } = await start();
+      const response = await post("/auth/app/session", {
+        flow,
+        callbackUrl: `${APP_REDIRECT}?code=the-code&state=${state}`,
+      });
+      return ((await response.json()) as { me: { name: string | null } }).me;
+    };
+    userinfoName = "  Alex   Rider ";
+    expect((await signIn()).name).toBe("Alex Rider");
+    // One that would pass for a handle, or a badge, is dropped: their handle shows instead.
+    userinfoName = `@admin ${String.fromCodePoint(0x2705)}`;
+    expect((await signIn()).name).toBeNull();
   });
 
   it("shows a plain page if the callback ever opens in a browser, keeping nothing", async () => {

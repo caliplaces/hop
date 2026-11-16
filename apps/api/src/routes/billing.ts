@@ -6,6 +6,7 @@ import { z } from "zod";
 import { type Db, getDb } from "../db";
 import { files, subscriptions, type UserRow, users } from "../db/schema";
 import type { AppEnv, Env } from "../env";
+import { expiring } from "../expiry";
 import {
   type AppleNotification,
   type AppleRenewalInfo,
@@ -232,6 +233,7 @@ async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
     appAccountToken: token,
     plans: PLANS,
     revision,
+    expiring: subscription ? null : await expiring(db, user.id),
   };
 }
 
@@ -273,7 +275,25 @@ export const billingRoutes = new Hono<AppEnv>()
         throw error;
       }
       const token = await appAccountToken(db, user);
-      if (transaction.appAccountToken?.toLowerCase() !== token.toLowerCase()) {
+      const purchaseToken = transaction.appAccountToken?.toLowerCase();
+      if (purchaseToken !== token.toLowerCase()) {
+        // Deleting an account clears its token, so a purchase whose token no
+        // account has belongs to a deleted one. Apple still bills it.
+        const holder = purchaseToken
+          ? await db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.appAccountToken, purchaseToken))
+              .get()
+          : undefined;
+        if (purchaseToken && !holder) {
+          return fail(
+            c,
+            403,
+            "deleted_account",
+            "This Hop+ belongs to a Hop account that was deleted. Cancel it in your Apple Account’s subscriptions, then subscribe again here.",
+          );
+        }
         return fail(c, 403, "other_account", "This purchase belongs to another Hop account.");
       }
       try {

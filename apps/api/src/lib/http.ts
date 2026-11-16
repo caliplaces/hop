@@ -10,6 +10,25 @@ export function clientIp(c: Context): string {
 }
 
 /**
+ * Who to rate limit, by IP: the address, or for IPv6 its /64, which one
+ * home or phone usually gets whole. Limiting per IPv6 address would let
+ * anyone pick a fresh one for every request.
+ */
+export function ipRateKey(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const [head = "", tail = ""] = ip.toLowerCase().split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const groups = ip.includes("::")
+    ? [...left, ...Array(Math.max(8 - left.length - right.length, 0)).fill("0"), ...right]
+    : left;
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.replace(/^0+(?=.)/, ""))
+    .join(":")}::/64`;
+}
+
+/**
  * Turn a user-supplied return path into a same-origin path. Resolving it as a
  * URL (rather than string checks) also catches tricks like "/\t/evil.example",
  * which browsers normalise to "//evil.example".

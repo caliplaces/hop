@@ -5,18 +5,23 @@ import { secureHeaders } from "hono/secure-headers";
 import { cleanup } from "./cron";
 import { ONE_CLICK_UNSUBSCRIBE_PATH } from "./email/unsubscribe";
 import type { AppEnv, Env } from "./env";
+import { remindOfExpiry } from "./expiry";
 import { announceLaunch } from "./launch";
 import { fail } from "./lib/http";
 import { APP_SITE_ASSOCIATION_PATH, appSiteAssociation } from "./lib/oidc";
 import { loadSession } from "./lib/session";
 import { announceNewClips } from "./notify";
+import { announceReports } from "./reports";
+import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { billingRoutes } from "./routes/billing";
 import { devRoutes } from "./routes/dev";
+import { deviceRoutes } from "./routes/devices";
 import { emailRoutes } from "./routes/email";
 import { liveActivityRoutes } from "./routes/live";
 import { meRoutes } from "./routes/me";
 import { publicRoutes } from "./routes/public";
+import { reportRoutes } from "./routes/reports";
 import { uploadRoutes } from "./routes/uploads";
 import { waitlistRoutes } from "./routes/waitlist";
 
@@ -49,9 +54,12 @@ app.route("/email", emailRoutes);
 app.route("/", publicRoutes);
 app.route("/", meRoutes);
 app.route("/", uploadRoutes);
+app.route("/", reportRoutes);
+app.route("/", deviceRoutes);
 app.route("/", liveActivityRoutes);
 app.route("/", billingRoutes);
 app.route("/", waitlistRoutes);
+app.route("/", adminRoutes);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 app.use("/dev/*", async (c, next) => {
   // Belt and braces: even a mistaken deploy with development vars can't expose these.
@@ -70,10 +78,15 @@ app.onError((error, c) => {
 
 /**
  * The five-minute email jobs, side by side, so one failing can't hold up the
- * other. A failure is logged, and fails the run, so it shows up.
+ * others. A failure is logged, and fails the run, so it shows up.
  */
 export async function sendEmails(env: Env): Promise<void> {
-  const jobs = { digest: announceNewClips(env), launch: announceLaunch(env) };
+  const jobs = {
+    digest: announceNewClips(env),
+    launch: announceLaunch(env),
+    reports: announceReports(env),
+    expiry: remindOfExpiry(env),
+  };
   const results = await Promise.allSettled(Object.values(jobs));
   const failed = Object.keys(jobs).filter((_, i) => results[i]?.status === "rejected");
   results.forEach((result, i) => {

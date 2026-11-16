@@ -126,17 +126,17 @@ struct HopPlusTests {
         }
     }
 
-    @Test func loadsThePlan() async {
+    @Test func loadsThePlan() async throws {
         serve(plan: planJSON(used: 3 * gib))
         let hopPlus = HopPlus(source: purchases)
         await hopPlus.refresh(api: api)
-        let status = try? #require(hopPlus.status)
-        #expect(status?.plan == .free)
-        #expect(status?.appAccountToken == UUID(uuidString: token))
-        #expect(status?.storage.limitBytes.storageText == "15 GB")
-        #expect(status?.plans.plus.storageBytes.storageText == "200 GB")
-        #expect(status?.retentionDays == 30)
-        #expect(status?.isNearlyFull == false)
+        let status = try #require(hopPlus.status)
+        #expect(status.plan == .free)
+        #expect(status.appAccountToken == UUID(uuidString: token))
+        #expect(status.storage.limitBytes.storageText == "15 GB")
+        #expect(status.plans.plus.storageBytes.storageText == "200 GB")
+        #expect(status.retentionDays == 30)
+        #expect(!status.isNearlyFull)
     }
 
     @Test func aPurchaseThatCountsIsFinished() async {
@@ -163,8 +163,12 @@ struct HopPlusTests {
         purchase.value = (400, #"{"error":"invalid_transaction","message":"No."}"#)
         #expect(await hopPlus.send(purchases.make(3), api: api) == .refused(.unverified))
 
+        purchase.value = (403, #"{"error":"deleted_account","message":"No."}"#)
+        #expect(await hopPlus.send(purchases.make(4), api: api) == .refused(.deletedAccount))
+        #expect(hopPlus.problem == .deletedAccount)
+
         // Asking again won't change a definite no, so StoreKit can let them go.
-        #expect(purchases.finished == [1, 2, 3])
+        #expect(purchases.finished == [1, 2, 3, 4])
         #expect(hopPlus.status == nil)
     }
 

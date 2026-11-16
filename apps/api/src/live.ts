@@ -1,3 +1,4 @@
+import { cleanName } from "@hop/shared";
 import { and, eq, gt, isNull, lte, or } from "drizzle-orm";
 import { getDb } from "./db";
 import { liveActivities } from "./db/schema";
@@ -28,7 +29,10 @@ export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
   await Promise.all(
     watching.map(async (activity) => {
       const { count, latest } = await arrivalsSince(db, hopId, activity.since, 1);
-      const sender = latest[0]?.contributorName ?? null;
+      // Typed by a stranger: shown cleaned, as everywhere else.
+      const sender = latest[0]?.contributorName
+        ? cleanName(latest[0].contributorName) || null
+        : null;
       // Claim the alert before sending, in one conditional update: when a
       // burst of uploads completes at once, only one of them wins it.
       const alerting =
@@ -61,7 +65,18 @@ export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
         console.error("live activity: push failed", error);
         return "failed" as const;
       });
-      if (outcome === "gone") {
+      if (outcome === "sent") {
+        // Counted on the phone: the new-clips push leaves these out (notify.ts).
+        await db
+          .update(liveActivities)
+          .set({ pushedAt: now })
+          .where(
+            and(
+              eq(liveActivities.token, activity.token),
+              or(isNull(liveActivities.pushedAt), lte(liveActivities.pushedAt, now)),
+            ),
+          );
+      } else if (outcome === "gone") {
         await db.delete(liveActivities).where(eq(liveActivities.token, activity.token));
       } else if (outcome === "failed" && alerting) {
         // It didn't reach the phone: hand the alert back for the next clip,

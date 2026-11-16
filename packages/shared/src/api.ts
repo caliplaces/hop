@@ -2,21 +2,53 @@ import { z } from "zod";
 import { COLOR_IDS, type ColorId } from "./colors";
 import { MAX_FILE_BYTES, MAX_PARTS_PER_SIGN_REQUEST, MIN_FILE_BYTES } from "./limits";
 
+/** An emoji, with any colour or skin-tone modifiers, and others joined to it. */
+const EMOJI =
+  /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*/gu;
+/** Check marks, which would pass for a badge next to a name. */
+const CHECK_MARKS = /[\u2611\u2705\u2713\u2714\u{1F5F8}]/u;
+
 /**
- * Anonymous names can't start with "@", which is reserved for signed-in
- * contributors' verified handles.
+ * A name as people should see it, whoever typed it: compatibility forms
+ * folded (a fullwidth ＠ is an @), no control or invisible characters
+ * (bidi overrides, zero-width and other default-ignorable ones) except
+ * those that build an emoji, no stacks of combining marks ("Zalgo" text),
+ * no check marks, and one space at a time.
+ */
+export function cleanName(name: string): string {
+  const visible = (text: string) => text.replace(/[\p{C}\p{Default_Ignorable_Code_Point}]/gu, "");
+  // Line breaks and tabs become spaces before anything invisible goes.
+  const normal = name.normalize("NFKC").replace(/\s+/g, " ");
+  let kept = "";
+  let last = 0;
+  for (const emoji of normal.matchAll(EMOJI)) {
+    kept += visible(normal.slice(last, emoji.index)) + emoji[0];
+    last = emoji.index + emoji[0].length;
+  }
+  kept += visible(normal.slice(last));
+  return kept
+    .replace(/(\p{M}{3})\p{M}+/gu, "$1")
+    .replace(new RegExp(CHECK_MARKS.source, "gu"), "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * What an anonymous contributor calls themselves, cleaned (see cleanName).
+ * It can't start with "@", which is reserved for signed-in contributors'
+ * verified handles, and must show something: a letter, a number or an emoji.
  */
 export const contributorNameSchema = z
   .string()
-  .trim()
-  .transform((name) =>
-    name
-      .replace(/^@+/, "")
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
-      .replace(/[\u0000-\u001f\u007f]/g, "")
-      .trim(),
-  )
-  .pipe(z.string().min(1).max(40));
+  .max(200)
+  .transform((name) => cleanName(name).replace(/^@+/, "").trim())
+  .pipe(
+    z
+      .string()
+      .min(1)
+      .max(40)
+      .refine((name) => /[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name)),
+  );
 
 export const createUploadSchema = z.object({
   name: z.string().trim().min(1).max(255),
@@ -58,10 +90,73 @@ export const colorSchema = z.enum(COLOR_IDS);
 
 export const claimHandleSchema = z.object({ handle: z.string(), color: colorSchema.optional() });
 
+/**
+ * The name others see on an athlete's page. Hop's own, kept apart from the
+ * one their Caliplaces account sends (which every sign-in refreshes, and is
+ * checked the same way). Names are public, so they may not disguise
+ * themselves or someone else:
+ *
+ * - no control or invisible characters (bidi overrides, zero-width and other
+ *   default-ignorable ones), except those that build an emoji;
+ * - something readable: at least one letter or number;
+ * - no stacks of combining marks ("Zalgo" text);
+ * - no leading @, which would pass for a handle, and no check marks.
+ */
+export const displayNameSchema = z
+  .string()
+  .max(200, "That name is too long.")
+  .transform((name) => name.normalize("NFC").trim().replace(/\s+/g, " "))
+  .pipe(
+    z
+      .string()
+      .min(1, "Enter a name.")
+      .max(50, "That name is too long.")
+      .refine(
+        (name) => !/[\p{C}\p{Default_Ignorable_Code_Point}]/u.test(name.replace(EMOJI, "")),
+        "That name has characters that can't be shown.",
+      )
+      .refine((name) => /[\p{L}\p{N}]/u.test(name), "Enter a name.")
+      .refine((name) => !/\p{M}{4,}/u.test(name), "That name has characters that can't be shown.")
+      .refine((name) => !name.startsWith("@"), "A name can't start with @.")
+      .refine((name) => !CHECK_MARKS.test(name), "A name can't include check marks."),
+  );
+
 export const updateProfileSchema = z
-  .object({ color: colorSchema, emailNewClips: z.boolean() })
+  .object({
+    color: colorSchema,
+    emailNewClips: z.boolean(),
+    pushNewClips: z.boolean(),
+    /** null goes back to the name from their Caliplaces account. */
+    displayName: displayNameSchema.nullable(),
+    /** They've seen and confirmed their public profile. */
+    profileReviewed: z.literal(true),
+  })
   .partial()
   .refine((changes) => Object.keys(changes).length > 0, "Nothing to update.");
+
+/** Why something was reported. */
+export const REPORT_REASONS = ["sexual", "violence", "harassment", "spam", "other"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+/** Reporting a clip (from the app) or an athlete's page (from the web). */
+export const reportSchema = z.object({
+  reason: z.enum(REPORT_REASONS),
+  note: z.string().trim().max(500).optional(),
+});
+export type ReportInput = z.infer<typeof reportSchema>;
+
+/** Reporting a page needs no account, so it needs a Turnstile pass instead. */
+export const pageReportSchema = reportSchema.extend({
+  turnstileToken: z.string().min(1).max(4096),
+});
+
+/** Someone an athlete blocked from sending them clips. */
+export type Block = {
+  id: string;
+  /** How they appeared on the clip blocked: a name or an @handle. */
+  label: string | null;
+  createdAt: number;
+};
 
 /** Unsubscribe links carry a signed token; `subscribe: true` undoes it. */
 export const emailPreferenceSchema = z.object({
@@ -86,11 +181,23 @@ export type PublicHop = {
   slug: string;
   title: string;
   status: HopStatus;
-  owner: { handle: string; name: string | null; color: ColorId };
+  owner: {
+    handle: string;
+    name: string | null;
+    color: ColorId;
+    /** Their profile photo, relative to the site, if they set one. */
+    avatarUrl: string | null;
+    /**
+     * They have Hop+, which their page shows with a Hop+ mark. Deliberately
+     * not a "verified" check: paying doesn't prove who someone is.
+     */
+    hopPlus: boolean;
+  };
 };
 
 export type Me = {
   id: string;
+  /** The name others see: their Hop profile's, or else their Caliplaces account's. */
   name: string | null;
   email: string | null;
   handle: string | null;
@@ -99,6 +206,17 @@ export type Me = {
   color: ColorId;
   /** Whether new clips are announced by email (on unless they opted out). */
   emailNewClips: boolean;
+  /**
+   * Whether new clips are announced on their phones, where they turned on
+   * notifications (on unless they turned it off).
+   */
+  pushNewClips: boolean;
+  /** Their profile photo, relative to the site (/api/avatars/...), if they set one. */
+  avatarUrl: string | null;
+  /** They have Hop+, which their page shows with a Hop+ mark. */
+  hopPlus: boolean;
+  /** Whether they've seen their public profile since signing up. */
+  profileReviewed: boolean;
 };
 
 export type HopSummary = {
@@ -174,7 +292,23 @@ export type PlanStatus = {
    * than one already shown is stale: it read the plan before a change.
    */
   revision: number;
+  /**
+   * Free-plan clips the athlete has been told are leaving: how many, the day
+   * the first notice named (`on`, YYYY-MM-DD), and when those may go (ms
+   * since 1970), which is after that day has ended in every time zone. Null
+   * when none are, as always with Hop+.
+   */
+  expiring: { clips: number; on: string; at: number } | null;
 };
+
+/**
+ * Registers the app's push token (the URL's last segment) for notifications,
+ * such as clips about to expire. `environment` is the APNs environment the
+ * token belongs to, as for Live Activities.
+ */
+export const deviceSchema = z.object({
+  environment: z.enum(["sandbox", "production"]),
+});
 
 /** Making a hop live: when it happened, by the server's clock. */
 export type HopActivation = { ok: true; activatedAt: number };
@@ -193,3 +327,34 @@ export const fileUrlsSchema = z.object({
 export type PublicConfig = { turnstileSiteKey: string };
 
 export type ApiError = { error: string; message?: string };
+
+/** Counts in the last day, week and 30 days. */
+export type Recent = { day: number; week: number; month: number };
+
+/**
+ * Hop's numbers, for the private stats page (/admin): counts only, nothing
+ * about anyone in particular. See apps/api/src/stats.ts.
+ */
+export type AdminStats = {
+  generatedAt: number;
+  /** Accounts with a handle (athletes), not deleted. */
+  athletes: { total: number; new: Recent; active: Recent; deleted: number };
+  /** Distinct people who sent clips (by browser, or account if signed in). */
+  senders: Recent;
+  /** Events: Hops other than each athlete's standing one. */
+  events: { total: number; new: Recent };
+  clips: { total: number; new: Recent };
+  storage: {
+    /** Clips kept (complete, or held for a report). */
+    bytes: number;
+    /** Uploads under way. */
+    pendingBytes: number;
+    /** What the free plan and Hop+ athletes keep. */
+    freeBytes: number;
+    plusBytes: number;
+  };
+  plus: { subscribers: number };
+  waitlist: number;
+  /** The last 30 days, oldest first; days start at midnight UTC. */
+  daily: { day: string; athletes: number; events: number; clips: number; bytes: number }[];
+};

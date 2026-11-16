@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { Db } from "../db";
 import { type FileRow, files } from "../db/schema";
 import type { Env } from "../env";
@@ -12,17 +12,37 @@ export function thumbnailKey(file: Pick<FileRow, "hopId" | "id">): string {
   return `hops/${file.hopId}/${file.id}/thumb.jpg`;
 }
 
+/** How long a reported clip is kept for Hop's team, even once deleted. */
+export const HOLD_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * SQL: what deleting a clip makes it, for statements that delete many: kept
+ * out of sight while it's held for a report, otherwise "deleting", which the
+ * cleanup removes.
+ */
+export const goneStatus = (now: number) =>
+  sql<"held" | "deleting">`case when ${files.heldUntil} > ${now} then 'held' else 'deleting' end`;
+
 /**
  * Delete a file durably. The row is first marked "deleting" (which also stops
  * any further part signing, completion or thumbnail writes), then the objects
  * are removed, and only then the row. If R2 fails midway the row survives in
  * "deleting" and the cleanup cron retries it, so nothing is ever orphaned.
+ *
+ * A clip held for a report is only hidden ("held"), and the cleanup removes
+ * it when the hold ends. Checking the hold and claiming the row is one
+ * statement, and a report only holds a clip that isn't "deleting", so a clip
+ * is either held or going, never both.
  */
 export async function removeFile(env: Env, db: Db, file: FileRow) {
-  await db
+  const now = Date.now();
+  const claimed = await db
     .update(files)
-    .set({ status: "deleting", lastActivityAt: Date.now() })
-    .where(eq(files.id, file.id));
+    .set({ status: goneStatus(now), lastActivityAt: now })
+    .where(and(eq(files.id, file.id), ne(files.status, "held")))
+    .returning({ status: files.status })
+    .get();
+  if (claimed?.status !== "deleting") return;
   await finishRemoval(env, db, file);
 }
 

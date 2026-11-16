@@ -78,6 +78,41 @@
       "when": 1794774305988,
       "tag": "0010_waitlist_launch",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794830283321,
+      "tag": "0011_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794834278078,
+      "tag": "0012_account_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1794838806475,
+      "tag": "0013_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1794846668346,
+      "tag": "0014_expiry",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1794851282851,
+      "tag": "0015_push_new_clips",
+      "breakpoints": true
     }
   ]
 }
