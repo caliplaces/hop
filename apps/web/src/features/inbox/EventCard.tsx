@@ -2,7 +2,7 @@ import { colorFor, type HopSummary, type InboxFile } from "@hop/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Link2, Lock } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cx } from "../../components/ui/cx";
 import { formatBytes } from "../../lib/format";
 import { queries } from "../../lib/queries";
@@ -28,9 +28,44 @@ function Cover({ file }: { file: InboxFile }) {
   );
 }
 
+/**
+ * Whether the element has come near the screen (and stays true after), so
+ * an inbox of many events only loads the covers someone scrolls to.
+ */
+function useNearScreen<T extends Element>() {
+  const ref = useRef<T>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (near || !element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNear(true);
+      },
+      { rootMargin: "400px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [near]);
+  return [ref, near] as const;
+}
+
 /** Up to three of the event's newest clips tiled as its cover, or Bobble when there are none. */
 function Mosaic({ hop, color }: { hop: HopSummary; color: string }) {
-  const cover = useQuery({ ...queries.cover(hop.id), enabled: hop.fileCount > 0 });
+  const [ref, near] = useNearScreen<HTMLDivElement>();
+  return (
+    <div ref={ref} className="size-full">
+      <MosaicTiles hop={hop} color={color} load={near} />
+    </div>
+  );
+}
+
+function MosaicTiles({ hop, color, load }: { hop: HopSummary; color: string; load: boolean }) {
+  const cover = useQuery({ ...queries.cover(hop.id), enabled: hop.fileCount > 0 && load });
   const clips = cover.data ?? [];
   const { id, hex } = colorFor(color, "");
 

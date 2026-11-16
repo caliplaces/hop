@@ -54,9 +54,7 @@ export function AppShell({ me, children }: { me: AthleteMe; children: ReactNode 
 
       <header className="sticky top-0 z-(--z-bar)">
         <div className="relative mx-auto flex h-18 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link to="/app" aria-label="Inbox" className="rounded-full">
-            <Logo color={me.color} />
-          </Link>
+          <Logo color={me.color} to="/app" label="Inbox" className="rounded-full" />
           <nav
             aria-label="Main"
             className="glass absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full p-1 sm:flex"
