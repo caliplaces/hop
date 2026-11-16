@@ -8,6 +8,7 @@ import type { MascotState } from "../features/mascot/Mascot";
 import { Dropzone } from "../features/upload/Dropzone";
 import { HopHero, ownerNames } from "../features/upload/HopHero";
 import { HumanCheck } from "../features/upload/HumanCheck";
+import { ReportPage } from "../features/upload/ReportPage";
 import { SenderName } from "../features/upload/SenderName";
 import { StatusScreen } from "../features/upload/StatusScreen";
 import { UploadList } from "../features/upload/UploadList";
@@ -67,8 +68,18 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
     );
   }
   if (hop.status === "closed") {
+    // The page still shows their name, so it can still be reported.
     return (
-      <StatusScreen mascot="sleep" color={hop.owner.color} title="This Hop is closed">
+      <StatusScreen
+        mascot="sleep"
+        color={hop.owner.color}
+        title="This Hop is closed"
+        action={
+          <span className="text-xs text-muted">
+            <ReportPage handle={hop.owner.handle} siteKey={config.data?.turnstileSiteKey} />
+          </span>
+        }
+      >
         {ownerNames(hop).full} isn’t accepting uploads here right now.
       </StatusScreen>
     );
@@ -128,8 +139,15 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
           onRetry={pass.retry}
         />
 
-        <footer className="mt-auto pt-12 text-center text-xs text-muted">
-          Only {ownerNames(hop).full} can see what you send · Hop by Caliplaces
+        <footer className="mt-auto flex flex-col items-center gap-2 pt-12 text-center text-xs text-muted">
+          <p>Only {ownerNames(hop).full} can see what you send · Hop by Caliplaces</p>
+          <p className="flex items-center gap-3">
+            <ReportPage handle={hop.owner.handle} siteKey={config.data?.turnstileSiteKey} />
+            <span aria-hidden="true">·</span>
+            <a className="underline-offset-4 hover:underline" href="/privacy">
+              Privacy
+            </a>
+          </p>
         </footer>
       </main>
     </AccentScope>
