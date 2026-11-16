@@ -144,9 +144,10 @@ export function Privacy() {
           <li>Where the law requires it, for example keeping reported content for a while.</li>
         </List>
         <p>
-          Hop emails you when clips arrive. Those emails have an unsubscribe link, and you can turn
-          them off in your account. Notices that clips are about to be removed, and other messages
-          about your account, come whatever that setting.
+          Hop emails you when clips arrive, and tells you on your phone too if you turned
+          notifications on in the app. Those emails have an unsubscribe link, and you can turn
+          either off in your account. Notices that clips are about to be removed, and other messages
+          about your account, come whatever those settings.
         </p>
       </Section>
 

@@ -25,6 +25,8 @@ export const users = sqliteTable(
     activeHopId: text("active_hop_id"),
     /** Email the athlete when new clips arrive. On by default; unsubscribe links turn it off. */
     emailNewClips: integer("email_new_clips", { mode: "boolean" }).notNull().default(true),
+    /** New clips are announced on their phones too (the digest, src/notify.ts). */
+    pushNewClips: integer("push_new_clips", { mode: "boolean" }).notNull().default(true),
     /**
      * A UUID the iPhone app sets on App Store purchases (StoreKit's
      * appAccountToken), so the API knows whose they are. Made when first needed.

@@ -99,6 +99,7 @@ export const updateProfileSchema = z
   .object({
     color: colorSchema,
     emailNewClips: z.boolean(),
+    pushNewClips: z.boolean(),
     /** null goes back to the name from their Caliplaces account. */
     displayName: displayNameSchema.nullable(),
     /** They've seen and confirmed their public profile. */
@@ -179,6 +180,11 @@ export type Me = {
   color: ColorId;
   /** Whether new clips are announced by email (on unless they opted out). */
   emailNewClips: boolean;
+  /**
+   * Whether new clips are announced on their phones, where they turned on
+   * notifications (on unless they turned it off).
+   */
+  pushNewClips: boolean;
   /** Their profile photo, relative to the site (/api/avatars/...), if they set one. */
   avatarUrl: string | null;
   /** They have Hop+, which their page shows with a Hop+ mark. */

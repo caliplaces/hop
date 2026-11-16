@@ -90,6 +90,8 @@ Hop sends its own emails through [Resend](https://resend.com) from `EMAIL_FROM` 
 
 The new-clips digest runs every 5 minutes. A clip counts as announced once `files.notified_at` is set; each run claims an athlete's unannounced clips in one statement before sending, and hands them back if the send fails. Athletes turn it off in account settings, from the unsubscribe link in each email (a page that asks first), or with their mail app's one-click unsubscribe (`List-Unsubscribe`, RFC 8058).
 
+The same digest goes to the athlete's phones as a notification ("2 new clips from Street Kings Prague", "Coach Peter and Lea sent you clips."), once per batch: when it's claimed, never again on an email retry, and only one run can claim it. It goes whether or not they get the email, unless they turned `users.push_new_clips` off (in the app's Account). Clips the athlete watched arrive on Event mode's Live Activity (in that event, since it started) are left out, and nothing is pushed if that's all of them. Notifications of one event are grouped on the phone (`thread-id`), and carry `{ hop: "clips", hopId }` for the app to open it.
+
 While `pnpm dev` runs, open [localhost:5173/email-lab.html](http://localhost:5173/email-lab.html) to see every email with sample data, in each colour, at phone and desktop width, and in dark mode. Without `RESEND_API_KEY` in `.dev.vars`, emails are printed to the wrangler console instead of sent.
 
 The Bobble images in emails are rendered per colour by `pnpm --filter @hop/web mascot:assets email` into `apps/web/public/email/`.

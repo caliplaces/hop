@@ -4,8 +4,8 @@ import { Hono } from "hono";
 import { getDb } from "../db";
 import { devices } from "../db/schema";
 import type { AppEnv } from "../env";
-import { PHONES_PER_ATHLETE } from "../expiry";
 import { fail } from "../lib/http";
+import { PHONES_PER_ATHLETE } from "../lib/phones";
 import { currentUser, requireUser } from "../lib/session";
 import { validate } from "../lib/validate";
 

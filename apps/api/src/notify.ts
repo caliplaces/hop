@@ -1,11 +1,12 @@
 import { colorFor } from "@hop/shared";
-import { and, eq, isNotNull, isNull, lte, max, min, or } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte, max, min, or } from "drizzle-orm";
 import { type Db, getDb } from "./db";
-import { files, hops, users } from "./db/schema";
-import { newClipsEmail } from "./email/new-clips";
+import { files, hops, liveActivities, users } from "./db/schema";
+import { newClipsEmail, newClipsPush } from "./email/new-clips";
 import { ResendError, sendEmail } from "./email/send";
 import { listUnsubscribeHeaders, unsubscribeLinks } from "./email/unsubscribe";
 import type { Env } from "./env";
+import { pushToPhones } from "./lib/phones";
 
 /**
  * The new-clips digest. At an event clips arrive in bursts, so instead of one
@@ -20,7 +21,12 @@ import type { Env } from "./env";
  * after a failed or interrupted send can never mix in newer clips and email
  * the old ones twice. Each attempt is recorded (notify_attempted_at) and the
  * least recently tried batches go first, so batches that keep failing can't
- * crowd out the rest. Other channels (push) can hang off the same batches.
+ * crowd out the rest.
+ *
+ * The same batch is pushed to the athlete's phones, once: when it's claimed,
+ * never again on an email retry, and only one run can claim it. Clips the
+ * athlete is already watching arrive, in an event Event mode's Live Activity
+ * counts, are left out of the push (not the email).
  */
 export const QUIET_MS = 10 * 60 * 1000;
 export const MAX_DELAY_MS = 60 * 60 * 1000;
@@ -64,9 +70,9 @@ export async function announceNewClips(env: Env, now = Date.now()): Promise<void
     .limit(PER_RUN);
 
   const outcomes = { sent: 0, skipped: 0, failed: 0 };
-  const attempt = async (ownerId: string, batch: number) => {
+  const attempt = async (ownerId: string, batch: number, push: boolean) => {
     try {
-      outcomes[await sendBatch(env, db, ownerId, batch, now)]++;
+      outcomes[await sendBatch(env, db, ownerId, batch, now, push)]++;
     } catch (error) {
       outcomes.failed++;
       // The batch stays claimed but unconfirmed, so a later run sends it again.
@@ -76,7 +82,7 @@ export async function announceNewClips(env: Env, now = Date.now()): Promise<void
 
   // One athlete at a time keeps each run light; a failure only affects that athlete.
   for (const { ownerId, batch } of stalled) {
-    if (batch !== null) await attempt(ownerId, batch);
+    if (batch !== null) await attempt(ownerId, batch, false);
   }
   for (const { ownerId } of due) {
     // Claim atomically, so overlapping runs can't put a clip in two batches.
@@ -85,7 +91,8 @@ export async function announceNewClips(env: Env, now = Date.now()): Promise<void
       .set({ notifyBatch: now, notifyAttemptedAt: now })
       .where(and(eq(files.ownerId, ownerId), waiting))
       .returning({ id: files.id });
-    if (claimed.length > 0) await attempt(ownerId, now);
+    // Just claimed: the one try that pushes.
+    if (claimed.length > 0) await attempt(ownerId, now, true);
   }
 
   if (stalled.length + due.length > 0) {
@@ -101,6 +108,7 @@ async function sendBatch(
   ownerId: string,
   batch: number,
   now: number,
+  push: boolean,
 ): Promise<"sent" | "skipped"> {
   const inBatch = and(eq(files.ownerId, ownerId), eq(files.notifyBatch, batch), unannounced);
   const confirm = () => db.update(files).set({ notifiedAt: now }).where(inBatch);
@@ -117,28 +125,35 @@ async function sendBatch(
   // query stays on the small index).
   const clips = (
     await db
-      .select({ hopId: files.hopId, contributor: files.contributorName, status: files.status })
+      .select({
+        hopId: files.hopId,
+        contributor: files.contributorName,
+        status: files.status,
+        completedAt: files.completedAt,
+      })
       .from(files)
       .where(inBatch)
   ).filter((clip) => clip.status === "complete");
   const user = await db.select().from(users).where(eq(users.id, ownerId)).get();
-  // Athletes who opted out (or can't receive email) have their clips marked
-  // announced anyway, so they don't pile up and get re-checked every run.
-  if (
-    clips.length === 0 ||
-    !user?.handle ||
-    !user.email ||
-    !user.emailVerified ||
-    !user.emailNewClips
-  ) {
+  if (clips.length === 0 || !user?.handle || user.deletedAt) {
     await confirm();
     return "skipped";
   }
-
   const athleteHops = await db
     .select({ id: hops.id, slug: hops.slug, title: hops.title })
     .from(hops)
     .where(eq(hops.ownerId, ownerId));
+
+  const pushed =
+    push && user.pushNewClips && (await pushBatch(env, db, ownerId, clips, athleteHops, now));
+
+  // Athletes who opted out (or can't receive email) have their clips marked
+  // announced anyway, so they don't pile up and get re-checked every run.
+  if (!user.email || !user.emailVerified || !user.emailNewClips) {
+    await confirm();
+    return pushed ? "sent" : "skipped";
+  }
+
   const links = await unsubscribeLinks(env, user.id);
   const email = await newClipsEmail({
     appUrl: env.APP_URL,
@@ -167,4 +182,41 @@ async function sendBatch(
   }
   await confirm();
   return "sent";
+}
+
+/**
+ * The batch on the athlete's phones, best effort. Clips Event mode's Live
+ * Activity counted (in an event it's running for, since it started) are left
+ * out: the athlete saw them arrive. True if a phone took it.
+ */
+async function pushBatch(
+  env: Env,
+  db: Db,
+  ownerId: string,
+  clips: { hopId: string; contributor: string | null; completedAt: number | null }[],
+  athleteHops: { id: string; slug: string; title: string }[],
+  now: number,
+): Promise<boolean> {
+  if (!env.APNS_KEY) return false;
+  const watching = await db
+    .select({ hopId: liveActivities.hopId, since: liveActivities.since })
+    .from(liveActivities)
+    .where(and(eq(liveActivities.userId, ownerId), gt(liveActivities.expiresAt, now)));
+  const counted = (clip: (typeof clips)[number]) =>
+    watching.some(
+      (activity) =>
+        activity.hopId === clip.hopId &&
+        clip.completedAt !== null &&
+        clip.completedAt >= activity.since,
+    );
+  const news = clips.filter((clip) => !counted(clip));
+  if (news.length === 0) return false;
+
+  const { alert, hopId } = newClipsPush({ clips: news, hops: athleteHops });
+  return pushToPhones(env, db, ownerId, alert, {
+    data: hopId ? { hop: "clips", hopId } : { hop: "clips" },
+    // Grouped by event on the phone.
+    threadId: hopId ?? "clips",
+    now,
+  });
 }

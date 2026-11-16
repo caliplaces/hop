@@ -115,11 +115,19 @@ export async function pushLiveActivity(
   return "failed";
 }
 
+export type PushAlertOptions = {
+  /** Rides along for the app, to open the right screen. */
+  data: Record<string, string>;
+  /** Notifications sharing it replace each other on the phone. */
+  collapseId?: string;
+  /** Notifications sharing it are grouped together on the phone. */
+  threadId?: string;
+  now?: number;
+};
+
 /**
  * A notification on the phone (the app's own push token, not a Live
- * Activity's), such as clips about to expire. `data` rides along for the app
- * to open the right screen; notifications sharing a `collapseId` replace each
- * other on the phone.
+ * Activity's), such as new clips or clips about to expire.
  *
  * Only Apple's 410 (the app is gone from that phone) counts as "gone". A 400
  * such as DeviceTokenNotForTopic or BadDeviceToken is more likely this
@@ -130,11 +138,7 @@ export async function pushAlert(
   env: Env,
   token: string,
   alert: { title: string; body: string },
-  {
-    data,
-    collapseId,
-    now = Date.now(),
-  }: { data: Record<string, string>; collapseId?: string; now?: number },
+  { data, collapseId, threadId, now = Date.now() }: PushAlertOptions,
 ): Promise<PushOutcome> {
   const response = await fetch(`https://${HOSTS[env.APNS_ENVIRONMENT]}/3/device/${token}`, {
     method: "POST",
@@ -146,7 +150,10 @@ export async function pushAlert(
       ...(collapseId ? { "apns-collapse-id": collapseId } : {}),
       "content-type": "application/json",
     },
-    body: JSON.stringify({ aps: { alert, sound: "default" }, ...data }),
+    body: JSON.stringify({
+      aps: { alert, sound: "default", ...(threadId ? { "thread-id": threadId } : {}) },
+      ...data,
+    }),
   });
   if (response.ok) return "sent";
   if (response.status === 410) return "gone";

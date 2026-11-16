@@ -221,6 +221,7 @@ describe("deleting an account", () => {
       activeHopId: null,
       appAccountToken: null,
       emailNewClips: false,
+      pushNewClips: false,
       profileReviewedAt: null,
       // Kept, so nobody else can take the link.
       handle: "alex",

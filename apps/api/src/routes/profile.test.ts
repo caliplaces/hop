@@ -168,6 +168,17 @@ describe("reviewing the profile", () => {
   });
 });
 
+describe("notification settings", () => {
+  it("announce new clips by email and on the phone until turned off, each on its own", async () => {
+    expect(await me()).toMatchObject({ emailNewClips: true, pushNewClips: true });
+    expect((await patch({ pushNewClips: false })).status).toBe(200);
+    expect(await me()).toMatchObject({ emailNewClips: true, pushNewClips: false });
+    await patch({ emailNewClips: false, pushNewClips: true });
+    expect(await me()).toMatchObject({ emailNewClips: false, pushNewClips: true });
+    expect((await patch({ pushNewClips: "no" })).status).toBe(400);
+  });
+});
+
 describe("the profile photo", () => {
   it("is stored under a new random name, served publicly and cached for good", async () => {
     const response = await upload(JPEG);
