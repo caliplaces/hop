@@ -1,6 +1,13 @@
 import { REPORT_REASONS } from "@hop/shared";
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable(
   "users",
@@ -302,7 +309,11 @@ export const reports = sqliteTable(
     /** The clip's note and file name, which outlive it here. */
     clipNote: text("clip_note"),
     clipName: text("clip_name"),
-    /** When the team's email about it went out (see src/reports.ts). */
+    /**
+     * The team's email about it (see src/reports.ts): the batch it was
+     * claimed into (the claim time), then when that batch's email went out.
+     */
+    emailBatch: integer("email_batch"),
     emailedAt: integer("emailed_at"),
     createdAt: integer("created_at").notNull(),
   },
@@ -318,8 +329,9 @@ export const reports = sqliteTable(
 );
 
 /**
- * Senders an athlete blocked: by account when they sent while signed in,
- * otherwise by browser key. Uploads from a blocked sender are refused.
+ * Senders an athlete blocked: by account, when they sent while signed in,
+ * and by every browser key they were seen with (block_keys). Uploads from a
+ * blocked sender are refused (lib/senders.ts).
  */
 export const blocks = sqliteTable(
   "blocks",
@@ -331,7 +343,6 @@ export const blocks = sqliteTable(
     contributorUserId: text("contributor_user_id").references(() => users.id, {
       onDelete: "cascade",
     }),
-    senderKey: text("sender_key"),
     /** How they appeared on the clip that was blocked, for the athlete's list. */
     label: text("label"),
     createdAt: integer("created_at").notNull(),
@@ -340,11 +351,27 @@ export const blocks = sqliteTable(
     uniqueIndex("blocks_owner_user_idx")
       .on(t.ownerId, t.contributorUserId)
       .where(sql`${t.contributorUserId} is not null`),
-    uniqueIndex("blocks_owner_sender_idx")
-      .on(t.ownerId, t.senderKey)
-      .where(sql`${t.senderKey} is not null`),
+    index("blocks_owner_created_idx").on(t.ownerId, t.createdAt),
+  ],
+);
+
+/** The browser keys (hashed) a block covers: each blocked once per athlete. */
+export const blockKeys = sqliteTable(
+  "block_keys",
+  {
+    ownerId: text("owner_id").notNull(),
+    senderKey: text("sender_key").notNull(),
+    blockId: text("block_id")
+      .notNull()
+      .references(() => blocks.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ownerId, t.senderKey] }),
+    index("block_keys_block_idx").on(t.blockId),
   ],
 );
 
 export type ReportRow = typeof reports.$inferSelect;
 export type BlockRow = typeof blocks.$inferSelect;
+export type BlockKeyRow = typeof blockKeys.$inferSelect;

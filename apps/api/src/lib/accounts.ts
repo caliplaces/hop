@@ -15,6 +15,7 @@ import {
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { Db } from "../db";
 import {
+  blockKeys,
   blocks,
   files,
   hops,
@@ -132,6 +133,7 @@ export function erasure(db: Db, owned: Owned, now: number) {
       .where(owned(files.contributorUserId)),
     // Who they blocked, and that they made the reports they made. The
     // reports themselves stay, as the record of what was reported.
+    db.delete(blockKeys).where(owned(blockKeys.ownerId)),
     db.delete(blocks).where(owned(blocks.ownerId)),
     db.update(reports).set({ reporterId: null }).where(owned(reports.reporterId)),
     // Where they're the sender someone blocked or reported, a name goes as on

@@ -1,8 +1,17 @@
+CREATE TABLE `block_keys` (
+	`owner_id` text NOT NULL,
+	`sender_key` text NOT NULL,
+	`block_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	PRIMARY KEY(`owner_id`, `sender_key`),
+	FOREIGN KEY (`block_id`) REFERENCES `blocks`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `block_keys_block_idx` ON `block_keys` (`block_id`);--> statement-breakpoint
 CREATE TABLE `blocks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`owner_id` text NOT NULL,
 	`contributor_user_id` text,
-	`sender_key` text,
 	`label` text,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -10,7 +19,7 @@ CREATE TABLE `blocks` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `blocks_owner_user_idx` ON `blocks` (`owner_id`,`contributor_user_id`) WHERE "blocks"."contributor_user_id" is not null;--> statement-breakpoint
-CREATE UNIQUE INDEX `blocks_owner_sender_idx` ON `blocks` (`owner_id`,`sender_key`) WHERE "blocks"."sender_key" is not null;--> statement-breakpoint
+CREATE INDEX `blocks_owner_created_idx` ON `blocks` (`owner_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `reports` (
 	`id` text PRIMARY KEY NOT NULL,
 	`kind` text NOT NULL,
@@ -24,6 +33,7 @@ CREATE TABLE `reports` (
 	`sender_key` text,
 	`clip_note` text,
 	`clip_name` text,
+	`email_batch` integer,
 	`emailed_at` integer,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`reporter_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null,

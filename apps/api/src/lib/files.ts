@@ -1,4 +1,4 @@
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { Db } from "../db";
 import { type FileRow, files } from "../db/schema";
 import type { Env } from "../env";
@@ -28,21 +28,21 @@ export const goneStatus = (now: number) =>
  * any further part signing, completion or thumbnail writes), then the objects
  * are removed, and only then the row. If R2 fails midway the row survives in
  * "deleting" and the cleanup cron retries it, so nothing is ever orphaned.
+ *
+ * A clip held for a report is only hidden ("held"), and the cleanup removes
+ * it when the hold ends. Checking the hold and claiming the row is one
+ * statement, and a report only holds a clip that isn't "deleting", so a clip
+ * is either held or going, never both.
  */
 export async function removeFile(env: Env, db: Db, file: FileRow) {
-  // A reported clip stays for Hop's team, out of the athlete's sight, until
-  // its hold ends; the cleanup removes it then.
-  const held = await db
+  const now = Date.now();
+  const claimed = await db
     .update(files)
-    .set({ status: "held" })
-    .where(and(eq(files.id, file.id), gt(files.heldUntil, Date.now())))
-    .returning({ id: files.id })
+    .set({ status: goneStatus(now), lastActivityAt: now })
+    .where(and(eq(files.id, file.id), ne(files.status, "held")))
+    .returning({ status: files.status })
     .get();
-  if (held) return;
-  await db
-    .update(files)
-    .set({ status: "deleting", lastActivityAt: Date.now() })
-    .where(eq(files.id, file.id));
+  if (claimed?.status !== "deleting") return;
   await finishRemoval(env, db, file);
 }
 

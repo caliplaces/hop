@@ -1,8 +1,8 @@
-import { and, eq, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { Db } from "../db";
-import { blocks } from "../db/schema";
+import { blockKeys, blocks } from "../db/schema";
 import type { AppEnv } from "../env";
 import { randomToken, sha256Hex } from "./crypto";
 import { isSecureUrl } from "./http";
@@ -44,14 +44,15 @@ export async function senderKey(c: Context<AppEnv>): Promise<string> {
 }
 
 /**
- * SQL: whether this athlete blocked this sender (by key, or by account).
- * Never the athlete themselves, signed in to their own Hop.
+ * SQL: whether this athlete blocked this sender: this browser key, or this
+ * account. Never the athlete themselves, signed in to their own Hop.
  */
 export function blockedSql(ownerId: string, sender: string, contributorUserId: string | null): SQL {
   if (contributorUserId === ownerId) return sql`0`;
-  const who: SQL[] = [eq(blocks.senderKey, sender)];
-  if (contributorUserId) who.push(eq(blocks.contributorUserId, contributorUserId));
-  return sql`exists (select 1 from ${blocks} where ${and(eq(blocks.ownerId, ownerId), or(...who))})`;
+  const byKey = sql`exists (select 1 from ${blockKeys} where ${and(eq(blockKeys.ownerId, ownerId), eq(blockKeys.senderKey, sender))})`;
+  if (!contributorUserId) return byKey;
+  const byAccount = sql`exists (select 1 from ${blocks} where ${and(eq(blocks.ownerId, ownerId), eq(blocks.contributorUserId, contributorUserId))})`;
+  return sql`(${byKey} or ${byAccount})`;
 }
 
 /** Whether this athlete blocked this sender. */

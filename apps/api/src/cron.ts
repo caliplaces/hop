@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
 import { dropEmptiedHops, eraseDeletedAccounts } from "./lib/accounts";
 import { AVATAR_PREFIX } from "./lib/avatars";
-import { finishRemoval } from "./lib/files";
+import { finishRemoval, goneStatus } from "./lib/files";
 
 const BATCH = 100;
 /** How long a report is kept. */
@@ -49,13 +49,15 @@ export async function cleanup(env: Env) {
         // Claim atomically. If the upload completed since it was read, the
         // conditions no longer match and it's left alone. Bumping the activity
         // time keeps a failing removal from being retried again in this run.
+        // A clip held for a report is hidden instead (lib/files.ts).
+        const now = Date.now();
         const file = await db
           .update(files)
-          .set({ status: "deleting", lastActivityAt: Date.now() })
+          .set({ status: goneStatus(now), lastActivityAt: now })
           .where(and(eq(files.id, id), due))
           .returning()
           .get();
-        if (!file) return false;
+        if (file?.status !== "deleting") return false;
         await finishRemoval(env, db, file);
         return true;
       }),

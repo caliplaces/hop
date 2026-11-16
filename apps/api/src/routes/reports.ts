@@ -1,9 +1,9 @@
 import { type Block, normalizeHandle, pageReportSchema, reportSchema } from "@hop/shared";
-import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db";
-import { blocks, type FileRow, files, reports } from "../db/schema";
+import { blockKeys, blocks, type FileRow, files, reports } from "../db/schema";
 import type { AppEnv } from "../env";
 import { newId, sha256Hex } from "../lib/crypto";
 import { goneStatus, HOLD_MS } from "../lib/files";
@@ -52,10 +52,11 @@ export const reportRoutes = new Hono<AppEnv>()
           createdAt: now,
         })
         .onConflictDoNothing(),
+      // Not one already going: deleting it claimed it first (lib/files.ts).
       db
         .update(files)
         .set({ heldUntil: sql`max(coalesce(${files.heldUntil}, 0), ${now + HOLD_MS})` })
-        .where(eq(files.id, file.id)),
+        .where(and(eq(files.id, file.id), inArray(files.status, ["pending", "complete", "held"]))),
     ]);
     return c.json({ ok: true });
   })
@@ -134,10 +135,17 @@ export const reportRoutes = new Hono<AppEnv>()
   /** Unblocks a sender. Their clips that went with the block don't come back. */
   .delete("/me/blocks/:blockId", requireUser, async (c) => {
     const user = currentUser(c);
-    const removed = await getDb(c.env.DB)
-      .delete(blocks)
-      .where(and(eq(blocks.id, c.req.param("blockId")), eq(blocks.ownerId, user.id)))
-      .returning({ id: blocks.id });
+    const db = getDb(c.env.DB);
+    const blockId = c.req.param("blockId");
+    const [, removed] = await db.batch([
+      db
+        .delete(blockKeys)
+        .where(and(eq(blockKeys.blockId, blockId), eq(blockKeys.ownerId, user.id))),
+      db
+        .delete(blocks)
+        .where(and(eq(blocks.id, blockId), eq(blocks.ownerId, user.id)))
+        .returning({ id: blocks.id }),
+    ]);
     if (removed.length === 0) return fail(c, 404, "not_found");
     return c.json({ ok: true });
   })
@@ -160,29 +168,19 @@ export const reportRoutes = new Hono<AppEnv>()
     const db = getDb(c.env.DB);
     const owner = await findUserByHandle(db, normalizeHandle(c.req.param("handle")));
     if (!owner || owner.deletedAt) return fail(c, 404, "not_found", "This Hop doesn't exist.");
+    // One statement: the same visitor reporting the same page twice at once,
+    // or again within a day, still makes one report.
     const now = Date.now();
-    const recent = await db
-      .select({ id: reports.id })
-      .from(reports)
-      .where(
-        and(
-          eq(reports.reporterIpHash, ipHash),
-          eq(reports.subjectUserId, owner.id),
-          gt(reports.createdAt, now - DAY_MS),
-        ),
+    await db.run(sql`
+      insert into ${reports} (id, kind, reason, note, reporter_ip_hash, subject_user_id, created_at)
+      select ${newId("rep")}, 'profile', ${input.reason}, ${input.note || null}, ${ipHash}, ${owner.id}, ${now}
+      where not exists (
+        select 1 from ${reports}
+        where ${reports.reporterIpHash} = ${ipHash}
+          and ${reports.subjectUserId} = ${owner.id}
+          and ${reports.createdAt} > ${now - DAY_MS}
       )
-      .get();
-    if (!recent) {
-      await db.insert(reports).values({
-        id: newId("rep"),
-        kind: "profile",
-        reason: input.reason,
-        note: input.note || null,
-        reporterIpHash: ipHash,
-        subjectUserId: owner.id,
-        createdAt: now,
-      });
-    }
+    `);
     return c.json({ ok: true });
   });
 
@@ -208,52 +206,65 @@ function aboutClip(file: FileRow) {
 }
 
 /**
- * Blocks whoever sent `file`, by every way they're known: account and
- * browser key. Signing out then doesn't get a signed-in sender past it. An
- * existing block of either gains the other, if that wouldn't repeat a block.
+ * Blocks whoever sent `file`, every way they're known: by account if they
+ * were signed in, and by this browser's key. A sender seen with several
+ * browsers gets one block covering each key it was given (block_keys), so
+ * signing out on any of them doesn't help. An existing block of the same
+ * sender learns what it lacked.
  */
 async function saveBlock(db: Db, ownerId: string, file: FileRow) {
-  const byUser = file.contributorUserId
-    ? eq(blocks.contributorUserId, file.contributorUserId)
-    : null;
-  const byKey = file.senderKey ? eq(blocks.senderKey, file.senderKey) : null;
-  const known = [byUser, byKey].filter((condition) => condition !== null);
-  const existing = await db
-    .select()
-    .from(blocks)
-    .where(and(eq(blocks.ownerId, ownerId), or(...known)));
+  const now = Date.now();
+  let block = file.contributorUserId
+    ? await db
+        .select()
+        .from(blocks)
+        .where(
+          and(eq(blocks.ownerId, ownerId), eq(blocks.contributorUserId, file.contributorUserId)),
+        )
+        .get()
+    : undefined;
+  if (!block && file.senderKey) {
+    const known = await db
+      .select({ blockId: blockKeys.blockId })
+      .from(blockKeys)
+      .where(and(eq(blockKeys.ownerId, ownerId), eq(blockKeys.senderKey, file.senderKey)))
+      .get();
+    if (known) block = await db.select().from(blocks).where(eq(blocks.id, known.blockId)).get();
+  }
+  const blockId = block?.id ?? newId("blk");
   try {
-    if (existing.length === 0) {
+    if (!block) {
       await db.insert(blocks).values({
-        id: newId("blk"),
+        id: blockId,
         ownerId,
         contributorUserId: file.contributorUserId,
-        senderKey: file.senderKey,
         label: file.contributorName,
-        createdAt: Date.now(),
+        createdAt: now,
       });
-    } else if (existing.length === 1 && existing[0]) {
-      const block = existing[0];
+    } else if (file.contributorUserId && !block.contributorUserId) {
       await db
         .update(blocks)
-        .set({
-          contributorUserId: block.contributorUserId ?? file.contributorUserId,
-          senderKey: block.senderKey ?? file.senderKey,
-        })
+        .set({ contributorUserId: file.contributorUserId })
         .where(eq(blocks.id, block.id));
     }
-    // Two blocks already (one by account, one by key): they cover it.
   } catch (error) {
-    // Another block of the same sender landed meanwhile: that one counts.
-    if (
-      !(
-        error instanceof Error &&
-        /UNIQUE constraint failed/i.test(`${error.message} ${error.cause ?? ""}`)
-      )
-    ) {
-      throw error;
-    }
+    // Another block of the same account landed meanwhile: that one counts.
+    if (!isUniqueViolation(error)) throw error;
   }
+  if (file.senderKey) {
+    // A key already blocked (under another block of theirs) stays where it is.
+    await db
+      .insert(blockKeys)
+      .values({ ownerId, senderKey: file.senderKey, blockId, createdAt: now })
+      .onConflictDoNothing();
+  }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /UNIQUE constraint failed/i.test(`${error.message} ${error.cause ?? ""}`)
+  );
 }
 
 async function tooMany(c: Context<AppEnv>, key: string): Promise<boolean> {

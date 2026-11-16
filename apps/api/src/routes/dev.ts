@@ -43,6 +43,7 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
       senderKey: "preview",
       clipNote: "lol look at this",
       clipName: "IMG_0412.MOV",
+      emailBatch: null,
       emailedAt: null,
       createdAt: Date.now(),
     };

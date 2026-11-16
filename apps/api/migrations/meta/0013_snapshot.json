@@ -1,9 +1,77 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "58180d7a-4b93-440a-ad19-954a79a797ed",
+  "id": "e289a57f-3a7b-40ae-9a2d-0d95b95d7e36",
   "prevId": "f4f8d737-1e17-4444-8415-79e635bbabc1",
   "tables": {
+    "block_keys": {
+      "name": "block_keys",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sender_key": {
+          "name": "sender_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "block_id": {
+          "name": "block_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "block_keys_block_idx": {
+          "name": "block_keys_block_idx",
+          "columns": [
+            "block_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "block_keys_block_id_blocks_id_fk": {
+          "name": "block_keys_block_id_blocks_id_fk",
+          "tableFrom": "block_keys",
+          "tableTo": "blocks",
+          "columnsFrom": [
+            "block_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "block_keys_owner_id_sender_key_pk": {
+          "columns": [
+            "owner_id",
+            "sender_key"
+          ],
+          "name": "block_keys_owner_id_sender_key_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "blocks": {
       "name": "blocks",
       "columns": {
@@ -23,13 +91,6 @@
         },
         "contributor_user_id": {
           "name": "contributor_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sender_key": {
-          "name": "sender_key",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -60,14 +121,13 @@
           "isUnique": true,
           "where": "\"blocks\".\"contributor_user_id\" is not null"
         },
-        "blocks_owner_sender_idx": {
-          "name": "blocks_owner_sender_idx",
+        "blocks_owner_created_idx": {
+          "name": "blocks_owner_created_idx",
           "columns": [
             "owner_id",
-            "sender_key"
+            "created_at"
           ],
-          "isUnique": true,
-          "where": "\"blocks\".\"sender_key\" is not null"
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -675,6 +735,13 @@
         "clip_name": {
           "name": "clip_name",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email_batch": {
+          "name": "email_batch",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

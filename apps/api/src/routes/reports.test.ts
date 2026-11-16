@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup } from "../cron";
 import { getDb } from "../db";
-import { blocks, files, hops, reports, sessions, users } from "../db/schema";
+import { blockKeys, blocks, files, hops, reports, sessions, users } from "../db/schema";
 import type { Env } from "../env";
 import worker from "../index";
 import { deleteAccount } from "../lib/accounts";
@@ -198,6 +198,18 @@ const as = (token: string) => ({ authorization: `Bearer ${token}` });
 const post = (path: string, body: unknown, headers: Record<string, string> = {}, ip?: string) =>
   call(path, { method: "POST", body: JSON.stringify(body), headers }, ip);
 const cookieFor = (key: string) => ({ cookie: `hop_sender=${key}` });
+/** Each block, with the browser keys it covers. */
+const blockList = async () => {
+  const rows = await db.select().from(blocks);
+  const keys = await db.select().from(blockKeys);
+  return rows.map((block) => ({
+    ...block,
+    keys: keys
+      .filter((key) => key.blockId === block.id)
+      .map((key) => key.senderKey)
+      .sort(),
+  }));
+};
 const status = async (id: string) =>
   (await db.select({ status: files.status }).from(files).where(eq(files.id, id)).get())?.status;
 
@@ -330,6 +342,44 @@ describe("a reported clip", () => {
     expect(r2.objects.has(`hops/hop_a/${trollClip}/original`)).toBe(false);
   });
 
+  it("is either held or going, never both", async () => {
+    // Deleted first: a report then can't hold it, and it goes.
+    expect(
+      (await call(`/me/files/${trollClip}`, { method: "DELETE", headers: as(alexToken) })).status,
+    ).toBe(200);
+    await post(`/me/files/${trollClip}/report`, { reason: "sexual" }, as(alexToken));
+    expect(await status(trollClip)).toBeUndefined();
+
+    // Reported first: deleting only hides it, however often.
+    const other = await clip("hop_a", "usr_a", { senderKey: await sha256Hex(trollKey) });
+    await post(`/me/files/${other}/report`, { reason: "sexual" }, as(alexToken));
+    await call(`/me/files/${other}`, { method: "DELETE", headers: as(alexToken) });
+    await call(`/me/files/${other}`, { method: "DELETE", headers: as(alexToken) });
+    expect(await status(other)).toBe("held");
+    expect(r2.objects.has(`hops/hop_a/${other}/original`)).toBe(true);
+  });
+
+  it("is held, not removed, when it was an upload left unfinished", async () => {
+    const unfinished = await clip("hop_a", "usr_a", {
+      senderKey: await sha256Hex(trollKey),
+      status: "pending",
+    });
+    await post(`/me/files/${unfinished}/report`, { reason: "violence" }, as(alexToken));
+    // Abandoned for over a day: the cleanup's usual removal.
+    await db.update(files).set({ lastActivityAt: 0 }).where(eq(files.id, unfinished));
+    await cleanup(env);
+    expect(await status(unfinished)).toBe("held");
+  });
+
+  it("isn't held once it's going", async () => {
+    await db.update(files).set({ status: "deleting" }).where(eq(files.id, trollClip));
+    await post(`/me/files/${trollClip}/report`, { reason: "sexual" }, as(alexToken));
+    const row = await db.select().from(files).where(eq(files.id, trollClip)).get();
+    expect(row?.heldUntil).toBeNull();
+    // The report is kept all the same, with what the team needs.
+    expect(await db.select().from(reports)).toHaveLength(1);
+  });
+
   it("is held through the athlete deleting their account", async () => {
     await post(`/me/files/${trollClip}/report`, { reason: "sexual" }, as(alexToken));
     await deleteAccount(db, "usr_a");
@@ -343,12 +393,14 @@ describe("a reported clip", () => {
 describe("blocking a sender", () => {
   it("blocks an anonymous sender by their browser, not their network", async () => {
     expect((await post(`/me/files/${trollClip}/block`, {}, as(alexToken))).status).toBe(200);
-    expect(await db.select().from(blocks).get()).toMatchObject({
-      ownerId: "usr_a",
-      senderKey: await sha256Hex(trollKey),
-      contributorUserId: null,
-      label: "Troll",
-    });
+    expect(await blockList()).toEqual([
+      expect.objectContaining({
+        ownerId: "usr_a",
+        contributorUserId: null,
+        label: "Troll",
+        keys: [await sha256Hex(trollKey)],
+      }),
+    ]);
 
     // Same browser: refused at the pass, before Turnstile is checked.
     const refusedPass = await pass("hop_a", cookieFor(trollKey));
@@ -433,10 +485,9 @@ describe("blocking a sender", () => {
       senderKey: await sha256Hex(beaKey),
     });
     expect((await post(`/me/files/${fileId}/block`, {}, as(alexToken))).status).toBe(200);
-    expect(await db.select().from(blocks).get()).toMatchObject({
-      contributorUserId: "usr_b",
-      senderKey: await sha256Hex(beaKey),
-    });
+    expect(await blockList()).toEqual([
+      expect.objectContaining({ contributorUserId: "usr_b", keys: [await sha256Hex(beaKey)] }),
+    ]);
     // Signed in, from any browser.
     expect(
       (await pass("hop_a", { ...as(beaToken), ...cookieFor(randomToken()) })).response.status,
@@ -459,11 +510,12 @@ describe("blocking a sender", () => {
       senderKey: await sha256Hex(beaKey),
     });
     await post(`/me/files/${signedIn}/block`, {}, as(alexToken));
-    expect(await db.select().from(blocks)).toEqual([
-      expect.objectContaining({ contributorUserId: "usr_b", senderKey: await sha256Hex(beaKey) }),
+    expect(await blockList()).toEqual([
+      expect.objectContaining({ contributorUserId: "usr_b", keys: [await sha256Hex(beaKey)] }),
     ]);
 
     // Blocked by account first (a clip from before keys), then seen with one.
+    await db.delete(blockKeys);
     await db.delete(blocks);
     const noKey = await clip("hop_a", "usr_a", { userId: "usr_b", name: "@bea", senderKey: null });
     await post(`/me/files/${noKey}/block`, {}, as(alexToken));
@@ -474,9 +526,37 @@ describe("blocking a sender", () => {
       senderKey: await sha256Hex(otherKey),
     });
     await post(`/me/files/${withKey}/block`, {}, as(alexToken));
-    expect(await db.select().from(blocks)).toEqual([
-      expect.objectContaining({ contributorUserId: "usr_b", senderKey: await sha256Hex(otherKey) }),
+    expect(await blockList()).toEqual([
+      expect.objectContaining({ contributorUserId: "usr_b", keys: [await sha256Hex(otherKey)] }),
     ]);
+  });
+
+  it("covers every browser a signed-in sender was blocked from, so none gets past by signing out", async () => {
+    const browserA = randomToken();
+    const browserB = randomToken();
+    const fromA = await clip("hop_a", "usr_a", {
+      userId: "usr_b",
+      name: "@bea",
+      senderKey: await sha256Hex(browserA),
+    });
+    const fromB = await clip("hop_a", "usr_a", {
+      userId: "usr_b",
+      name: "@bea",
+      senderKey: await sha256Hex(browserB),
+    });
+    await post(`/me/files/${fromA}/block`, {}, as(alexToken));
+    // B's clip went with the first block, but blocking it again (from a
+    // list loaded before) still adds its browser.
+    await db.update(files).set({ status: "complete" }).where(eq(files.id, fromB));
+    await post(`/me/files/${fromB}/block`, {}, as(alexToken));
+    expect(await blockList()).toEqual([
+      expect.objectContaining({
+        contributorUserId: "usr_b",
+        keys: [await sha256Hex(browserA), await sha256Hex(browserB)].sort(),
+      }),
+    ]);
+    expect((await pass("hop_a", cookieFor(browserA))).response.status).toBe(403);
+    expect((await pass("hop_a", cookieFor(browserB))).response.status).toBe(403);
   });
 
   it("never blocks the athlete from their own Hop", async () => {
@@ -545,14 +625,16 @@ describe("blocking a sender", () => {
             return async () => {
               if (!blocked) {
                 blocked = true;
-                await getDb(raw)
+                const late = getDb(raw);
+                await late
                   .insert(blocks)
-                  .values({
-                    id: "blk_late",
-                    ownerId: "usr_a",
-                    senderKey: await sha256Hex(trollKey),
-                    createdAt: Date.now(),
-                  });
+                  .values({ id: "blk_late", ownerId: "usr_a", createdAt: Date.now() });
+                await late.insert(blockKeys).values({
+                  ownerId: "usr_a",
+                  senderKey: await sha256Hex(trollKey),
+                  blockId: "blk_late",
+                  createdAt: Date.now(),
+                });
               }
               return (value as () => Promise<unknown>).apply(target);
             };
@@ -646,6 +728,11 @@ describe("reporting a page", () => {
     expect(await db.select().from(reports)).toHaveLength(2);
   });
 
+  it("counts two reports at once from the same visitor as one", async () => {
+    await Promise.all([report("alex"), report("alex"), report("alex")]);
+    expect(await db.select().from(reports)).toHaveLength(1);
+  });
+
   it("is limited per IPv6 /64, not per address", async () => {
     await report("alex", {}, "2001:db8:abcd:12::1");
     await report("bea", {}, "2001:db8:abcd:12:ffff::9");
@@ -686,10 +773,28 @@ describe("telling Hop's team", () => {
     expect(sent[0]?.text).toContain(`Clip: ${trollClip}`);
     expect(sent[0]?.text).toContain("Note on the clip: look at this");
     expect(sent[0]?.html).not.toContain("<img src=x");
-    expect(sent[0]?.key).toMatch(/^reports\/[0-9a-f]{32}$/);
+    expect(sent[0]?.key).toMatch(/^reports\/production\/\d+$/);
 
     expect(await announceReports(env)).toBe(0);
     expect(sent).toHaveLength(1);
+  });
+
+  it("sends a batch that may have gone again as it was, with later reports after", async () => {
+    await post(`/me/files/${trollClip}/report`, { reason: "spam" }, as(alexToken));
+    // Resend may have taken it; the reply is lost either way.
+    resendUp = false;
+    await expect(announceReports(env)).rejects.toThrow();
+    resendUp = true;
+    // A report arrives before the next run.
+    await post("/h/bea/report", { reason: "spam", turnstileToken: "report-token" });
+
+    expect(await announceReports(env)).toBe(1);
+    expect(sent[0]?.subject).toBe("Report: @alex reported a clip: Spam or scam");
+    expect(await announceReports(env)).toBe(1);
+    expect(sent[1]?.subject).toBe("Report: A visitor reported onmyhop.com/bea: Spam or scam");
+    // Two batches, two keys; the first key was the one tried before.
+    expect(sent[0]?.key).not.toBe(sent[1]?.key);
+    expect(await announceReports(env)).toBe(0);
   });
 
   it("tries again next time if the email doesn't go", async () => {
