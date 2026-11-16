@@ -72,6 +72,13 @@ struct RootView: View {
             }
             await hopPlus.run(api: session.api)
         }
+        // The profile carries the Hop+ mark. Purchases and renewals change
+        // the plan, not the profile, so the profile is reloaded whenever the
+        // two disagree.
+        .onChange(of: hopPlus.status?.plan) { _, plan in
+            guard let plan, session.me?.isBehind(plan) == true else { return }
+            Task { await session.refresh() }
+        }
         // Storage fills up while the app is away, and a purchase made
         // offline gets another go once the app is back.
         .onChange(of: scenePhase) { _, phase in

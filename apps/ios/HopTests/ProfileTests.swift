@@ -287,13 +287,14 @@ struct ProfileEditorTests {
     /// Answers like the API: each write returns the profile it leaves.
     private func serve(
         avatar: String = "/api/avatars/bbbbbbbbbbbbbbbbbbbbbb.jpg",
+        name: String = "Alex Rider",
         patch: @escaping @Sendable (URLRequest) -> (Int, String) = { _ in
             (200, #"{"me":\#(profileJSON(name: "Alex Ryder", avatar: "/api/avatars/bbbbbbbbbbbbbbbbbbbbbb.jpg", reviewed: true))}"#)
         }
     ) {
         server.reply = { request in
             switch (request.httpMethod, request.url?.path) {
-            case ("PUT", "/api/me/avatar"): (200, #"{"me":\#(profileJSON(avatar: avatar))}"#)
+            case ("PUT", "/api/me/avatar"): (200, #"{"me":\#(profileJSON(name: name, avatar: avatar))}"#)
             case ("DELETE", "/api/me/avatar"): (200, #"{"me":\#(profileJSON())}"#)
             case ("PATCH", "/api/me"): patch(request)
             default: (404, "{}")
@@ -405,6 +406,57 @@ struct ProfileEditorTests {
         #expect(await editor.save(confirming: true))
         #expect(server.requests.map(\.request.httpMethod) == ["PUT", "PATCH", "PATCH"])
         #expect(editor.problem == nil)
+    }
+
+    /// The name was changed elsewhere (in Account, while setup was open):
+    /// the setup screen's untouched, older name must not be sent back.
+    @Test func neverSendsAStaleNameBack() async throws {
+        serve(name: "Alex Ryder")
+        let editor = try makeEditor()
+        await editor.choosePhoto { makePhoto(width: 300, height: 300) }
+        #expect(await editor.save(confirming: true))
+
+        #expect(server.requests.map(\.request.httpMethod) == ["PUT", "PATCH"])
+        #expect(try body(1) == ["profileReviewed": true])
+        #expect(editor.name == "Alex Ryder")
+    }
+
+    @Test func followsAProfileChangedElsewhere() throws {
+        let editor = try makeEditor()
+        let newer = try JSONDecoder().decode(Me.self, from: Data(profileJSON(name: "Alex Ryder", plus: true).utf8))
+        editor.sync(with: newer)
+        #expect(editor.name == "Alex Ryder")
+        #expect(editor.me.hopPlus)
+        #expect(!editor.hasChanges)
+    }
+
+    @Test func keepsWhatTheyAreEditingThroughAChangeElsewhere() async throws {
+        let editor = try makeEditor()
+        editor.name = "Alexander"
+        await editor.choosePhoto { makePhoto(width: 300, height: 300) }
+        let newer = try JSONDecoder().decode(Me.self, from: Data(profileJSON(name: "Alex Ryder", plus: true).utf8))
+        editor.sync(with: newer)
+        #expect(editor.name == "Alexander")
+        #expect(editor.pickedImage != nil)
+        #expect(editor.me.hopPlus)
+    }
+
+    @Test func aPhotoRemovedElsewhereIsNoLongerAChange() throws {
+        let editor = try makeEditor(profileJSON(avatar: "/api/avatars/aaaaaaaaaaaaaaaaaaaaaa.jpg"))
+        editor.removePhoto()
+        #expect(editor.hasChanges)
+        editor.sync(with: try JSONDecoder().decode(Me.self, from: Data(profileJSON().utf8)))
+        #expect(editor.photo == .unchanged)
+        #expect(!editor.hasChanges)
+    }
+
+    @Test func theMarkFollowsThePlan() throws {
+        let free = try JSONDecoder().decode(Me.self, from: Data(profileJSON().utf8))
+        let plus = try JSONDecoder().decode(Me.self, from: Data(profileJSON(plus: true).utf8))
+        #expect(free.isBehind(.plus))
+        #expect(!free.isBehind(.free))
+        #expect(plus.isBehind(.free))
+        #expect(!plus.isBehind(.plus))
     }
 
     @Test(arguments: [

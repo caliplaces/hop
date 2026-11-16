@@ -4,6 +4,7 @@ import SwiftUI
 /// Nothing changes until Save; Cancel, or going back, leaves it as it was.
 /// Pushed by value (`AccountRoute.profile`), so each visit starts afresh.
 struct EditProfileView: View {
+    @Environment(Session.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var editor: ProfileEditor
     @FocusState private var editingName: Bool
@@ -57,6 +58,10 @@ struct EditProfileView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(holding)
         .interactiveDismissDisabled(holding)
+        // Buying Hop+ from here reloads the profile, which brings the mark.
+        .onChange(of: session.me) { _, me in
+            if let me { editor.sync(with: me) }
+        }
         .toolbar {
             if holding {
                 ToolbarItem(placement: .cancellationAction) {

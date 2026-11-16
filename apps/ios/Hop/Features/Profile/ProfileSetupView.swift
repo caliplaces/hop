@@ -4,6 +4,7 @@ import SwiftUI
 /// page shows about them, and can change their name and photo before anyone
 /// else does.
 struct ProfileSetupView: View {
+    @Environment(Session.self) private var session
     @State private var editor: ProfileEditor
     @State private var confirmed = false
     @FocusState private var editingName: Bool
@@ -82,6 +83,10 @@ struct ProfileSetupView: View {
                 .ignoresSafeArea()
         }
         .sensoryFeedback(.success, trigger: confirmed) { _, now in now }
+        // The account menu can change the profile while this is open.
+        .onChange(of: session.me) { _, me in
+            if let me { editor.sync(with: me) }
+        }
     }
 
     /// Saves any changes and that they've seen it, which moves the app on.

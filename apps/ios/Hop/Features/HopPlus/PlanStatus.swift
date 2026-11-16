@@ -79,3 +79,11 @@ nonisolated extension Int64 {
         formatted(.byteCount(style: .memory, spellsOutZero: false))
     }
 }
+
+extension Me {
+    /// Whether the profile's Hop+ mark is behind the plan: a purchase,
+    /// renewal or expiry the profile hasn't caught up with.
+    func isBehind(_ plan: PlanStatus.Plan) -> Bool {
+        hopPlus != (plan == .plus)
+    }
+}

@@ -153,8 +153,20 @@ final class ProfileEditor {
         }
     }
 
+    /// Takes a newer copy of the profile: a reply to one of this editor's
+    /// saves, or a change made elsewhere in the app (another editor, or
+    /// buying Hop+). A name they haven't touched follows it, so a stale one
+    /// is never sent back over a newer one; a name they're editing, and a
+    /// photo they've picked, are kept.
+    func sync(with newer: Me) {
+        guard newer != me else { return }
+        if normalizedName == (me.name ?? "") { name = newer.name ?? "" }
+        if photo == .removed, newer.avatarUrl == nil { photo = .unchanged }
+        me = newer
+    }
+
     private func accept(_ me: Me) {
-        self.me = me
+        sync(with: me)
         published(me)
     }
 
