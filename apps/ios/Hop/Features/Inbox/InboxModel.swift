@@ -93,6 +93,16 @@ final class InboxModel {
         }
     }
 
+    /// Loads an event's next page once `clip` is among its last few loaded
+    /// clips, so swiping on through the viewer never runs out.
+    func loadMore(in hopId: String, near clip: Clip?, api: APIClient) async {
+        guard let clip, let items = clips[hopId]?.items,
+              let index = items.firstIndex(where: { $0.id == clip.id }),
+              index >= items.count - 3
+        else { return }
+        await loadMore(in: hopId, api: api)
+    }
+
     /// Loads an event's next pages until `clip` is among its clips again, as
     /// after a refresh dropped the page it was on while someone watched it.
     /// Stops at the end, on a failure, or after `maxPages`.
