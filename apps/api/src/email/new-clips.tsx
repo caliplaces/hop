@@ -101,7 +101,9 @@ export async function newClipsEmail({
     title: (title) => title,
   });
   const sentence = `${sent}${event ? ` from ${event}` : ""}.`;
-  const inboxUrl = single ? `${appUrl}/app?hop=${encodeURIComponent(single.id)}` : `${appUrl}/app`;
+  const inboxUrl = single
+    ? `${appUrl}/app/events/${encodeURIComponent(single.id)}`
+    : `${appUrl}/app`;
   const footer = "You’re getting this because new clips arrived on your Hop.";
   const breakdown = byHop.length > 1 ? byHop : [];
 

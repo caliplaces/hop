@@ -23,6 +23,9 @@ export function useInboxActions(handle: string) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["files"] });
       queryClient.invalidateQueries({ queryKey: ["hops"] });
+      // Event covers and storage numbers move with the clips.
+      queryClient.invalidateQueries({ queryKey: ["cover"] });
+      queryClient.invalidateQueries({ queryKey: ["plan"] });
     },
   });
 

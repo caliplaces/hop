@@ -336,6 +336,27 @@ describe("reporting a clip", () => {
   });
 });
 
+describe("the inbox list", () => {
+  type Page = { files: { id: string }[]; nextCursor: string | null };
+  const list = async (query: string) =>
+    (await (await call(`/me/files?${query}`, { headers: as(alexToken) })).json()) as Page;
+
+  it("can be just a few, newest first, such as an event card's cover", async () => {
+    const ids = [];
+    for (let i = 0; i < 4; i++) ids.push(await clip("hop_a", "usr_a"));
+    const cover = await list("hopId=hop_a&limit=3");
+    expect(cover.files).toHaveLength(3);
+    expect(cover.nextCursor).not.toBeNull();
+    // The rest, from where the cover stopped.
+    const rest = await list(`hopId=hop_a&limit=3&cursor=${cover.nextCursor}`);
+    expect([...cover.files, ...rest.files].map((file) => file.id)).toEqual(
+      expect.arrayContaining(ids),
+    );
+    expect((await call("/me/files?limit=0", { headers: as(alexToken) })).status).toBe(400);
+    expect((await call("/me/files?limit=1000", { headers: as(alexToken) })).status).toBe(400);
+  });
+});
+
 describe("a reported clip", () => {
   it("is only hidden when deleted, until the team's had a month to look", async () => {
     await post(`/me/files/${trollClip}/report`, { reason: "sexual" }, as(alexToken));

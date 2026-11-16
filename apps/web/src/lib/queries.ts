@@ -1,4 +1,4 @@
-import type { HopSummary, InboxPage, PublicConfig, PublicHop } from "@hop/shared";
+import type { HopSummary, InboxPage, PlanStatus, PublicConfig, PublicHop } from "@hop/shared";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { api, fetchMe } from "./api";
 
@@ -24,6 +24,18 @@ export const queries = {
     queryOptions({
       queryKey: ["hops"],
       queryFn: () => api<{ hops: HopSummary[] }>("/me/hops").then((r) => r.hops),
+    }),
+
+  plan: () => queryOptions({ queryKey: ["plan"], queryFn: () => api<PlanStatus>("/me/plan") }),
+
+  /** An event card's cover: its three newest clips. */
+  cover: (hopId: string) =>
+    queryOptions({
+      queryKey: ["cover", hopId],
+      queryFn: () =>
+        api<InboxPage>(`/me/files?hopId=${encodeURIComponent(hopId)}&limit=3`).then(
+          (page) => page.files,
+        ),
     }),
 
   files: (hopId: string | null) =>

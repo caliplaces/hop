@@ -4,6 +4,7 @@ import {
   createRouter,
   lazyRouteComponent,
   Outlet,
+  redirect,
 } from "@tanstack/react-router";
 import { PageSpinner } from "./components/ui/Spinner";
 
@@ -27,17 +28,35 @@ const inboxRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): InboxSearch => ({
     hop: typeof search.hop === "string" && search.hop ? search.hop : undefined,
   }),
+  // Links from before events had their own page (new-clips emails among
+  // them) open that event's page.
+  beforeLoad: ({ search }) => {
+    if (search.hop) throw redirect({ to: "/app/events/$hopId", params: { hopId: search.hop } });
+  },
   component: lazyRouteComponent(() => import("./routes/Inbox"), "Inbox"),
+});
+const eventRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/app/events/$hopId",
+  component: lazyRouteComponent(() => import("./routes/Event"), "Event"),
 });
 const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app/onboarding",
   component: lazyRouteComponent(() => import("./routes/Onboarding"), "Onboarding"),
 });
+const myHopRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/app/my-hop",
+  component: lazyRouteComponent(() => import("./routes/Hops"), "Hops"),
+});
+// Where events were managed before My Hop.
 const hopsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app/hops",
-  component: lazyRouteComponent(() => import("./routes/Hops"), "Hops"),
+  beforeLoad: () => {
+    throw redirect({ to: "/app/my-hop" });
+  },
 });
 
 const unsubscribeRoute = createRoute({
@@ -83,7 +102,9 @@ const hopRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   landingRoute,
   inboxRoute,
+  eventRoute,
   onboardingRoute,
+  myHopRoute,
   hopsRoute,
   unsubscribeRoute,
   privacyRoute,
