@@ -173,10 +173,10 @@ export function Privacy() {
         <List>
           <li>
             Clips: with Hop+, until you delete them or your account. On the free plan, at least 30
-            days after they arrive. At least a week before any go, Hop tells you which day, by email
-            (and on your phone, if you turned notifications on), and usually again the day before,
-            so you can save them or get Hop+. Clips are only removed once that notice has reached
-            you, then for good, from storage too.
+            days after they arrive. At least a week before any go, Hop emails you which day (and
+            tells you on your phone too, if you turned notifications on), and usually again the day
+            before, so you can save them or get Hop+. Clips are only removed after that email has
+            gone to the address on your account, then for good, from storage too.
           </li>
           <li>Sign-ins: 30 days on the website, and up to a year in the app.</li>
           <li>

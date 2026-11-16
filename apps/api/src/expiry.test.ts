@@ -50,6 +50,46 @@ let apnsReply: (token: string) => Response;
 let limited: boolean;
 let queries: { query: string; params: SqliteValue[] }[];
 let token: string;
+/** Runs while Resend is being asked, before it answers: to start an overlapping run. */
+let duringResend: (() => Promise<void>) | null;
+/** Holds the first D1 batch matching `match` until `release` settles. */
+let gate: { match: RegExp; reached: () => void; release: Promise<void> } | null;
+
+/** The test D1, with batches that `gate` can hold up. */
+function gated(d1: D1Database): D1Database {
+  type Statement = D1PreparedStatement & { query: string; inner: D1PreparedStatement };
+  const wrap = (inner: D1PreparedStatement, query: string): Statement =>
+    ({
+      query,
+      inner,
+      bind: (...params: unknown[]) => wrap(inner.bind(...params), query),
+      all: () => inner.all(),
+      raw: (...args: Parameters<D1PreparedStatement["raw"]>) => inner.raw(...args),
+      run: () => inner.run(),
+      first: (column?: string) => inner.first(column as string),
+    }) as unknown as Statement;
+  return {
+    prepare: (query: string) => wrap(d1.prepare(query), query),
+    batch: async (statements: Statement[]) => {
+      const held = gate;
+      if (held && statements.some((statement) => held.match.test(statement.query))) {
+        gate = null;
+        held.reached();
+        await held.release;
+      }
+      return d1.batch(statements.map((statement) => statement.inner));
+    },
+  } as unknown as D1Database;
+}
+
+/** A promise, and the function that settles it. */
+function signal() {
+  let settle!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  return { promise, settle };
+}
 
 async function pem(key: CryptoKey) {
   const der = new Uint8Array((await crypto.subtle.exportKey("pkcs8", key)) as ArrayBuffer);
@@ -130,7 +170,9 @@ beforeEach(async () => {
     "verify",
   ])) as CryptoKeyPair;
   queries = [];
-  const DB = createTestD1({ onQuery: (query, params) => queries.push({ query, params }) });
+  duringResend = null;
+  gate = null;
+  const DB = gated(createTestD1({ onQuery: (query, params) => queries.push({ query, params }) }));
   r2 = createTestR2();
   limited = false;
   env = {
@@ -173,6 +215,9 @@ beforeEach(async () => {
       expect(url).toBe("https://api.resend.com/emails");
       const body = JSON.parse(String(init?.body));
       tried.push({ subject: body.subject, key: headers.get("idempotency-key") });
+      const during = duringResend;
+      duringResend = null;
+      await during?.();
       if (!resendUp) return Response.json({ name: "internal_server_error" }, { status: 500 });
       emails.push({
         to: body.to,
@@ -357,6 +402,18 @@ describe("the notice, a week ahead", () => {
     expect(await expireClips(db, NOW + 100 * DAY)).toBe(0);
   });
 
+  it("is never sent to a deleted account", async () => {
+    // As if erasing it hadn't got to its clips or address yet.
+    await db
+      .update(users)
+      .set({ deletedAt: NOW - HOUR })
+      .where(eq(users.id, "alex"));
+    await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    expect(tried).toEqual([]);
+    expect(await notices()).toEqual([]);
+  });
+
   it("isn't emailed to an address nobody proved is theirs", async () => {
     await db
       .update(users)
@@ -368,19 +425,26 @@ describe("the notice, a week ahead", () => {
     expect(await notices()).toEqual([]);
   });
 
-  it("counts once a phone took it, for someone with no address", async () => {
+  it("isn't given by a phone alone: someone with no address keeps their clips", async () => {
     const old = await clip("cleo", 25 * DAY);
     await phone("cleo", "c".repeat(64));
-    apnsReply = () => Response.json({ reason: "InternalServerError" }, { status: 500 });
-    await runAt(NOW);
-    expect(pushes).toHaveLength(1);
-    expect((await row(old))?.expiryGoesAt).toBeNull();
+    await runAt(NOW, NOW + DAY + MIN);
+    // A push can be silenced, or sit on a phone that's off, and still be taken.
+    expect(pushes).toEqual([]);
+    expect(await notices()).toEqual([]);
+    expect(await expireClips(db, NOW + 100 * DAY)).toBe(0);
+    expect((await row(old))?.status).toBe("complete");
+  });
 
-    // Pushed again, as nothing got through.
-    apnsReply = () => new Response(null, { status: 200 });
+  it("is let go if their address stops being verified before it's sent", async () => {
+    const due = await clip("alex", 25 * DAY);
+    resendUp = false;
+    await runAt(NOW);
+    await db.update(users).set({ emailVerified: false }).where(eq(users.id, "alex"));
+    resendUp = true;
     await runAt(NOW + 5 * MIN);
-    expect(pushes).toHaveLength(2);
-    expect((await row(old))?.expiryGoesAt).toBe(GOES);
+    expect(emails).toEqual([]);
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
   });
 
   it("with an address, counts once the email went; the phone hears just once", async () => {
@@ -522,7 +586,42 @@ describe("the reminder, the day before", () => {
     await clip("alex", 25 * DAY);
     await runAt(NOW, GOES - 30 * MIN, GOES - 10 * MIN);
     expect(emails).toHaveLength(1);
-    expect((await notices())[0]?.remindedAt).toBe(GOES - 30 * MIN);
+    // Done with, but not counted as a reminder sent.
+    expect((await notices())[0]?.remindedAt).toBe(0);
+  });
+
+  it("goes one notice at a time, each with its own clips and day", async () => {
+    await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    await clip("alex", 23 * DAY - 2 * HOUR);
+    await clip("alex", 23 * DAY - 2 * HOUR);
+    await runAt(NOW + DAY + MIN);
+    expect(emails).toHaveLength(2);
+
+    // The first run in a while: the first notice's reminder is too late, the
+    // second's isn't. It isn't swallowed, and doesn't borrow the first's day.
+    await runAt(GOES - 30 * MIN);
+    expect(emails.slice(2).map((email) => email.subject)).toEqual([
+      "Last call: 2 clips leave your inbox on Tuesday 24 November",
+    ]);
+  });
+
+  it("leaves the next notice's reminder for the next day", async () => {
+    await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    await clip("alex", 23 * DAY - 2 * HOUR);
+    await runAt(NOW + DAY + MIN);
+
+    // Both are due at once: the soonest goes now, the other a day later.
+    await runAt(GOES - 23 * HOUR);
+    expect(emails.slice(2).map((email) => email.subject)).toEqual([
+      "Last call: 1 clip leaves your inbox on Monday 23 November",
+    ]);
+    await runAt(GOES + MIN);
+    expect(emails.slice(2).map((email) => email.subject)).toEqual([
+      "Last call: 1 clip leaves your inbox on Monday 23 November",
+      "Last call: 1 clip leaves your inbox on Tuesday 24 November",
+    ]);
   });
 
   it("comes at most once a day", async () => {
@@ -603,11 +702,56 @@ describe("expiring", () => {
     expect((await row(due))?.status).toBe("complete");
   });
 
-  it("happens in the hourly cleanup, removed from R2 in the same run", async () => {
-    const due = await clip("alex", 31 * DAY);
+  it("checks the notice again, not just the clip's time", async () => {
+    const lettingGo = await clip("alex", 31 * DAY);
+    const unknown = await clip("alex", 31 * DAY);
+    await db.insert(expiryNotices).values({
+      userId: "alex",
+      batch: NOW - 9 * DAY,
+      clips: 1,
+      goesAt: NOW - HOUR,
+      attempts: 1,
+      nextAttemptAt: NOW - 9 * DAY,
+      givenAt: NOW - 9 * DAY,
+      abandonedAt: NOW - 9 * DAY,
+    });
     await db
       .update(files)
-      .set({ expiryNoticeBatch: NOW - 9 * DAY, expiryGoesAt: Date.now() - HOUR })
+      .set({ expiryNoticeBatch: NOW - 9 * DAY, expiryGoesAt: NOW - HOUR })
+      .where(eq(files.id, lettingGo));
+    // A time to go, but no notice behind it at all.
+    await db
+      .update(files)
+      .set({ expiryGoesAt: NOW - HOUR })
+      .where(eq(files.id, unknown));
+    expect(await expireClips(db, NOW)).toBe(0);
+  });
+
+  it("waits out the month after Hop+, however its clips were noticed", async () => {
+    const due = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    // Hop+ for a few minutes, between two runs: nothing cleared the notice.
+    await plus("alex", NOW + DAY);
+    expect(await expireClips(db, GOES)).toBe(0);
+    expect(await expireClips(db, NOW + DAY + LAPSE_MARGIN_MS + MIN)).toBe(1);
+    expect((await row(due))?.status).toBe("deleting");
+  });
+
+  it("happens in the hourly cleanup, removed from R2 in the same run", async () => {
+    const due = await clip("alex", 31 * DAY);
+    const goes = Date.now() - HOUR;
+    await db.insert(expiryNotices).values({
+      userId: "alex",
+      batch: NOW - 9 * DAY,
+      clips: 1,
+      goesAt: goes,
+      attempts: 1,
+      nextAttemptAt: NOW - 9 * DAY,
+      givenAt: NOW - 9 * DAY,
+    });
+    await db
+      .update(files)
+      .set({ expiryNoticeBatch: NOW - 9 * DAY, expiryGoesAt: goes })
       .where(eq(files.id, due));
     await cleanup(env);
     expect(await row(due)).toBeUndefined();
@@ -637,6 +781,96 @@ describe("expiring", () => {
 
   it("matches the plan's 30 days", () => {
     expect(RETENTION_MS).toBe(30 * DAY);
+  });
+});
+
+describe("overlapping runs", () => {
+  /** A notice whose next try is just inside its six hours, with Resend failing until then. */
+  async function nearlyLetGo() {
+    const due = await clip("alex", 25 * DAY);
+    resendUp = false;
+    await runAt(NOW);
+    await db.update(expiryNotices).set({ nextAttemptAt: NOW + 6 * HOUR - MIN });
+    resendUp = true;
+    return due;
+  }
+
+  it("can't let go of a notice another just gave", async () => {
+    const due = await nearlyLetGo();
+    // Run A's email is out when run B, past the six hours, lets the notice go;
+    // B's letting go lands after A has given it.
+    const reached = signal();
+    const release = signal();
+    gate = { match: /set "abandoned_at"/, reached: reached.settle, release: release.promise };
+    let b: Promise<void> | undefined;
+    duringResend = async () => {
+      b = remindOfExpiry(env, NOW + 6 * HOUR + 4 * MIN);
+      await reached.promise;
+    };
+    await remindOfExpiry(env, NOW + 6 * HOUR - MIN);
+    release.settle();
+    await b;
+
+    expect((await notices())[0]).toMatchObject({
+      givenAt: NOW + 6 * HOUR - MIN,
+      abandonedAt: null,
+    });
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: NOW, expiryGoesAt: GOES });
+  });
+
+  it("can't give a notice another just let go", async () => {
+    const due = await nearlyLetGo();
+    // Run B lets the notice go entirely while run A's email is out.
+    duringResend = () => remindOfExpiry(env, NOW + 6 * HOUR + 4 * MIN);
+    await remindOfExpiry(env, NOW + 6 * HOUR - MIN);
+
+    expect((await notices())[0]).toMatchObject({ givenAt: null });
+    // Nothing on the clip says it may go: claimed afresh tomorrow.
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+    expect(await expireClips(db, NOW + 100 * DAY)).toBe(0);
+
+    // And Hop+, then a lapse, never lets it go without a fresh notice.
+    await plus("alex", NOW + 2 * DAY);
+    await runAt(NOW + DAY);
+    expect(await expireClips(db, NOW + 2 * DAY + HOUR)).toBe(0);
+  });
+
+  it("claim each clip, and each athlete's day, once", async () => {
+    await clip("alex", 25 * DAY);
+    resendUp = false;
+    // Run A is about to claim when run B claims the same athlete.
+    const reached = signal();
+    const release = signal();
+    gate = {
+      match: /insert into "expiry_notices"/,
+      reached: reached.settle,
+      release: release.promise,
+    };
+    const a = remindOfExpiry(env, NOW);
+    await reached.promise;
+    const later = await clip("alex", 23 * DAY - 30 * 1000);
+    await remindOfExpiry(env, NOW + 30 * 1000);
+    // And one more due once B has claimed, before A goes on.
+    const after = await clip("alex", 30 * DAY);
+    release.settle();
+    await a;
+
+    // One notice: A's would have been a second that day.
+    expect((await notices()).map((notice) => notice.batch)).toEqual([NOW + 30 * 1000]);
+    expect((await row(later))?.expiryNoticeBatch).toBe(NOW + 30 * 1000);
+    // Nothing claimed into a notice that doesn't exist: it waits for tomorrow's.
+    expect((await row(after))?.expiryNoticeBatch).toBeNull();
+  });
+
+  it("clear a time to go left on a clip when it's claimed again", async () => {
+    const due = await clip("alex", 25 * DAY);
+    await db
+      .update(files)
+      .set({ expiryGoesAt: NOW - DAY })
+      .where(eq(files.id, due));
+    resendUp = false;
+    await runAt(NOW);
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: NOW, expiryGoesAt: null });
   });
 });
 
@@ -792,21 +1026,28 @@ describe("housekeeping", () => {
 });
 
 describe("the queries", () => {
-  /** SQLite's plan for each statement run, as "SCAN …" / "SEARCH …" lines. */
+  /** Expiry's own statements, each with SQLite's plan for it. */
   async function plans() {
-    const seen = queries.filter(({ query }) => !query.startsWith("EXPLAIN"));
-    const out: string[] = [];
-    for (const { query, params } of seen) {
+    const seen = new Map<string, string[]>();
+    for (const { query, params } of queries) {
+      if (!/expiry_/.test(query) || /^(EXPLAIN|ANALYZE)/.test(query) || seen.has(query)) continue;
       const { results } = await env.DB.prepare(`EXPLAIN QUERY PLAN ${query}`)
         .bind(...params)
         .all<{ detail: string }>();
-      for (const step of results) out.push(`${step.detail}   ← ${query.slice(0, 80)}`);
+      seen.set(
+        query,
+        results.map((step) => step.detail),
+      );
     }
-    return out;
+    return seen;
   }
 
-  it("never read every clip", async () => {
-    // Plenty of clips, as with a library or two, so a bad plan shows.
+  /**
+   * Every step through files uses one of expiry's small indexes, or a clip's
+   * ID: never the status indexes, which hold every clip. Only the claim reads
+   * every athlete (once each, cheaply), and nothing else does.
+   */
+  async function expectSmallReads() {
     for (let i = 0; i < 40; i++) await clip(i % 2 ? "alex" : "bea", i * DAY);
     await plus("bea", NOW + 30 * DAY);
     queries = [];
@@ -814,15 +1055,58 @@ describe("the queries", () => {
     resendUp = false;
     await runAt(NOW + 5 * MIN, GOES - 2 * DAY + MIN);
     await expireClips(db, GOES);
+    await forgetOldNotices(db, NOW + 3 * DAY);
     await call("/me/plan");
-    const steps = await plans();
-    expect(steps.length).toBeGreaterThan(0);
-    // A scan of files is fine only through one of the small partial indexes.
-    const wholeFiles = steps.filter(
-      (step) =>
-        /^SCAN files\b/.test(step) &&
-        !/USING (COVERING )?INDEX files_(goes|notice|unnoticed|unannounced)_idx/.test(step),
-    );
-    expect(wholeFiles).toEqual([]);
+
+    const bad: string[] = [];
+    const statements = await plans();
+    expect(statements.size).toBeGreaterThan(10);
+    for (const [query, steps] of statements) {
+      for (const step of steps) {
+        const throughFiles = /^(SCAN|SEARCH) files\b/.test(step);
+        const small =
+          /USING (COVERING )?INDEX (files_(goes|notice|unnoticed)_idx|sqlite_autoindex_files_1)\b/.test(
+            step,
+          );
+        const claim = query.startsWith('select "id" from "users"');
+        if ((throughFiles && !small) || (/^SCAN users\b/.test(step) && !claim)) {
+          bad.push(`${step}   ← ${query.slice(0, 120)}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  }
+
+  it("never read every clip", async () => {
+    await expectSmallReads();
+  });
+
+  it("never read every clip, with statistics like production's", async () => {
+    // A million clips, nearly all complete, 10,000 athletes: what would tempt
+    // SQLite toward the status indexes, were the queries not written against it.
+    const run = (query: string) => env.DB.prepare(query).run();
+    await run("ANALYZE");
+    await run("DELETE FROM sqlite_stat1");
+    const stats: [string, string, string][] = [
+      ["files", "files_owner_status_activity_idx", "1000000 100 95 1"],
+      ["files", "files_owner_status_created_idx", "1000000 100 95 1"],
+      ["files", "files_hop_status_created_idx", "1000000 100 95 1"],
+      ["files", "files_hop_status_completed_idx", "1000000 100 95 1"],
+      ["files", "files_status_activity_idx", "1000000 250000 1"],
+      ["files", "files_pass_status_idx", "1000000 10 9"],
+      ["files", "files_unnoticed_idx", "900000 90 1"],
+      ["files", "files_notice_idx", "5000 5 5"],
+      ["files", "files_goes_idx", "5000 50"],
+      ["subscriptions", "subscriptions_user_idx", "2000 1 1"],
+      ["devices", "devices_user_idx", "20000 2"],
+      ["expiry_notices", "sqlite_autoindex_expiry_notices_1", "3000 1 1"],
+    ];
+    for (const [table, index, stat] of stats) {
+      await env.DB.prepare("INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)")
+        .bind(table, index, stat)
+        .run();
+    }
+    await run("ANALYZE sqlite_schema");
+    await expectSmallReads();
   });
 });

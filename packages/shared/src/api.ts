@@ -262,7 +262,7 @@ export type PlanStatus = {
   revision: number;
   /**
    * Free-plan clips the athlete has been told are leaving: how many, the day
-   * they were told (`on`, YYYY-MM-DD), and when the first of them may go (ms
+   * the first notice named (`on`, YYYY-MM-DD), and when those may go (ms
    * since 1970), which is after that day has ended in every time zone. Null
    * when none are, as always with Hop+.
    */

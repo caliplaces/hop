@@ -8,6 +8,7 @@ CREATE TABLE `devices` (
 );
 --> statement-breakpoint
 CREATE INDEX `devices_user_idx` ON `devices` (`user_id`);--> statement-breakpoint
+CREATE INDEX `devices_updated_idx` ON `devices` (`updated_at`);--> statement-breakpoint
 CREATE TABLE `expiry_notices` (
 	`user_id` text NOT NULL,
 	`batch` integer NOT NULL,

@@ -209,22 +209,24 @@ To take down a reported name or photo, see Profiles above.
 
 ## Free-plan expiry
 
-Free-plan clips are kept for 30 days (`PLANS.free.retentionDays`), then removed for good, from R2 too (`src/expiry.ts`). No clip goes without a notice that reached its athlete:
+Free-plan clips are kept for 30 days (`PLANS.free.retentionDays`), then removed for good, from R2 too (`src/expiry.ts`). No clip goes without a notice emailed to its athlete's verified address:
 
 - **The notice.** When a clip is 23 days old, its athlete is told a week ahead (`EXPIRY_NOTICE_DAYS`): "12 clips leave your inbox on Monday 23 November".
   - It names a calendar day, the same everywhere. The clips stay until that day has ended in every time zone (12:00 UTC the day after), so at least seven and a half days.
-  - It's an email to a verified address, whatever their new-clips setting, since it's about losing clips. It's also pushed, once, to each of their phones that turned notifications on (`apns-collapse-id`, so the reminder replaces it).
-  - It counts only once it got through: the email was accepted, or, for someone with no verified address, a phone took the push. A push alone isn't enough when there's an address, as notifications can be silenced in Settings and still be accepted.
-  - Nobody Hop can reach (no verified address, no phone) gets one, so their clips stay.
+  - It's an email to a verified address, whatever their new-clips setting, since it's about losing clips. It's also pushed, once, to each of their phones that turned on notifications (`apns-collapse-id`, so the reminder replaces it).
+  - It counts only once Resend accepted the email. A push never counts on its own: Apple accepts pushes that a phone has silenced in Settings, or that sit on a phone that's off. Athletes without a verified address are never noticed, so their clips stay.
   - The plan (`GET /api/me/plan`) shows noticed clips as `expiring: { clips, on, at }`, for the app's banner.
-- **The reminder,** two days to one hour before they go: "Last call: 12 clips leave your inbox on Monday 23 November". Best effort. Both suggest saving the clips from the inbox, or getting Hop+.
-- **Removal.** A clip goes at its notice's time (`files.expiry_goes_at`), once 30 days old. The hourly cleanup marks and removes them in the same run. A clip held for a report is only hidden until its hold ends (see Reports and blocks).
-- **Hop+.** While the athlete has Hop+, expiry stops and their notices are cleared. For 30 days after it ends (`LAPSE_MARGIN_MS`) nothing is noticed either, so a renewal Apple hasn't reported yet, or a payment it's still retrying, can't cost a subscriber their clips. After that, old clips get a fresh notice and week like any others.
-- **How often.** Each athlete gets at most one notice a day (counted from when the last one got through) and at most one reminder a day, each covering every clip due one. They run with the five-minute email jobs, at most 25 athletes each for claiming, sending and reminding.
+  - Not handled yet: an address that hard-bounces after Resend accepted the email. That needs Resend's `email.bounced` webhook to undo the notice.
+- **The reminder,** two days to one hour before they go: "Last call: 12 clips leave your inbox on Monday 23 November". One notice at a time, soonest first. Best effort. Both suggest saving the clips from the inbox, or getting Hop+.
+- **Removal.** A clip goes at its notice's time (`files.expiry_goes_at`), once 30 days old. The hourly cleanup marks and removes them in the same run. At that point it checks again that the notice was given and not let go, and that the athlete hasn't had Hop+ in the last 30 days. A clip held for a report is only hidden until its hold ends (see Reports and blocks).
+- **Hop+.** While the athlete has Hop+, expiry stops and their notices are cleared. For 30 days after it ends (`LAPSE_MARGIN_MS`), nothing is noticed or removed, so a renewal Apple hasn't reported yet can't cost a subscriber their clips. After that, old clips get a fresh notice and week like any others.
+- **How often.** Each athlete gets at most one notice a day (counted from when the last one got through) and at most one reminder a day, each covering every clip due one. They run with the five-minute email jobs: at most 25 athletes each for claiming, sending and reminding, and no new sends after three minutes.
 - **Retries.** A notice is a row in `expiry_notices`, one per athlete and claim (`batch`), which its clips point to (`files.expiry_notice_batch`). It keeps what it says from the claim, so every try sends the same email under the same idempotency key. Tries back off from 5 minutes to an hour. One not through after six hours is let go: its clips stay, and are claimed afresh the next day.
+- **Overlapping runs.** Each change to a notice (claimed, given, let go, reminded) applies only to the state it changes from, in the same transaction as its clips. Two runs can't undo each other, or claim an athlete twice in a day. The tests force each overlap.
+- **Cost.** The claim reads every athlete once a run. Every query on clips goes through `files_unnoticed_idx`, `files_notice_idx` or `files_goes_idx`, which `expiry.test.ts` checks with `EXPLAIN QUERY PLAN`, with and without production-like statistics.
 - **Housekeeping.** The cleanup forgets notices whose clips are all gone, once two days old.
 
-The app registers its push token with `PUT /api/me/devices/:token { environment }` (rate limited, at most five phones per athlete, newest kept) and removes it on sign-out (`DELETE /api/me/devices/:token`). Each install has one token, so signing in to another account moves it. A token the app hasn't refreshed in 90 days is forgotten. Notifications use the same APNs key as Live Activities, as `alert` pushes to the app's own topic. Only Apple's 410 makes the API forget a token: a 400 such as `DeviceTokenNotForTopic` is likelier this server's setup than the phone.
+The app registers its push token with `PUT /api/me/devices/:token { environment }` (rate limited, at most five phones per athlete, newest kept) and removes it on sign-out (`DELETE /api/me/devices/:token`). Each install has one token, so signing in to another account moves it. The app refreshes its token every launch, and one not refreshed in 90 days is forgotten. Notifications use the same APNs key as Live Activities, as `alert` pushes to the app's own topic. Only Apple's 410 makes the API forget a token: a 400 such as `DeviceTokenNotForTopic` is likelier this server's setup than the phone.
 
 ## Hop+ subscriptions
 

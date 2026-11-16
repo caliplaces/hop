@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3aab67c5-8099-4861-9e3a-57e9fda22e20",
+  "id": "47c5f547-e29d-4d38-9a93-e5a7335974b6",
   "prevId": "e289a57f-3a7b-40ae-9a2d-0d95b95d7e36",
   "tables": {
     "block_keys": {
@@ -206,6 +206,13 @@
           "name": "devices_user_idx",
           "columns": [
             "user_id"
+          ],
+          "isUnique": false
+        },
+        "devices_updated_idx": {
+          "name": "devices_updated_idx",
+          "columns": [
+            "updated_at"
           ],
           "isUnique": false
         }

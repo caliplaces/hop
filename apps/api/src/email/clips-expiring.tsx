@@ -46,7 +46,7 @@ export async function clipsExpiringEmail(input: ClipsExpiringInput): Promise<Ren
   const count = clips === 1 ? "1 clip" : `${clips.toLocaleString("en-GB")} clips`;
   const them = clips === 1 ? "it" : "them";
   const title = headline(input);
-  const why = `On the free plan, Hop keeps clips for 30 days. On ${expiryDay(day)}, ${count} ${
+  const why = `On the free plan, Hop keeps clips for 30 days. At the end of ${expiryDay(day)}, ${count} ${
     clips === 1 ? "goes" : "go"
   } for good.`;
   const keep = `To keep ${them}, save ${them} to your phone or computer from your inbox, or get Hop+ in the Hop app, which keeps every clip for good.`;

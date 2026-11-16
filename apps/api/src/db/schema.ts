@@ -411,7 +411,11 @@ export const devices = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [index("devices_user_idx").on(t.userId)],
+  (t) => [
+    index("devices_user_idx").on(t.userId),
+    // For forgetting tokens the app hasn't refreshed in a while.
+    index("devices_updated_idx").on(t.updatedAt),
+  ],
 );
 
 export type DeviceRow = typeof devices.$inferSelect;

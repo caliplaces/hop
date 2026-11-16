@@ -36,10 +36,10 @@ export const PLANS = {
 export type PlanId = keyof typeof PLANS;
 
 /**
- * Before a free-plan clip expires, its athlete is told at least this many
- * days ahead (by email, and on their phone if they turned notifications on),
- * and usually again the day before. No clip goes without that notice having
- * reached them.
+ * Before a free-plan clip expires, its athlete is emailed at least this many
+ * days ahead (and told on their phone too, if they turned notifications on),
+ * and usually again the day before. No clip goes without that email having
+ * been sent to their verified address.
  */
 export const EXPIRY_NOTICE_DAYS = 7;
 
