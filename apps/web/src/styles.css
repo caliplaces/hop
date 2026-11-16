@@ -29,6 +29,12 @@
   --z-toast: 60;
 }
 
+/*
+ * Dark tokens, used when the system is dark and on pages pinned to dark with
+ * html[data-theme="dark"] (the landing page, see lib/pageTheme.ts). CSS can't
+ * share one block between a media query and a selector, so the two blocks
+ * below must stay identical.
+ */
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
@@ -45,6 +51,21 @@
     --accent: #f4f4ef;
     --on-accent: #0b0b0c;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0b0b0c;
+  --surface: #151517;
+  --surface-2: #1d1d20;
+  --fg: #f4f4ef;
+  --muted: #a1a19b;
+  --subtle: #8c8c86;
+  --line: rgb(255 255 255 / 0.08);
+  --line-strong: rgb(255 255 255 / 0.16);
+  --danger: #ff6369;
+  --shadow-color: 0 0 0;
+  --accent: #f4f4ef;
+  --on-accent: #0b0b0c;
 }
 
 @theme inline {

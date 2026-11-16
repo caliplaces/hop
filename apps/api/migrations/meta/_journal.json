@@ -29,6 +29,55 @@
       "when": 1794686166098,
       "tag": "0003_new_clip_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794691013960,
+      "tag": "0004_session_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794748660051,
+      "tag": "0005_arrivals_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794754860390,
+      "tag": "0006_live_activities",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794762077954,
+      "tag": "0007_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794764219242,
+      "tag": "0008_waitlist",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794770205818,
+      "tag": "0009_plan_revision",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794774305988,
+      "tag": "0010_waitlist_launch",
+      "breakpoints": true
     }
   ]
 }

@@ -57,6 +57,7 @@ Then open [localhost:5173](http://localhost:5173). Local configuration is docume
 | ----------------- | -------------------------------------------------------- |
 | `apps/web`        | The website: landing page, upload page and athlete inbox |
 | `apps/api`        | The server behind it                                     |
+| `apps/ios`        | The iPhone app, in SwiftUI                               |
 | `packages/shared` | Code both use: validation, limits and colours            |
 
 Pull requests go to the `staging` branch; see [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues privately, as described in [SECURITY.md](SECURITY.md).

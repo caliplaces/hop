@@ -1,0 +1,19 @@
+// The widget extension: the QR code widget and control, and Event mode's Live
+// Activity on the Lock Screen and in the Dynamic Island.
+#include "Shared.xcconfig"
+
+PRODUCT_NAME = HopWidgets
+PRODUCT_BUNDLE_IDENTIFIER = com.onmyhop.app.widgets
+SKIP_INSTALL = YES
+APPLICATION_EXTENSION_API_ONLY = YES
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks @executable_path/../../Frameworks
+
+// Like the app: UI code runs on the main actor unless it says otherwise.
+SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
+
+GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_FILE = Config/HopWidgets.plist
+INFOPLIST_KEY_CFBundleDisplayName = Hop
+
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_ENTITLEMENTS = Config/HopWidgets.entitlements

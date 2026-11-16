@@ -1,12 +1,20 @@
 import { colorFor } from "@hop/shared";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
+import { z } from "zod";
+import { getDb } from "../db";
+import { files, hops } from "../db/schema";
+import { launchEmail } from "../email/launch";
 import { newClipsEmail } from "../email/new-clips";
 import type { RenderedEmail } from "../email/send";
 import { welcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
-import { verifyPayload } from "../lib/crypto";
+import { newId, verifyPayload } from "../lib/crypto";
+import { originalKey } from "../lib/files";
 import { BodyTooLargeError, fail, readBodyCapped } from "../lib/http";
 import { contentDisposition, type DevObjectToken, type DevPartToken } from "../lib/storage";
+import { validate } from "../lib/validate";
+import { pushArrivals } from "../live";
 
 type Query = (key: string) => string | undefined;
 
@@ -18,6 +26,12 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
       handle: query("handle") || "matej",
       name: query("name") ?? "Matej Matiasko",
       color: colorFor(query("color"), "preview"),
+    }),
+  // ?app=1 adds the App Store link.
+  launch: (appUrl, query) =>
+    launchEmail({
+      appUrl,
+      appStoreUrl: query("app") ? "https://apps.apple.com/app/id6834920854" : undefined,
     }),
   "new-clips": (appUrl, query) => {
     const hops = [
@@ -44,9 +58,53 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
 /**
  * Local development helpers, mounted only for ENVIRONMENT=development on a
  * localhost hostname (see index.ts): stand-ins for R2's presigned S3 URLs,
- * since the R2 simulator has no S3 endpoint, and email previews.
+ * since the R2 simulator has no S3 endpoint, email previews, and fake clips
+ * for trying Event mode.
  */
 export const devRoutes = new Hono<AppEnv>()
+  /**
+   * A fake clip lands in a hop, as if someone had just uploaded it: it counts
+   * in Event mode and is pushed to Live Activities, but has no file behind it.
+   * POST /api/dev/hops/<hop id>/arrivals with {"from": "Mia"} (optional).
+   */
+  .post(
+    "/hops/:hopId/arrivals",
+    validate("json", z.object({ from: z.string().max(40).optional() })),
+    async (c) => {
+      const db = getDb(c.env.DB);
+      const hop = await db
+        .select()
+        .from(hops)
+        .where(eq(hops.id, c.req.param("hopId")))
+        .get();
+      if (!hop) return fail(c, 404, "not_found");
+      const id = newId("fil");
+      const now = Date.now();
+      await db.insert(files).values({
+        id,
+        hopId: hop.id,
+        ownerId: hop.ownerId,
+        r2Key: originalKey(hop.id, id),
+        originalName: "IMG_0001.MOV",
+        mime: "video/quicktime",
+        size: 1_000_000,
+        partSize: 1_000_000,
+        partCount: 1,
+        status: "complete",
+        passId: "dev",
+        uploadTokenHash: "dev",
+        contributorName: c.req.valid("json").from ?? null,
+        createdAt: now,
+        lastActivityAt: now,
+        completedAt: now,
+        // Already announced: no digest email for a fake clip.
+        notifiedAt: now,
+      });
+      await pushArrivals(c.env, hop.id, now);
+      return c.json({ id });
+    },
+  )
+
   .get("/emails", (c) => c.json({ emails: Object.keys(EMAIL_PREVIEWS) }))
 
   .get("/emails/:name", async (c) => {

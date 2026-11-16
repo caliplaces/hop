@@ -1,0 +1,74 @@
+name: iOS
+
+# Builds the iPhone app and runs its tests on a simulator. Runs only when the
+# app, or the palette it mirrors, changes: macOS runners are slow to start.
+on:
+  pull_request:
+    branches: [staging, main]
+    paths:
+      - "apps/ios/**"
+      - "packages/shared/src/colors.ts"
+      - ".github/workflows/ios.yml"
+  push:
+    branches: [staging, main]
+    paths:
+      - "apps/ios/**"
+      - "packages/shared/src/colors.ts"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use the newest Xcode
+        run: |
+          xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          sudo xcode-select --switch "$xcode"
+          xcodebuild -version
+
+      # The welcome bubble's shaders need the Metal toolchain, which Xcode
+      # installs separately.
+      - name: Install the Metal toolchain
+        run: xcrun metal --version >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+
+      - name: Pick an iPhone simulator
+        id: simulator
+        run: |
+          udid="$(xcrun simctl list devices available --json | jq -r '
+            .devices | to_entries
+            | map(select(.key | test("SimRuntime\\.iOS-[0-9]+-[0-9]+$")))
+            | sort_by(.key | capture("iOS-(?<major>[0-9]+)-(?<minor>[0-9]+)$") | [(.major | tonumber), (.minor | tonumber)])
+            | last.value
+            | map(select(.name | startswith("iPhone")))
+            | first.udid')"
+          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
+            echo "::error::No iPhone simulator found."
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      # Signed ad hoc, with no team or certificate: the simulator still needs a
+      # signature carrying the app's entitlements, or the Keychain refuses it.
+      - name: Build and test
+        working-directory: apps/ios
+        run: |
+          xcodebuild test \
+            -project Hop.xcodeproj \
+            -scheme Hop \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM=""

@@ -1,0 +1,230 @@
+import SwiftUI
+
+/// The first thing a new athlete does: claim onmyhop.com/<handle> and pick the
+/// colour Bobble and their upload page wear.
+struct ClaimHopView: View {
+    @Environment(Session.self) private var session
+    @State private var model: ClaimHopModel
+    @State private var celebrating = false
+    @FocusState private var editing: Bool
+
+    init(me: Me, api: APIClient) {
+        _model = State(initialValue: ClaimHopModel(me: me, api: api))
+    }
+
+    var body: some View {
+        // In a navigation stack for the account menu, so someone signed in
+        // with the wrong account can sign out instead of claiming a handle.
+        NavigationStack {
+            form
+                .toolbar { AccountButton() }
+        }
+    }
+
+    private var form: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                model.color.bobble
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 150, height: 150)
+                    .scaleEffect(celebrating ? 1.18 : 1)
+                    .offset(y: celebrating ? -18 : 0)
+                    .animation(.spring(duration: 0.45, bounce: 0.55), value: celebrating)
+                    .contentTransition(.opacity)
+                    .animation(.smooth(duration: 0.25), value: model.color)
+                    .accessibilityLabel("Bobble, wearing your colour")
+                    .padding(.top, 12)
+
+                Text("Claim your Hop")
+                    .font(.largeTitle.bold())
+                    .padding(.top, 8)
+                    .accessibilityAddTraits(.isHeader)
+                Text("This is the link everyone uploads your clips to.")
+                    .font(.body)
+                    .foregroundStyle(Theme.muted)
+                    .padding(.top, 6)
+
+                handleField
+                    .disabled(isLocked)
+                    .padding(.top, 28)
+                statusLine
+                    .padding(.top, 10)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Pick your colour").font(.headline)
+                    Text("Bobble and your upload page wear it.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.muted)
+                    ColorChooser(selection: $model.color)
+                        .disabled(isLocked)
+                        .padding(.top, 12)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 32)
+
+                Button {
+                    Task { await claim() }
+                } label: {
+                    ZStack {
+                        Text(celebrating ? "It’s yours!" : "Claim it")
+                            .opacity(model.isClaiming ? 0 : 1)
+                        if model.isClaiming { ProgressView().tint(model.color.onColor) }
+                    }
+                    .font(.headline)
+                    .foregroundStyle(model.color.onColor)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.extraLarge)
+                .tint(model.color.color)
+                .disabled(!model.canClaim || celebrating)
+                .padding(.top, 32)
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background {
+            Aura(colors: [model.color.color, model.color.color, Palette.brand.color], intensity: 0.9)
+                .ignoresSafeArea()
+                .animation(.smooth(duration: 0.4), value: model.color)
+        }
+        .sensoryFeedback(.selection, trigger: model.color)
+        .sensoryFeedback(.success, trigger: celebrating) { _, now in now }
+    }
+
+    /// What's being claimed can't change until the server has answered.
+    private var isLocked: Bool { model.isClaiming || celebrating }
+
+    /// Like an address bar: the domain small on top, the handle large below,
+    /// so it fits any domain on any phone without wrapping.
+    private var handleField: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: "\(HopServer.baseURL.spoken)/")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+                TextField("yourname", text: $model.input)
+                    .font(.title2.weight(.semibold))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.asciiCapable)
+                    .textContentType(.username)
+                    .submitLabel(.done)
+                    .focused($editing)
+                    .onSubmit { Task { await claim() } }
+                    .accessibilityLabel("Handle")
+            }
+            statusMark
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .contentShape(.rect(cornerRadius: 26))
+        .onTapGesture { editing = true }
+    }
+
+    /// How the handle stands, at the end of the field: a check when it's
+    /// free, a spinner while checking, a mark when it can't be used.
+    @ViewBuilder private var statusMark: some View {
+        Group {
+            switch model.status {
+            case .idle:
+                EmptyView()
+            case .checking:
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Checking")
+            case .available:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(light: 0x0F8A4F, dark: 0x3DDC97))
+                    .accessibilityLabel("Available")
+            case .unavailable:
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Color(light: 0xD92D20, dark: 0xFF6369))
+                    .accessibilityLabel("Not available")
+            }
+        }
+        .font(.title2)
+        .frame(width: 28, height: 28)
+        .transition(.scale(scale: 0.6).combined(with: .opacity))
+        .animation(.spring(duration: 0.3, bounce: 0.4), value: model.status)
+    }
+
+    /// Words under the field, only when there's something to explain. It
+    /// keeps its height, so the screen doesn't jump as they type.
+    @ViewBuilder private var statusLine: some View {
+        Group {
+            if let problem = model.problem {
+                Label(problem, systemImage: "exclamationmark.circle.fill")
+                    .foregroundStyle(Color(light: 0xD92D20, dark: 0xFF6369))
+            } else {
+                switch model.status {
+                case .idle:
+                    Text("You get one, so pick something you’ll say out loud.")
+                        .foregroundStyle(Theme.muted)
+                case .checking, .available:
+                    Color.clear
+                case let .unavailable(reason):
+                    Text(reason)
+                        .foregroundStyle(Color(light: 0xD92D20, dark: 0xFF6369))
+                }
+            }
+        }
+        .font(.subheadline)
+        .frame(minHeight: 22)
+        .animation(.smooth(duration: 0.2), value: model.status)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func claim() async {
+        guard model.canClaim else { return }
+        editing = false
+        // The claim belongs to this session, even if they sign out meanwhile.
+        let asked = session.token
+        guard let me = await model.claim() else { return }
+        celebrating = true
+        // Let Bobble celebrate before the app takes over.
+        try? await Task.sleep(for: .milliseconds(900))
+        session.update(me, from: asked)
+    }
+}
+
+/// The twelve athlete colours as glass swatches.
+struct ColorChooser: View {
+    @Binding var selection: PaletteColor
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 6), spacing: 12) {
+            ForEach(Palette.all) { color in
+                Button {
+                    selection = color
+                } label: {
+                    Circle()
+                        .fill(color.color)
+                        .overlay {
+                            if color == selection {
+                                Image(systemName: "checkmark")
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundStyle(color.onColor)
+                            }
+                        }
+                        .padding(4)
+                        .overlay {
+                            Circle().strokeBorder(color.color, lineWidth: color == selection ? 2.5 : 0)
+                        }
+                        .aspectRatio(1, contentMode: .fit)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(color.name)
+                .accessibilityAddTraits(color == selection ? .isSelected : [])
+            }
+        }
+        .animation(.spring(duration: 0.25), value: selection)
+    }
+}

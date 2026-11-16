@@ -1,0 +1,6 @@
+// Unit tests, hosted in the app.
+#include "Shared.xcconfig"
+
+PRODUCT_NAME = HopTests
+PRODUCT_BUNDLE_IDENTIFIER = com.onmyhop.app.tests
+GENERATE_INFOPLIST_FILE = YES

@@ -5,15 +5,20 @@ import { secureHeaders } from "hono/secure-headers";
 import { cleanup } from "./cron";
 import { ONE_CLICK_UNSUBSCRIBE_PATH } from "./email/unsubscribe";
 import type { AppEnv, Env } from "./env";
+import { announceLaunch } from "./launch";
 import { fail } from "./lib/http";
+import { APP_SITE_ASSOCIATION_PATH, appSiteAssociation } from "./lib/oidc";
 import { loadSession } from "./lib/session";
 import { announceNewClips } from "./notify";
 import { authRoutes } from "./routes/auth";
+import { billingRoutes } from "./routes/billing";
 import { devRoutes } from "./routes/dev";
 import { emailRoutes } from "./routes/email";
+import { liveActivityRoutes } from "./routes/live";
 import { meRoutes } from "./routes/me";
 import { publicRoutes } from "./routes/public";
 import { uploadRoutes } from "./routes/uploads";
+import { waitlistRoutes } from "./routes/waitlist";
 
 /** Keep in sync with "triggers" in wrangler.jsonc; every other schedule runs the digest. */
 const CLEANUP_CRON = "17 * * * *";
@@ -44,6 +49,9 @@ app.route("/email", emailRoutes);
 app.route("/", publicRoutes);
 app.route("/", meRoutes);
 app.route("/", uploadRoutes);
+app.route("/", liveActivityRoutes);
+app.route("/", billingRoutes);
+app.route("/", waitlistRoutes);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 app.use("/dev/*", async (c, next) => {
   // Belt and braces: even a mistaken deploy with development vars can't expose these.
@@ -60,10 +68,31 @@ app.onError((error, c) => {
   return fail(c, 500, "internal_error", "Something went wrong on our side.");
 });
 
+/**
+ * The five-minute email jobs, side by side, so one failing can't hold up the
+ * other. A failure is logged, and fails the run, so it shows up.
+ */
+export async function sendEmails(env: Env): Promise<void> {
+  const jobs = { digest: announceNewClips(env), launch: announceLaunch(env) };
+  const results = await Promise.allSettled(Object.values(jobs));
+  const failed = Object.keys(jobs).filter((_, i) => results[i]?.status === "rejected");
+  results.forEach((result, i) => {
+    if (result.status === "rejected")
+      console.error(`${Object.keys(jobs)[i]}: run failed`, result.reason);
+  });
+  if (failed.length) throw new Error(`email jobs failed: ${failed.join(", ")}`);
+}
+
 export default {
-  fetch: app.fetch,
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    // The one file outside /api: Apple reads it to tie this site to the app.
+    if (new URL(request.url).pathname === APP_SITE_ASSOCIATION_PATH) {
+      return appSiteAssociation(request, env);
+    }
+    return app.fetch(request, env, ctx);
+  },
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(controller.cron === CLEANUP_CRON ? cleanup(env) : announceNewClips(env));
+    ctx.waitUntil(controller.cron === CLEANUP_CRON ? cleanup(env) : sendEmails(env));
   },
 } satisfies ExportedHandler<Env>;
 

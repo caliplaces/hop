@@ -6,6 +6,8 @@ import {
   DEFAULT_HOP_TITLE,
   fileUrlsSchema,
   HOP_SLUG_PATTERN,
+  type HopActivation,
+  type HopArrivals,
   type HopSummary,
   type InboxFile,
   type InboxPage,
@@ -18,9 +20,10 @@ import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDb } from "../db";
-import { files, hops, users } from "../db/schema";
+import { type FileRow, files, hops, users } from "../db/schema";
 import { sendWelcomeEmail } from "../email/welcome";
 import type { AppEnv } from "../env";
+import { arrivalsSince } from "../lib/arrivals";
 import { newId } from "../lib/crypto";
 import { removeFile } from "../lib/files";
 import { fail } from "../lib/http";
@@ -30,6 +33,23 @@ import { validate } from "../lib/validate";
 import { findUserByHandle, toMe } from "./auth";
 
 const PAGE_SIZE = 60;
+/** Arrivals name the senders of this many of the newest clips. */
+const ARRIVALS_LATEST = 10;
+
+function toInboxFile(f: FileRow): InboxFile {
+  return {
+    id: f.id,
+    hopId: f.hopId,
+    name: f.originalName,
+    mime: f.mime,
+    size: f.size,
+    hasThumbnail: Boolean(f.thumbKey),
+    contributorName: f.contributorName,
+    contributorVerified: f.contributorUserId !== null,
+    note: f.note,
+    createdAt: f.createdAt,
+  };
+}
 
 function isUniqueViolation(error: unknown): boolean {
   return (
@@ -166,7 +186,10 @@ export const meRoutes = new Hono<AppEnv>()
     return c.json({ ok: true });
   })
 
-  /** Point onmyhop.com/<handle> at this hop. */
+  /**
+   * Point onmyhop.com/<handle> at this hop. Replies with when, by the server's
+   * clock, so Event mode can count the clips that arrive from then on.
+   */
   .post("/me/hops/:hopId/activate", async (c) => {
     const user = currentUser(c);
     const db = getDb(c.env.DB);
@@ -176,12 +199,41 @@ export const meRoutes = new Hono<AppEnv>()
       .where(and(eq(hops.id, c.req.param("hopId")), eq(hops.ownerId, user.id)))
       .get();
     if (!hop) return fail(c, 404, "not_found");
+    const now = Date.now();
     await db
       .update(users)
-      .set({ activeHopId: hop.id, updatedAt: Date.now() })
+      .set({ activeHopId: hop.id, updatedAt: now })
       .where(eq(users.id, user.id));
-    return c.json({ ok: true });
+    return c.json({ ok: true, activatedAt: now } satisfies HopActivation);
   })
+
+  /**
+   * Clips that finished uploading into a hop since `since` (milliseconds, by
+   * the server's clock): how many, and the newest few. Counting by completion
+   * means an upload started earlier still counts when it lands, and deleting
+   * older clips changes nothing.
+   */
+  .get(
+    "/me/hops/:hopId/arrivals",
+    validate("query", z.object({ since: z.coerce.number().int().nonnegative() })),
+    async (c) => {
+      const user = currentUser(c);
+      const db = getDb(c.env.DB);
+      const hop = await db
+        .select({ id: hops.id })
+        .from(hops)
+        .where(and(eq(hops.id, c.req.param("hopId")), eq(hops.ownerId, user.id)))
+        .get();
+      if (!hop) return fail(c, 404, "not_found");
+      const { count, latest } = await arrivalsSince(
+        db,
+        hop.id,
+        c.req.valid("query").since,
+        ARRIVALS_LATEST,
+      );
+      return c.json({ count, latest: latest.map(toInboxFile) } satisfies HopArrivals);
+    },
+  )
 
   .get(
     "/me/files",
@@ -211,20 +263,7 @@ export const meRoutes = new Hono<AppEnv>()
       const page = rows.slice(0, PAGE_SIZE);
       const last = page.at(-1);
       const result: InboxPage = {
-        files: page.map(
-          (f): InboxFile => ({
-            id: f.id,
-            hopId: f.hopId,
-            name: f.originalName,
-            mime: f.mime,
-            size: f.size,
-            hasThumbnail: Boolean(f.thumbKey),
-            contributorName: f.contributorName,
-            contributorVerified: f.contributorUserId !== null,
-            note: f.note,
-            createdAt: f.createdAt,
-          }),
-        ),
+        files: page.map(toInboxFile),
         nextCursor: rows.length > PAGE_SIZE && last ? `${last.createdAt}:${last.id}` : null,
       };
       return c.json(result);

@@ -2,7 +2,6 @@ import {
   type CreateUploadResult,
   completeUploadSchema,
   createUploadSchema,
-  DEFAULT_STORAGE_QUOTA_BYTES,
   hopPassSchema,
   isAcceptableDeclaredType,
   MAX_ACTIVE_UPLOADS_PER_PASS,
@@ -25,10 +24,12 @@ import type { AppEnv, Env } from "../env";
 import { newId, randomToken, sha256Hex, signPayload, verifyPayload } from "../lib/crypto";
 import { originalKey, removeFile, thumbnailKey } from "../lib/files";
 import { BodyTooLargeError, clientIp, fail, readBodyCapped } from "../lib/http";
+import { storageLimitSql } from "../lib/plans";
 import { SNIFF_BYTES, sniffMedia } from "../lib/sniff";
 import { normalizeEtag, presignUploadPart } from "../lib/storage";
 import { verifyTurnstile } from "../lib/turnstile";
 import { validate } from "../lib/validate";
+import { pushArrivals } from "../live";
 
 /** A pass proves the contributor solved Turnstile for this hop recently. */
 type HopPass = { purpose: "hop-pass"; exp: number; hopId: string; passId: string };
@@ -69,7 +70,7 @@ async function holdReservation(db: Db, file: FileRow): Promise<boolean> {
         select coalesce(sum(size), 0) from ${files}
         where owner_id = ${file.ownerId} and id != ${file.id}
           and (status = 'complete' or (status = 'pending' and last_activity_at > ${activeSince}))
-      ) + ${file.size} <= ${DEFAULT_STORAGE_QUOTA_BYTES}
+      ) + ${file.size} <= ${storageLimitSql(file.ownerId, now)}
     )
   `);
   return result.meta.changes === 1;
@@ -87,7 +88,7 @@ export const uploadRoutes = new Hono<AppEnv>()
     if (hop.status !== "open")
       return fail(c, 403, "hop_closed", "This Hop isn't accepting uploads.");
 
-    if (!(await verifyTurnstile(c.env, c.req.valid("json").turnstileToken, ip))) {
+    if (!(await verifyTurnstile(c.env, c.req.valid("json").turnstileToken, ip, "upload"))) {
       return fail(c, 403, "turnstile_failed", "We couldn't verify you're human. Please try again.");
     }
     const exp = Date.now() + HOP_PASS_TTL_MS;
@@ -179,7 +180,7 @@ export const uploadRoutes = new Hono<AppEnv>()
         select coalesce(sum(size), 0) from ${files}
         where owner_id = ${hop.ownerId}
           and (status = 'complete' or (status = 'pending' and last_activity_at > ${activeSince}))
-      ) + ${input.size} <= ${DEFAULT_STORAGE_QUOTA_BYTES}
+      ) + ${input.size} <= ${storageLimitSql(hop.ownerId, now)}
     `);
     if (reserved.meta.changes !== 1) {
       return fail(c, 507, "hop_full", "This Hop is full right now.");
@@ -286,6 +287,12 @@ export const uploadRoutes = new Hono<AppEnv>()
       await c.env.BUCKET.delete(file.r2Key);
       return fail(c, 410, "upload_expired", "This upload expired. Please upload the file again.");
     }
+    // After the response: the athlete's Live Activity counts the new clip.
+    c.executionCtx.waitUntil(
+      pushArrivals(c.env, file.hopId).catch((error) =>
+        console.error("live activity: update failed", error),
+      ),
+    );
     return c.json({ ok: true });
   })
 

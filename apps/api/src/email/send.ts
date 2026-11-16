@@ -14,6 +14,27 @@ export class ResendError extends Error {
   }
 }
 
+/**
+ * Resend allows two requests a second per account. Every send in this isolate
+ * waits its turn, so jobs sending side by side (the new-clips digest and the
+ * launch email) stay under the limit together.
+ */
+let gapMs = 550;
+let nextTurn = 0;
+
+/** How far apart sends are; tests set 0. */
+export function setResendPacing(ms: number) {
+  gapMs = ms;
+  nextTurn = 0;
+}
+
+async function waitForTurn(): Promise<void> {
+  const now = Date.now();
+  const turn = Math.max(now, nextTurn);
+  nextTurn = turn + gapMs;
+  if (turn > now) await new Promise((resolve) => setTimeout(resolve, turn - now));
+}
+
 export type RenderedEmail = {
   subject: string;
   html: string;
@@ -47,6 +68,7 @@ export async function sendEmail(env: Env, email: OutgoingEmail): Promise<void> {
     return;
   }
 
+  await waitForTurn();
   const response = await fetch(RESEND_API, {
     method: "POST",
     headers: {

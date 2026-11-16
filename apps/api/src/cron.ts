@@ -1,8 +1,9 @@
 import { PENDING_UPLOAD_TTL_MS } from "@hop/shared";
-import { and, eq, lt, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { files, sessions } from "./db/schema";
+import { files, liveActivities, sessions, waitlist } from "./db/schema";
 import type { Env } from "./env";
+import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
 import { finishRemoval } from "./lib/files";
 
 const BATCH = 100;
@@ -13,7 +14,7 @@ const STUCK_DELETE_MS = 10 * 60 * 1000;
 
 /**
  * Removes uploads with no activity for a day, retries removals that failed
- * midway, and deletes expired sessions.
+ * midway, and deletes expired sessions and Live Activity registrations.
  */
 export async function cleanup(env: Env) {
   const db = getDb(env.DB);
@@ -56,5 +57,19 @@ export async function cleanup(env: Env) {
   }
 
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
+  await db.delete(liveActivities).where(lt(liveActivities.expiresAt, Date.now()));
+  // The waitlist keeps an address only until a day after its launch email,
+  // or a week after the first try if it never got through.
+  await db
+    .delete(waitlist)
+    .where(
+      or(
+        lt(waitlist.notifiedAt, Date.now() - KEEP_SENT_MS),
+        and(
+          isNull(waitlist.notifiedAt),
+          lt(waitlist.launchFirstAttemptAt, Date.now() - KEEP_UNSENT_MS),
+        ),
+      ),
+    );
   console.log(`cleanup: removed ${removed} uploads, ${failed} failed`);
 }
