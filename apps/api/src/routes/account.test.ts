@@ -713,6 +713,23 @@ describe("the cleanup, after an account is deleted", () => {
     expect(r2.objects.has(late)).toBe(false);
   });
 
+  it("still drops a hop once its clips go, however long ago the account was deleted", async () => {
+    await deleteMe();
+    // R2 failed for a fortnight; the clips are still there, marked for removal.
+    r2.faults.deleteFails = true;
+    await cleanup(env);
+    await db
+      .update(users)
+      .set({ deletedAt: Date.now() - 2 * RECENT_MS })
+      .where(eq(users.id, "usr_a"));
+    await db.update(files).set({ lastActivityAt: 0 }).where(eq(files.ownerId, "usr_a"));
+
+    await cleanup(env);
+    expect(await db.select().from(files).where(eq(files.ownerId, "usr_a"))).toEqual([]);
+    expect(await db.select().from(hops).where(eq(hops.ownerId, "usr_a"))).toEqual([]);
+    expect(await db.select().from(hops).where(eq(hops.ownerId, "usr_b"))).toHaveLength(1);
+  });
+
   it("clears the sender of a clip sent while the account was being deleted", async () => {
     await deleteMe();
     // Nora had no handle, so her clip carried her real name.

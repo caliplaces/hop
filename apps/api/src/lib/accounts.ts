@@ -54,6 +54,15 @@ export const ownedBy =
   (column) =>
     eq(column, userId);
 
+/**
+ * Every deleted account. Read through the partial index on deleted_at, and
+ * each matched by an indexed owner column, so it stays cheap as they add up.
+ */
+export const ownedByDeleted =
+  (db: Db): Owned =>
+  (column) =>
+    inArray(column, db.select({ id: users.id }).from(users).where(isNotNull(users.deletedAt)));
+
 /** Accounts deleted in the last RECENT_MS, for the cleanup's catch-all. */
 export const ownedByRecentlyDeleted =
   (db: Db, now: number): Owned =>
@@ -165,15 +174,16 @@ export async function eraseDeletedAccounts(db: Db, now = Date.now()): Promise<vo
 }
 
 /**
- * The cleanup's last part, once it has removed clips: drops recently deleted
- * accounts' hops that have none left. Returns how many went.
+ * The cleanup's last part, once it has removed clips: drops deleted accounts'
+ * hops that have none left, however long ago they were deleted, since clips
+ * that failed to go for a while still go eventually. Returns how many went.
  */
-export async function dropEmptiedHops(db: Db, now = Date.now()): Promise<number> {
+export async function dropEmptiedHops(db: Db): Promise<number> {
   const emptied = await db
     .delete(hops)
     .where(
       and(
-        ownedByRecentlyDeleted(db, now)(hops.ownerId),
+        ownedByDeleted(db)(hops.ownerId),
         notExists(db.select({ id: files.id }).from(files).where(eq(files.hopId, hops.id))),
       ),
     )
