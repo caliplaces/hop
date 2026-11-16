@@ -1,8 +1,8 @@
 import { REPORT_REASONS, type ReportReason } from "@hop/shared";
-import { Turnstile } from "@marsidev/react-turnstile";
+import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import { useMutation } from "@tanstack/react-query";
 import { CircleAlert, Flag } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
 import { ApiError, api } from "../../lib/api";
@@ -27,6 +27,12 @@ export function ReportPage({ handle, siteKey }: { handle: string; siteKey: strin
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [note, setNote] = useState("");
   const [token, setToken] = useState<string | null>(null);
+  const widget = useRef<TurnstileInstance | null>(null);
+  /** Drops the token and runs the check again: it expired, or it was used. */
+  const freshCheck = () => {
+    setToken(null);
+    widget.current?.reset();
+  };
   const send = useMutation({
     mutationFn: () =>
       api<{ ok: true }>(`/h/${encodeURIComponent(handle)}/report`, {
@@ -34,7 +40,7 @@ export function ReportPage({ handle, siteKey }: { handle: string; siteKey: strin
         json: { reason, note: note.trim() || undefined, turnstileToken: token },
       }),
     // A Turnstile token counts once: a retry needs a new one.
-    onError: () => setToken(null),
+    onError: freshCheck,
   });
 
   const close = () => {
@@ -113,12 +119,17 @@ export function ReportPage({ handle, siteKey }: { handle: string; siteKey: strin
               />
             </label>
 
-            {siteKey && !token && (
+            {/* Stays mounted, so a token that expires while the form is open
+                is replaced, as on the upload page (HumanCheck). */}
+            {siteKey && (
               <div className="mt-3 flex justify-center empty:hidden">
                 <Turnstile
+                  ref={widget}
                   siteKey={siteKey}
                   options={{ size: "flexible", appearance: "interaction-only", action: "report" }}
                   onSuccess={setToken}
+                  onExpire={freshCheck}
+                  onError={() => setToken(null)}
                 />
               </div>
             )}

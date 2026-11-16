@@ -68,8 +68,18 @@ export function Contribute({ handle, slug }: { handle: string; slug?: string }) 
     );
   }
   if (hop.status === "closed") {
+    // The page still shows their name, so it can still be reported.
     return (
-      <StatusScreen mascot="sleep" color={hop.owner.color} title="This Hop is closed">
+      <StatusScreen
+        mascot="sleep"
+        color={hop.owner.color}
+        title="This Hop is closed"
+        action={
+          <span className="text-xs text-muted">
+            <ReportPage handle={hop.owner.handle} siteKey={config.data?.turnstileSiteKey} />
+          </span>
+        }
+      >
         {ownerNames(hop).full} isn’t accepting uploads here right now.
       </StatusScreen>
     );
