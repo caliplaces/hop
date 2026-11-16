@@ -20,7 +20,9 @@ struct HomeView: View {
                 MyHopView()
             }
         }
-        .tint(session.me?.paletteColor.color ?? Palette.brand.color)
+        // Chrome stays neutral; the athlete's colour is for real accents
+        // (Event mode, the pass, Hop+), set where they appear.
+        .tint(Theme.ink)
         .eventAccessory(isEnabled: eventMode.run != nil)
         .fullScreenCover(isPresented: $eventMode.isStagePresented) {
             EventStage()
@@ -80,13 +82,18 @@ struct HomeView: View {
 
 /// Opens the athlete's account: their plan, storage and signing out.
 struct AccountButton: ToolbarContent {
+    @Environment(Session.self) private var session
     @State private var showingAccount = false
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Account", systemImage: "person.crop.circle") { showingAccount = true }
-                .sheet(isPresented: $showingAccount) { AccountView() }
+            Button { showingAccount = true } label: {
+                Avatar(me: session.me, size: 32)
+            }
+            .accessibilityLabel("Account")
+            .sheet(isPresented: $showingAccount) { AccountView() }
         }
+        .sharedBackgroundVisibility(.hidden)
     }
 }
 

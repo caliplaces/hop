@@ -9,9 +9,15 @@ struct PlanSummary: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(status.plan == .plus ? "Hop+" : "Free")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(status.plan == .plus ? color.color : Theme.ink)
+                HStack(spacing: 6) {
+                    Text(status.plan == .plus ? "Hop+" : "Free")
+                        .font(.title3.weight(.bold))
+                    if status.plan == .plus {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundStyle(color.color)
+                            .accessibilityHidden(true)
+                    }
+                }
                 Spacer()
                 Text("\(status.storage.usedBytes.storageText) of \(status.storage.limitBytes.storageText)")
                     .font(.subheadline.monospacedDigit())

@@ -31,9 +31,15 @@ struct AccountView: View {
                             Button {
                                 showingHopPlus = true
                             } label: {
-                                Label("Get Hop+", systemImage: "plus.circle.fill")
+                                Text("Get Hop+")
                                     .font(.headline)
+                                    .foregroundStyle(color.onColor)
+                                    .frame(maxWidth: .infinity)
                             }
+                            .buttonStyle(.glassProminent)
+                            .controlSize(.large)
+                            .tint(color.color)
+                            .listRowSeparator(.hidden)
                         }
                     } else if let error = hopPlus.loadError {
                         Label(error, systemImage: "wifi.exclamationmark")
@@ -70,13 +76,17 @@ struct AccountView: View {
                 }
 
                 Section {
-                    Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                    Button(role: .destructive) {
                         dismiss()
                         Task { await session.signOut() }
+                    } label: {
+                        // Red throughout, icon included.
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                            .foregroundStyle(.red)
                     }
                 }
             }
-            .tint(color.color)
+            .tint(Theme.ink)
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -106,14 +116,7 @@ struct AccountView: View {
 
     private func profile(_ me: Me) -> some View {
         HStack(spacing: 14) {
-            Circle()
-                .fill(me.paletteColor.color.gradient)
-                .frame(width: 48, height: 48)
-                .overlay {
-                    Text(initial(me))
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(me.paletteColor.onColor)
-                }
+            Avatar(me: me, size: 52)
             VStack(alignment: .leading, spacing: 2) {
                 Text(me.name ?? me.email ?? String(localized: "Signed in"))
                     .font(.headline)
@@ -125,10 +128,6 @@ struct AccountView: View {
             }
         }
         .padding(.vertical, 4)
-    }
-
-    private func initial(_ me: Me) -> String {
-        String((me.name ?? me.handle ?? me.email ?? "?").prefix(1)).uppercased()
     }
 
     private func explanation(_ problem: HopPlus.Problem) -> String {
