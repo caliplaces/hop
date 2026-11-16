@@ -44,6 +44,26 @@ nonisolated struct PlanStatus: Codable, Equatable, Sendable {
     /// reads it first, so the rest of the reply is at least this new. A reply
     /// with a lower revision than the one on show read the plan before a change.
     let revision: Int64
+    /// Free-plan clips the athlete has been told are about to go. Older
+    /// servers don't say.
+    let expiring: Expiring?
+
+    struct Expiring: Codable, Equatable, Sendable {
+        let clips: Int
+        /// The day the athlete was told they leave, as "2026-11-23": a
+        /// calendar day, the same wherever they are. They stay until it has
+        /// ended everywhere.
+        let on: String
+        /// When the first of them may go, in milliseconds since 1970.
+        let at: Int64
+
+        /// That day, in `calendar`: midnight where the athlete is.
+        func day(in calendar: Calendar) -> Date? {
+            let parts = on.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 3 else { return nil }
+            return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+        }
+    }
 
     /// How full the athlete's storage is, from 0 to 1.
     var usedFraction: Double {

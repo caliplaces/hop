@@ -95,7 +95,9 @@ struct AccountView: View {
                 Section {
                     Button(role: .destructive) {
                         dismiss()
-                        Task { await session.signOut() }
+                        Task {
+                            await session.signOut { await PushNotifications.shared.unregister(api: $0) }
+                        }
                     } label: {
                         // Red throughout, icon included.
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")

@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct HopApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = Session()
     @State private var eventMode = EventMode()
     @State private var hopPlus = HopPlus()
@@ -68,8 +69,11 @@ struct RootView: View {
         .task(id: session.token) {
             guard session.isSignedIn else {
                 hopPlus.reset()
+                PushNotifications.shared.stop()
                 return
             }
+            // This install's push token, for the athlete signed in.
+            await PushNotifications.shared.start(api: session.api)
             await hopPlus.run(api: session.api)
         }
         // The profile carries the Hop+ mark. Purchases and renewals change

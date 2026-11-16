@@ -188,6 +188,15 @@ struct HopPlusHeader: View {
                     .glassEffect(.regular.tint(color.color.opacity(0.35)), in: .capsule)
             }
 
+            if status.plan == .free, let expiring = status.expiring {
+                // Why they're here, if the banner about clips leaving sent them.
+                Text("\(Image(systemName: "clock.badge.exclamationmark")) \(ExpiryNudge.title(expiring)). With Hop+, they stay.")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+            }
+
             if status.plan == .free, status.storage.usedBytes > 0 {
                 Text("You’re using \(status.storage.usedBytes.storageText) of \(status.storage.limitBytes.storageText).")
                     .font(.footnote)

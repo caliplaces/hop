@@ -52,8 +52,15 @@ struct InboxView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 16) {
+                    if let status = hopPlus.status, status.plan == .free, let expiring = status.expiring {
+                        ExpiryNudge(expiring: expiring) { showingHopPlus = true }
+                    }
                     if let status = hopPlus.status, status.isNearlyFull {
                         StorageNudge(status: status, color: color) { showingHopPlus = true }
+                    }
+                    // Notifications only say anything on the free plan, for now.
+                    if hopPlus.status?.plan == .free {
+                        NotificationsNudge(color: color)
                     }
                     ForEach(model.hops) { hop in
                         NavigationLink(value: hop) {
