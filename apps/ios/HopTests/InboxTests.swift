@@ -7,8 +7,12 @@ private func hopJSON(_ id: String, title: String, createdAt: Int, files: Int, by
     #"{"id":"\#(id)","slug":"\#(id)","title":"\#(title)","status":"open","createdAt":\#(createdAt),"fileCount":\#(files),"totalBytes":\#(bytes)}"#
 }
 
-private func clipJSON(_ id: String, hop: String, size: Int = 1000) -> String {
-    #"{"id":"\#(id)","hopId":"\#(hop)","name":"IMG_1.MOV","mime":"video/mp4","size":\#(size),"hasThumbnail":true,"contributorName":"@mia","contributorVerified":true,"note":null,"createdAt":1700000000000}"#
+private func clipJSON(_ id: String, hop: String, size: Int = 1000, createdAt: Int = 1_700_000_000_000) -> String {
+    #"{"id":"\#(id)","hopId":"\#(hop)","name":"IMG_1.MOV","mime":"video/mp4","size":\#(size),"hasThumbnail":true,"contributorName":"@mia","contributorVerified":true,"note":null,"createdAt":\#(createdAt)}"#
+}
+
+private func clip(_ id: String, at createdAt: Int) throws -> Clip {
+    try JSONDecoder().decode(Clip.self, from: Data(clipJSON(id, hop: "jam", createdAt: createdAt).utf8))
 }
 
 @MainActor
@@ -162,6 +166,105 @@ struct InboxModelTests {
         // Page three must not land after the new first page, skipping c and d.
         #expect(model.clips["jam"]?.items.map(\.id) == ["a", "b"])
         #expect(model.clips["jam"]?.nextCursor == "2:b")
+    }
+
+    @Test func theViewerKeepsTheClipShowingWhenARefreshDropsIt() async throws {
+        let arrived = Locked(false)
+        server.reply = { request in
+            let query = request.url?.query() ?? ""
+            switch request.url?.path {
+            case "/api/me/hops":
+                return (200, #"{"hops":[\#(hopJSON("jam", title: "Jam", createdAt: 1, files: 4))]}"#)
+            case "/api/me/files" where query.contains("cursor="):
+                return (200, #"{"files":[\#(clipJSON("c", hop: "jam", createdAt: 3)),\#(clipJSON("d", hop: "jam", createdAt: 2))],"nextCursor":null}"#)
+            default:
+                return arrived.value
+                    ? (200, #"{"files":[\#(clipJSON("n", hop: "jam", createdAt: 9)),\#(clipJSON("a", hop: "jam", createdAt: 5))],"nextCursor":"5:a"}"#)
+                    : (200, #"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 5)),\#(clipJSON("b", hop: "jam", createdAt: 4))],"nextCursor":"4:b"}"#)
+            }
+        }
+        let model = InboxModel()
+        let api = server.client(token: "hs_t")
+        await model.refresh(api: api, activeHopId: nil)
+        await model.loadMore(in: "jam", api: api)
+        let watched = try #require(model.clips["jam"]?.items.first { $0.id == "d" })
+
+        // A clip lands during Event mode: the refresh brings a new first page
+        // and drops the later ones, so it's fresh and nothing is missed...
+        arrived.value = true
+        await model.refresh(api: api, activeHopId: nil)
+        let items = model.clips["jam"]?.items ?? []
+        #expect(items.map(\.id) == ["n", "a"])
+
+        // ...while the viewer keeps "d", the clip being watched, in its place,
+        #expect(InboxModel.clips(items, keeping: watched).map(\.id) == ["n", "a", "d"])
+        #expect(model.clips["jam"]?.refreshes == 2)
+
+        // ...and loads the pages up to it again, so swiping on still works.
+        await model.load(upTo: watched, in: "jam", api: api)
+        #expect(model.clips["jam"]?.items.map(\.id) == ["n", "a", "c", "d"])
+
+        // A clip that's gone for good: it pages to the end, then stops.
+        let gone = try clip("zz", at: 0)
+        let requests = server.requests.count
+        await model.load(upTo: gone, in: "jam", api: api)
+        #expect(server.requests.count == requests)
+        #expect(model.clips["jam"]?.hasMore == false)
+    }
+
+    @Test func catchingUpStopsWhenARefreshStartsOverAndCancellingIsntAFailure() async throws {
+        let firstPage = Locked(#"{"files":[\#(clipJSON("a", hop: "jam", createdAt: 5)),\#(clipJSON("b", hop: "jam", createdAt: 4))],"nextCursor":"4:b"}"#)
+        server.reply = { request in
+            let query = request.url?.query() ?? ""
+            switch request.url?.path {
+            case "/api/me/hops":
+                return (200, #"{"hops":[\#(hopJSON("jam", title: "Jam", createdAt: 1, files: 6))]}"#)
+            case "/api/me/files" where query.contains("cursor="):
+                return (200, #"{"files":[\#(clipJSON("c", hop: "jam", createdAt: 3))],"nextCursor":"3:c"}"#)
+            default:
+                return (200, firstPage.value)
+            }
+        }
+        let model = InboxModel()
+        let api = server.client(token: "hs_t")
+        await model.refresh(api: api, activeHopId: nil)
+        let watched = try clip("z", at: 1)
+        let pages = { (request: URLRequest) in request.url?.query()?.contains("cursor=") == true }
+
+        // Catching up towards "z", a page is on its way when a refresh starts over.
+        server.held = ["/api/me/files"]
+        let catchingUp = Task { await model.load(upTo: watched, in: "jam", api: api) }
+        try await server.waitForRequests(where: pages)
+        server.held = []
+        // A clip landed: the new first page pages on from somewhere else.
+        firstPage.value = #"{"files":[\#(clipJSON("n", hop: "jam", createdAt: 9)),\#(clipJSON("a", hop: "jam", createdAt: 5))],"nextCursor":"5:a"}"#
+        await model.refresh(api: api, activeHopId: nil)
+        server.release()
+        await catchingUp.value
+        // Its late page is dropped, and it asks for no more for the new list.
+        #expect(server.requests.filter { pages($0.request) }.count == 1)
+        #expect(model.clips["jam"]?.items.map(\.id) == ["n", "a"])
+
+        // A load cancelled because its view went away isn't a failure.
+        server.held = ["/api/me/files"]
+        let leaving = Task { await model.load(upTo: watched, in: "jam", api: api) }
+        try await server.waitForRequests(count: 2, where: pages)
+        leaving.cancel()
+        await leaving.value
+        server.release()
+        #expect(model.clips["jam"]?.failed == nil)
+        #expect(model.clips["jam"]?.isLoading == false)
+    }
+
+    @Test func keepsTheClipShowingInTheAPIsOrder() throws {
+        let items = try [clip("a", at: 6), clip("b", at: 5), clip("c", at: 3)]
+        #expect(InboxModel.clips(items, keeping: nil).map(\.id) == ["a", "b", "c"])
+        #expect(InboxModel.clips(items, keeping: try clip("b", at: 5)).map(\.id) == ["a", "b", "c"])
+        #expect(InboxModel.clips(items, keeping: try clip("x", at: 9)).map(\.id) == ["x", "a", "b", "c"])
+        #expect(InboxModel.clips(items, keeping: try clip("m", at: 4)).map(\.id) == ["a", "b", "m", "c"])
+        #expect(InboxModel.clips(items, keeping: try clip("z", at: 1)).map(\.id) == ["a", "b", "c", "z"])
+        // Same time: by id, as the API breaks ties.
+        #expect(InboxModel.clips(items, keeping: try clip("bb", at: 5)).map(\.id) == ["a", "bb", "b", "c"])
     }
 
     @Test func showsAFailureOnlyWhenThereIsNothingToShow() async {

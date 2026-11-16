@@ -17,6 +17,8 @@ final class InboxModel {
         var loadedOnce = false
         var isLoading = false
         var failed: String?
+        /// How many refreshes have brought a new first page.
+        var refreshes = 0
 
         var hasMore: Bool { !loadedOnce || nextCursor != nil }
     }
@@ -77,6 +79,7 @@ final class InboxModel {
             // A page can overlap the last if clips arrived meanwhile.
             list.items = known + page.files.filter { clip in !known.contains { $0.id == clip.id } }
             list.nextCursor = page.nextCursor
+            if replacing { list.refreshes += 1 }
             list.loadedOnce = true
             list.failed = nil
             list.isLoading = false
@@ -84,8 +87,49 @@ final class InboxModel {
         } catch {
             guard generations[hopId, default: 0] == generation else { return }
             clips[hopId, default: ClipList()].isLoading = false
+            // Cancelled because whoever asked went away: not a failure to show.
+            guard !Self.isCancellation(error) else { return }
             clips[hopId, default: ClipList()].failed = error.localizedDescription
         }
+    }
+
+    /// Loads an event's next pages until `clip` is among its clips again, as
+    /// after a refresh dropped the page it was on while someone watched it.
+    /// Stops at the end, on a failure, or after `maxPages`.
+    func load(upTo clip: Clip, in hopId: String, api: APIClient, maxPages: Int = 20) async {
+        let started = generations[hopId, default: 0]
+        for _ in 0..<maxPages {
+            // Superseded: its view went away, or a refresh started over.
+            guard !Task.isCancelled, generations[hopId, default: 0] == started else { return }
+            guard let list = clips[hopId],
+                  !list.items.contains(where: { $0.id == clip.id }),
+                  list.hasMore, list.failed == nil
+            else { return }
+            await loadMore(in: hopId, api: api)
+            // Another load was already under way, or nothing changed: stop.
+            guard clips[hopId]?.nextCursor != list.nextCursor else { return }
+        }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+
+    /// An event's clips for the viewer: `items`, plus `showing` if a refresh
+    /// dropped it (it was on a later page, which a refresh doesn't reload), in
+    /// the API's order. The clip someone is watching never vanishes from under
+    /// them; once they move on, the list follows the API again.
+    static func clips(_ items: [Clip], keeping showing: Clip?) -> [Clip] {
+        guard let showing, !items.contains(where: { $0.id == showing.id }) else { return items }
+        let index = items.firstIndex { isOlder($0, than: showing) } ?? items.endIndex
+        var clips = items
+        clips.insert(showing, at: index)
+        return clips
+    }
+
+    /// The API's order: newest first, then by id.
+    private static func isOlder(_ clip: Clip, than other: Clip) -> Bool {
+        clip.createdAt != other.createdAt ? clip.createdAt < other.createdAt : clip.id < other.id
     }
 
     /// Deletes a clip for good, and updates its event's totals.

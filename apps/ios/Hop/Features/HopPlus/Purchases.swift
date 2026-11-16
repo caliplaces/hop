@@ -14,6 +14,8 @@ nonisolated struct Purchase: Sendable {
 nonisolated protocol PurchaseSource: Sendable {
     /// Transactions not yet finished, and the subscriptions this Apple ID has now.
     func current() async -> [Purchase]
+    /// Only the transactions not yet finished: ones the API hasn't answered for.
+    func unfinished() async -> [Purchase]
     /// Transactions as they happen: renewals, refunds, Ask to Buy approvals,
     /// purchases on another device.
     func updates() -> AsyncStream<Purchase>
@@ -37,6 +39,14 @@ nonisolated struct StoreKitPurchases: PurchaseSource {
             if let purchase = Self.purchase(result), seen.insert(purchase.id).inserted {
                 purchases.append(purchase)
             }
+        }
+        return purchases
+    }
+
+    func unfinished() async -> [Purchase] {
+        var purchases: [Purchase] = []
+        for await result in Transaction.unfinished {
+            if let purchase = Self.purchase(result) { purchases.append(purchase) }
         }
         return purchases
     }

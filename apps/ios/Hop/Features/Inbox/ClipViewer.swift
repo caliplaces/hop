@@ -18,6 +18,8 @@ struct ClipViewer: View {
     /// that before the sheet's dismiss callback runs.
     @State private var shared: SharedFile?
     @State private var problem: String?
+    /// The clip showing, kept in the list even if a refresh drops it.
+    @State private var showing: Clip?
 
     init(hopId: String, startAt clipId: String, model: InboxModel) {
         self.hopId = hopId
@@ -25,7 +27,9 @@ struct ClipViewer: View {
         _current = State(initialValue: clipId)
     }
 
-    private var clips: [Clip] { model.clips[hopId]?.items ?? [] }
+    private var clips: [Clip] {
+        InboxModel.clips(model.clips[hopId]?.items ?? [], keeping: showing)
+    }
     private var clip: Clip? { clips.first { $0.id == current } }
     private var position: Int? { clips.firstIndex { $0.id == current } }
 
@@ -51,8 +55,16 @@ struct ClipViewer: View {
         .onAppear {
             // Clips are watched with sound, even with the ring switch off.
             try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            showing = clip
+        }
+        // A refresh (as clips land in Event mode) drops later pages: load
+        // them again up to the clip showing, so swiping on still works.
+        .task(id: model.clips[hopId]?.refreshes) {
+            guard let showing else { return }
+            await model.load(upTo: showing, in: hopId, api: session.api)
         }
         .onChange(of: current) {
+            showing = clip
             transfer.reset()
             problem = nil
             if let position, position >= clips.count - 3 {
@@ -224,6 +236,8 @@ struct ClipViewer: View {
             : position > 0 ? clips[position - 1].id : nil
         do {
             try await model.delete(clip, api: session.api)
+            // Let go of it, or the viewer would keep showing it.
+            showing = nil
             if let neighbour {
                 current = neighbour
             } else {
