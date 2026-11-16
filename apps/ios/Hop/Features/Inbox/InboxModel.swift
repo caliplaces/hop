@@ -152,6 +152,21 @@ final class InboxModel {
         }
     }
 
+    /// Drops clips that are gone (a blocked sender's), from every event's
+    /// list and from its counts, without waiting for a reload.
+    func drop(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        for (hopId, list) in clips {
+            let gone = list.items.filter { ids.contains($0.id) }
+            guard !gone.isEmpty else { continue }
+            clips[hopId]?.items.removeAll { ids.contains($0.id) }
+            if let index = hops.firstIndex(where: { $0.id == hopId }) {
+                hops[index].fileCount = max(hops[index].fileCount - gone.count, 0)
+                hops[index].totalBytes = max(hops[index].totalBytes - gone.reduce(0) { $0 + $1.size }, 0)
+            }
+        }
+    }
+
     /// A short-lived link to stream the clip, or to download it.
     func url(for clip: Clip, download: Bool, api: APIClient) async throws -> URL {
         struct Reply: Decodable { let url: String }

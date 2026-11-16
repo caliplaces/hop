@@ -4,6 +4,7 @@ import SwiftUI
 /// Screens the account sheet pushes.
 enum AccountRoute: Hashable {
     case profile
+    case blockedSenders
     case deleteAccount
 }
 
@@ -86,6 +87,12 @@ struct AccountView: View {
                 }
 
                 Section {
+                    NavigationLink(value: AccountRoute.blockedSenders) {
+                        Label("Blocked Senders", systemImage: "hand.raised")
+                    }
+                }
+
+                Section {
                     Button(role: .destructive) {
                         dismiss()
                         Task { await session.signOut() }
@@ -111,6 +118,8 @@ struct AccountView: View {
                 switch route {
                 case .profile:
                     if let me = session.me { EditProfileView(me: me, session: session) }
+                case .blockedSenders:
+                    BlockedSendersView(api: session.api)
                 case .deleteAccount:
                     DeleteAccountView()
                 }
