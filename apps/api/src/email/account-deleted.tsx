@@ -22,11 +22,14 @@ export async function accountDeletedEmail({
 }: AccountDeletedInput): Promise<RenderedEmail> {
   const host = new URL(appUrl).host;
   const what = handle
-    ? `Your Hop account, ${host}/${handle}, and every clip in it have been deleted.`
-    : "Your Hop account and everything in it have been deleted.";
+    ? `Your Hop account, ${host}/${handle}, is deleted. Your name, email and photo are gone, and your clips are being removed from Hop’s storage.`
+    : "Your Hop account is deleted. Your name, email and photo are gone, and your clips are being removed from Hop’s storage.";
   const kept = handle
-    ? `Nobody can take over ${host}/${handle}, so clips sent to your old link or QR code can’t reach anyone else.`
+    ? `Nobody can take ${host}/${handle} again, you included, so clips sent to your old link or QR code can’t reach anyone else.`
     : null;
+  const sent = handle
+    ? `Clips you sent other athletes stay with them, under @${handle}.`
+    : "Clips you sent other athletes stay with them, without your name.";
   const notYou =
     "If you didn’t delete it, someone else can sign in to your Caliplaces account. Change your Caliplaces password.";
   const hopPlus =
@@ -48,6 +51,7 @@ export async function accountDeletedEmail({
       <Subtitle>Wasn’t you?</Subtitle>
       <Text>{notYou}</Text>
       <Subtitle>Good to know</Subtitle>
+      <Text>{sent}</Text>
       <Text>{hopPlus}</Text>
       <Text>{caliplaces}</Text>
     </EmailDocument>,
@@ -63,6 +67,7 @@ export async function accountDeletedEmail({
     notYou,
     "",
     "Good to know",
+    sent,
     hopPlus,
     caliplaces,
     "",

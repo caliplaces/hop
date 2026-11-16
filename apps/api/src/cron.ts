@@ -24,9 +24,12 @@ export async function cleanup(env: Env) {
   let removed = 0;
   let failed = 0;
 
-  // Erases deleted accounts again and marks their clips for removal, which
-  // the loop below then does (see lib/accounts.ts).
-  await eraseDeletedAccounts(db);
+  // Erases recently deleted accounts again and marks their clips for removal,
+  // which the loop below then does (see lib/accounts.ts). On its own, like
+  // each step that isn't the loop: one failing mustn't stop the rest.
+  await eraseDeletedAccounts(db).catch((error) =>
+    console.error("cleanup: erasing deleted accounts failed, will retry", error),
+  );
 
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
     const now = Date.now();
@@ -63,7 +66,10 @@ export async function cleanup(env: Env) {
     }
   }
 
-  const hopsDropped = await dropEmptiedHops(db);
+  const hopsDropped = await dropEmptiedHops(db).catch((error) => {
+    console.error("cleanup: dropping deleted accounts' hops failed, will retry", error);
+    return 0;
+  });
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
   await db.delete(liveActivities).where(lt(liveActivities.expiresAt, Date.now()));
   // The waitlist keeps an address only until a day after its launch email,

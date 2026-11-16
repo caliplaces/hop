@@ -1,15 +1,23 @@
-import type { Me } from "@hop/shared";
+import { DEFAULT_HOP_SLUG, DEFAULT_HOP_TITLE, type Me } from "@hop/shared";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup } from "../cron";
+import { cleanup, sweepAvatars } from "../cron";
 import { getDb } from "../db";
 import * as schema from "../db/schema";
-import { files, hops, liveActivities, sessions, subscriptions, users } from "../db/schema";
+import {
+  files,
+  hops,
+  liveActivities,
+  sessions,
+  subscriptions,
+  users,
+  waitlist,
+} from "../db/schema";
 import { accountDeletedEmail } from "../email/account-deleted";
 import type { Env } from "../env";
 import worker from "../index";
-import { deleteAccount } from "../lib/accounts";
+import { deleteAccount, RECENT_MS } from "../lib/accounts";
 import { randomToken, sha256Hex, signPayload } from "../lib/crypto";
 import { thumbnailKey } from "../lib/files";
 import { createTestD1 } from "../test/d1";
@@ -383,6 +391,141 @@ describe("deleting an account", () => {
     expect(sent).toEqual([]);
   });
 
+  it("drops the real name from clips they sent before claiming a handle", async () => {
+    // Sent while signed in without a handle: the clip carries their name.
+    await db
+      .update(files)
+      .set({ contributorName: "Alex Caliplaces" })
+      .where(eq(files.contributorUserId, "usr_a"));
+    await deleteMe();
+    const sentToBea = await db.select().from(files).where(eq(files.hopId, "hop_b")).get();
+    expect(sentToBea).toMatchObject({ contributorUserId: null, contributorName: null });
+  });
+
+  it("refuses a session of the deleted account, however it came to be", async () => {
+    await deleteMe();
+    // As if a sign-in under way made one just after.
+    const late = await session("usr_a", "app");
+    expect(await meWith(bearer(late))).toBeNull();
+    const created = await call("/me/hops", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(late) },
+      body: JSON.stringify({ title: "Sneaky" }),
+    });
+    expect(created.status).toBe(401);
+  });
+
+  it("refuses a handle claim that was under way as the account was deleted", async () => {
+    const now = Date.now();
+    await db.insert(users).values({
+      id: "usr_c",
+      oidcSub: "sub-c",
+      email: "cleo@example.com",
+      emailVerified: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const cleo = await session("usr_c", "app");
+    // The account is deleted at the last moment, after the claim checked it.
+    const raw = env.DB;
+    const elsewhere = drizzle(raw, { schema });
+    let deleted = false;
+    env.DB = new Proxy(raw, {
+      get(target, key, receiver) {
+        const value = Reflect.get(target, key, receiver);
+        if (key === "batch") {
+          return async (statements: unknown) => {
+            if (!deleted) {
+              deleted = true;
+              await deleteAccount(elsewhere, "usr_c");
+            }
+            return (value as (s: unknown) => Promise<unknown>).call(target, statements);
+          };
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const claim = await call("/me/handle", {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...bearer(cleo) },
+      body: JSON.stringify({ handle: "cleo" }),
+    });
+    expect(deleted).toBe(true);
+    expect(claim.status).toBe(409);
+    env.DB = raw;
+    expect(await db.select().from(users).where(eq(users.id, "usr_c")).get()).toMatchObject({
+      handle: null,
+      activeHopId: null,
+    });
+    expect(await db.select().from(hops).where(eq(hops.ownerId, "usr_c"))).toEqual([]);
+    await Promise.all(pending);
+    expect(sent.map((email) => email.subject)).not.toContain(expect.stringContaining("live"));
+  });
+
+  it("claims a handle, with its hop, as before", async () => {
+    const now = Date.now();
+    await db
+      .insert(users)
+      .values({ id: "usr_c", oidcSub: "sub-c", createdAt: now, updatedAt: now });
+    const claim = await call("/me/handle", {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...bearer(await session("usr_c", "app")) },
+      body: JSON.stringify({ handle: "cleo", color: "grape" }),
+    });
+    expect(claim.status).toBe(200);
+    const row = await db.select().from(users).where(eq(users.id, "usr_c")).get();
+    expect(row).toMatchObject({ handle: "cleo", color: "grape" });
+    const hop = await db.select().from(hops).where(eq(hops.ownerId, "usr_c")).get();
+    expect(hop).toMatchObject({
+      id: row?.activeHopId,
+      slug: DEFAULT_HOP_SLUG,
+      title: DEFAULT_HOP_TITLE,
+      status: "open",
+    });
+    expect(hop?.createdAt).toBeGreaterThanOrEqual(now);
+    // Only once.
+    const again = await call("/me/handle", {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...bearer(await session("usr_c", "app")) },
+      body: JSON.stringify({ handle: "cleo2" }),
+    });
+    expect(again.status).toBe(409);
+    expect(await db.select().from(hops).where(eq(hops.ownerId, "usr_c"))).toHaveLength(1);
+  });
+
+  it("takes them off the launch waitlist, if their address is verified", async () => {
+    const now = Date.now();
+    await db.insert(waitlist).values([
+      { email: "alex@example.com", createdAt: now },
+      { email: "bea@example.com", createdAt: now },
+    ]);
+    await db.update(users).set({ email: " Alex@Example.com " }).where(eq(users.id, "usr_a"));
+    await deleteMe();
+    const left = await db.select({ email: waitlist.email }).from(waitlist);
+    expect(left.map((row) => row.email)).toEqual(["bea@example.com"]);
+  });
+
+  it("leaves the waitlist alone for an unverified address", async () => {
+    await db.insert(waitlist).values({ email: "alex@example.com", createdAt: Date.now() });
+    await db.update(users).set({ emailVerified: false }).where(eq(users.id, "usr_a"));
+    await deleteMe();
+    expect(await db.select().from(waitlist)).toHaveLength(1);
+  });
+
+  it("emails once when two deletions race", async () => {
+    const [first, second] = await Promise.all([deleteMe(), deleteMe()]);
+    expect([first.status, second.status]).toContain(200);
+    await Promise.all(pending);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("doesn't email when there's no address", async () => {
+    await db.update(users).set({ email: null }).where(eq(users.id, "usr_a"));
+    await deleteMe();
+    await Promise.all(pending);
+    expect(sent).toEqual([]);
+  });
+
   it("lets the same Caliplaces account start again as a new account", async () => {
     await deleteMe();
     const now = Date.now();
@@ -462,14 +605,126 @@ describe("the cleanup, after an account is deleted", () => {
   });
 
   it("leaves accounts that weren't deleted alone", async () => {
-    await cleanup(env);
-    expect(await alex()).toMatchObject({
-      deletedAt: null,
-      email: "alex@example.com",
-      avatarKey: AVATAR,
+    // Bea, who isn't deleting anything, has a bit of everything.
+    const now = Date.now();
+    await db.insert(subscriptions).values({
+      originalTransactionId: "1000000000000002",
+      userId: "usr_b",
+      productId: "hop_plus",
+      environment: "Production",
+      expiresAt: now + 30 * DAY,
+      purchasedAt: now,
+      signedAt: now,
+      createdAt: now,
+      updatedAt: now,
     });
-    expect(await db.select().from(files).where(eq(files.ownerId, "usr_a"))).toHaveLength(3);
-    expect(await db.select().from(sessions).where(eq(sessions.userId, "usr_a"))).toHaveLength(2);
+    await db.insert(liveActivities).values({
+      token: "bea-token",
+      userId: "usr_b",
+      hopId: "hop_b",
+      since: now,
+      createdAt: now,
+      expiresAt: now + DAY,
+    });
+    await clip("hop_b", "usr_b", { status: "pending" });
+
+    await deleteMe();
+    await cleanup(env);
+
+    expect(await db.select().from(users).where(eq(users.id, "usr_b")).get()).toMatchObject({
+      deletedAt: null,
+      email: "bea@example.com",
+      name: "Bea",
+      handle: "bea",
+      activeHopId: "hop_b",
+    });
+    expect(await db.select().from(sessions).where(eq(sessions.userId, "usr_b"))).toHaveLength(1);
+    expect(
+      await db.select().from(subscriptions).where(eq(subscriptions.userId, "usr_b")),
+    ).toHaveLength(1);
+    expect(
+      await db.select().from(liveActivities).where(eq(liveActivities.userId, "usr_b")),
+    ).toHaveLength(1);
+    expect((await db.select().from(hops).where(eq(hops.id, "hop_b")).get())?.status).toBe("open");
+    const beas = await db.select().from(files).where(eq(files.ownerId, "usr_b"));
+    expect(beas.map((file) => file.status).sort()).toEqual(["complete", "pending"]);
+  });
+
+  it("carries on with the rest when erasing deleted accounts fails", async () => {
+    await deleteMe();
+    const now = Date.now();
+    await db.insert(sessions).values({
+      id: "expired",
+      userId: "usr_b",
+      kind: "app",
+      createdAt: now - 2 * DAY,
+      expiresAt: now - DAY,
+    });
+    // D1 has a moment during the erasure's batch.
+    const raw = env.DB;
+    let failed = false;
+    env.DB = new Proxy(raw, {
+      get(target, key, receiver) {
+        const value = Reflect.get(target, key, receiver);
+        if (key === "batch" && !failed) {
+          return async () => {
+            failed = true;
+            throw new Error("D1 is having a moment");
+          };
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await cleanup(env);
+    expect(failed).toBe(true);
+    expect(await db.select().from(sessions).where(eq(sessions.id, "expired"))).toEqual([]);
+    // The clips marked when the account was deleted were still removed.
+    expect(await db.select().from(files).where(eq(files.ownerId, "usr_a"))).toEqual([]);
+  });
+
+  it("keeps erasing for a week, and the photo written late goes too", async () => {
+    // Deleted six days ago; a late write lands now.
+    await deleteMe();
+    await db
+      .update(users)
+      .set({ deletedAt: Date.now() - RECENT_MS + DAY })
+      .where(eq(users.id, "usr_a"));
+    const now = Date.now();
+    const late = "avatars/bbbbbbbbbbbbbbbbbbbbbb.jpg";
+    await r2.bucket.put(late, new Uint8Array([9]));
+    await db.update(users).set({ avatarKey: late }).where(eq(users.id, "usr_a"));
+    await db.insert(subscriptions).values({
+      originalTransactionId: "1000000000000003",
+      userId: "usr_a",
+      productId: "hop_plus",
+      environment: "Production",
+      expiresAt: now + 30 * DAY,
+      purchasedAt: now,
+      signedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await cleanup(env);
+    expect((await alex())?.avatarKey).toBeNull();
+    expect(await db.select().from(subscriptions)).toEqual([]);
+    // Unreferenced now, the photo goes with the sweep once it's an hour old.
+    await sweepAvatars(env, Date.now() + 2 * 60 * 60 * 1000);
+    expect(r2.objects.has(late)).toBe(false);
+  });
+
+  it("clears the sender of a clip sent while the account was being deleted", async () => {
+    await deleteMe();
+    // Nora had no handle, so her clip carried her real name.
+    await clip("hop_b", "usr_b", { from: "usr_a" });
+    await db
+      .update(files)
+      .set({ contributorName: "Alex Caliplaces" })
+      .where(eq(files.contributorUserId, "usr_a"));
+    await cleanup(env);
+    const sent = await db.select().from(files).where(eq(files.hopId, "hop_b"));
+    expect(sent.every((file) => file.contributorUserId === null)).toBe(true);
+    expect(sent.map((file) => file.contributorName).sort()).toEqual(["@alex", null].sort());
   });
 });
 
@@ -477,8 +732,11 @@ describe("the account deleted email", () => {
   it("says what went, what stays reserved, and what to do if it wasn't them", async () => {
     const email = await accountDeletedEmail({ appUrl: "https://onmyhop.com", handle: "alex" });
     expect(email.subject).toBe("Your Hop account is deleted");
-    expect(email.text).toContain("onmyhop.com/alex");
-    expect(email.text).toContain("Nobody can take over onmyhop.com/alex");
+    expect(email.text).toContain("Your Hop account, onmyhop.com/alex, is deleted.");
+    // Clips are queued for removal, not gone yet: it doesn't claim otherwise.
+    expect(email.text).toContain("your clips are being removed");
+    expect(email.text).toContain("Nobody can take onmyhop.com/alex again, you included");
+    expect(email.text).toContain("Clips you sent other athletes stay with them, under @alex.");
     expect(email.text).toContain("Change your Caliplaces password");
     expect(email.text).toContain("deleting your account doesn’t cancel it");
     expect(email.html).toContain("Your Hop account is deleted");
@@ -486,7 +744,10 @@ describe("the account deleted email", () => {
 
   it("reads right without a handle", async () => {
     const email = await accountDeletedEmail({ appUrl: "https://onmyhop.com", handle: null });
-    expect(email.text).toContain("Your Hop account and everything in it have been deleted.");
-    expect(email.text).not.toContain("Nobody can take over");
+    expect(email.text).toContain(
+      "Your Hop account is deleted. Your name, email and photo are gone",
+    );
+    expect(email.text).toContain("stay with them, without your name.");
+    expect(email.text).not.toContain("Nobody can take");
   });
 });

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
@@ -88,7 +88,9 @@ export const loadSession = createMiddleware<AppEnv>(async (c, next) => {
       .select({ user: users, createdAt: sessions.createdAt, expiresAt: sessions.expiresAt })
       .from(sessions)
       .innerJoin(users, eq(users.id, sessions.userId))
-      .where(and(eq(sessions.id, id), eq(sessions.kind, kind)))
+      // A deleted account's session counts for nothing, even one made by a
+      // sign-in that was under way as it was deleted.
+      .where(and(eq(sessions.id, id), eq(sessions.kind, kind), isNull(users.deletedAt)))
       .get();
     const now = Date.now();
     const policy = POLICY[kind];

@@ -154,17 +154,18 @@ The photo itself goes with the next hourly cleanup, and caches drop it within a 
 - **Everything that identifies them goes:**
   - email, both names and the photo (deleted from R2 at once);
   - the App Store account token, subscriptions and Live Activities;
-  - every session, so they're signed out everywhere.
+  - every session, so they're signed out everywhere;
+  - a verified address on the launch waitlist.
 
   Their Caliplaces login is let go too (`oidc_sub` becomes `deleted:<id>`), so signing in with it again starts a new, empty account.
 
 - **Their hops close and their clips are marked for removal.** The hourly cleanup removes the clips from R2 in batches, then drops each hop once it's empty.
-- **Clips they sent other athletes stay with those athletes,** no longer tied to an account, so they no longer show as from a signed-in contributor.
-- **The row stays as a tombstone (`users.deleted_at`).** It keeps only the id and the handle. The page 404s, and the handle can't be claimed: whoever took it would receive clips people send to the old link or QR code.
+- **Clips they sent other athletes stay with those athletes,** no longer tied to an account. They keep the sender's @handle (which stays reserved), but not a name: without a handle, that was their real one.
+- **The row stays as a tombstone (`users.deleted_at`).** It keeps the id, the handle, the colour and timestamps, nothing that identifies them. The page 404s, and the handle can't be claimed, theirs included: whoever took it would receive clips people send to the old link or QR code.
 
-Requests already under way when someone deletes their account (saving a name, uploading a photo, starting a Live Activity) could write to the tombstone afterwards. So every cleanup run erases all tombstones again. Uploads re-check that the hop is still open when they reserve their place.
+A deleted account's sessions are refused, even one a sign-in under way created just after. A request already running when they delete could still write to the tombstone (a name, a photo, a clip sent to someone, a Live Activity). So for a week after a deletion, every cleanup run erases the account again. A handle claim only lands on an account with no handle that isn't deleted. Uploads re-check that the hop is still open when they reserve their place. Each of these cleanup steps runs on its own, so one failing doesn't stop the rest.
 
-Deleting the account doesn't cancel Hop+, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. Their purchase carries the old account's token, so it can't move to a new account.
+Deleting the account doesn't cancel Hop+, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. The purchase carries the deleted account's token, so restoring it on a new account fails with `deleted_account`, which tells them to cancel it and subscribe again.
 
 ## Hop+ subscriptions
 
