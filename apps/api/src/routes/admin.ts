@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { getDb } from "../db";
 import type { AppEnv, Env } from "../env";
 import { fail } from "../lib/http";
-import { currentUser, requireUser } from "../lib/session";
+
 import { adminStats } from "../stats";
 
 /** Whether this account is one of Hop's team (ADMIN_USER_IDS). */
@@ -15,11 +15,12 @@ export function isAdmin(env: Env, userId: string): boolean {
 }
 
 /**
- * Hop's private stats page. Anyone else gets a plain 404, so the page
- * doesn't even say it exists.
+ * Hop's private stats page. Anyone else, signed in or not, gets a plain
+ * 404, so the page doesn't even say it exists.
  */
-export const adminRoutes = new Hono<AppEnv>().get("/admin/stats", requireUser, async (c) => {
-  if (!isAdmin(c.env, currentUser(c).id)) return fail(c, 404, "not_found");
+export const adminRoutes = new Hono<AppEnv>().get("/admin/stats", async (c) => {
+  const user = c.get("user");
+  if (!user || !isAdmin(c.env, user.id)) return fail(c, 404, "not_found");
   c.header("cache-control", "no-store");
   return c.json(await adminStats(getDb(c.env.DB)));
 });

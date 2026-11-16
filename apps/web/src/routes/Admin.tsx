@@ -6,7 +6,7 @@ import { buttonClass } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { PageSpinner } from "../components/ui/Spinner";
 import { StatusScreen } from "../features/upload/StatusScreen";
-import { ApiError, api, signInUrl } from "../lib/api";
+import { api } from "../lib/api";
 
 const number = new Intl.NumberFormat("en-GB");
 
@@ -32,9 +32,9 @@ function Stat({ label, value, children }: { label: string; value: string; childr
   );
 }
 
-/** "+2 today · +5 this week · +9 in 30 days". */
+/** "+2 in 24 hours · +5 in 7 days · +9 in 30 days": rolling, not calendar, periods. */
 function recent({ day, week, month }: Recent, verb = "+") {
-  return `${verb}${number.format(day)} today · ${verb}${number.format(week)} this week · ${verb}${number.format(month)} in 30 days`;
+  return `${verb}${number.format(day)} in 24 hours · ${verb}${number.format(week)} in 7 days · ${verb}${number.format(month)} in 30 days`;
 }
 
 /**
@@ -50,21 +50,9 @@ export function Admin() {
   });
 
   if (stats.isPending) return <PageSpinner />;
+  // Signed out or not on the team: the same as any unknown page.
   if (stats.error) {
-    const signedOut = stats.error instanceof ApiError && stats.error.status === 401;
-    return signedOut ? (
-      <StatusScreen
-        mascot="idle"
-        title="Sign in first"
-        action={
-          <a className={buttonClass({ variant: "primary" })} href={signInUrl("/admin")}>
-            Sign in
-          </a>
-        }
-      >
-        Hop’s numbers are for Hop’s team.
-      </StatusScreen>
-    ) : (
+    return (
       <StatusScreen mascot="broken" title="Nothing here">
         There’s no page at this address.
       </StatusScreen>
@@ -99,12 +87,12 @@ export function Admin() {
         <Stat label="Athletes" value={number.format(s.athletes.total)}>
           {recent(s.athletes.new)}
         </Stat>
-        <Stat label="Active athletes this week" value={number.format(s.athletes.active.week)}>
-          {number.format(s.athletes.active.day)} today · {number.format(s.athletes.active.month)} in
-          30 days, at least
+        <Stat label="Active athletes, last 7 days" value={number.format(s.athletes.active.week)}>
+          At least · {number.format(s.athletes.active.day)} in 24 hours ·{" "}
+          {number.format(s.athletes.active.month)} in 30 days
         </Stat>
-        <Stat label="People who sent clips this week" value={number.format(s.senders.week)}>
-          {number.format(s.senders.day)} today · {number.format(s.senders.month)} in 30 days
+        <Stat label="People who sent clips, last 7 days" value={number.format(s.senders.week)}>
+          {number.format(s.senders.day)} in 24 hours · {number.format(s.senders.month)} in 30 days
         </Stat>
         <Stat label="Events" value={number.format(s.events.total)}>
           {recent(s.events.new)}

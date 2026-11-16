@@ -234,13 +234,13 @@ The app registers its push token with `PUT /api/me/devices/:token { environment 
 
 `onmyhop.com/admin` shows Hop's numbers to Hop's team: athletes (new and active), people who sent clips, events, clips, storage by plan, Hop+ subscribers, the waitlist, and the last 30 days day by day (`GET /api/admin/stats`, `src/stats.ts`). It's counts and sums over what the API stores anyway, read on demand: nothing new is collected, and nothing is about anyone in particular.
 
-Only accounts listed in the `ADMIN_USER_IDS` secret (comma-separated `usr_…` IDs) can see it. Everyone else, signed in or not, gets the same 404 as any unknown page. Set it per environment:
+Only accounts listed in the `ADMIN_USER_IDS` secret (comma-separated `usr_…` IDs) can see it, once signed in on the website. Everyone else, signed in or not, gets the same 404 as any unknown page. Set it per environment:
 
 ```sh
 pnpm --filter @hop/api exec wrangler secret put ADMIN_USER_IDS --env production
 ```
 
-"Active" athletes used the app (app sessions renew at most daily, so that's right to the day) or the website (a lower bound: its sessions renew in their last week) in the window. "People who sent clips" are counted by account when signed in, otherwise by browser.
+"Active" athletes used the app or the website in the window, as a lower bound. App sessions renew at most daily, so app use shows to the day until a session nears its one-year limit (renewals stop at day 275 of it). Website sessions renew only in their last week. Periods are rolling: the last 24 hours, 7 days and 30 days. "People who sent clips" are counted by account when signed in, otherwise by browser.
 
 ## Hop+ subscriptions
 

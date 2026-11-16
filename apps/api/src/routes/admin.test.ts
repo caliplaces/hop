@@ -100,7 +100,7 @@ describe("the stats page", () => {
   it("is only for Hop's team: anyone else finds nothing there", async () => {
     await athlete("usr_team", NOW);
     await athlete("usr_alex", NOW);
-    expect((await stats()).status).toBe(401);
+    expect((await stats()).status).toBe(404);
     expect((await stats(await signIn("usr_alex"))).status).toBe(404);
     const response = await stats(await signIn("usr_team"));
     expect(response.status).toBe(200);
@@ -109,6 +109,22 @@ describe("the stats page", () => {
 
     env = { ...env, ADMIN_USER_IDS: undefined } as Env;
     expect((await stats(await signIn("usr_team"))).status).toBe(404);
+  });
+
+  it("counts an app session near its one-year limit as last seen when it stopped renewing", async () => {
+    // Opened yesterday, but the session hit its year: renewals stopped at
+    // day 275, 25 days ago. A lower bound: seen this month, not this week.
+    await athlete("capped", NOW - 400 * DAY);
+    const createdAt = NOW - 300 * DAY;
+    await db.insert(sessions).values({
+      id: "s_capped",
+      userId: "capped",
+      kind: "app",
+      createdAt,
+      expiresAt: createdAt + 365 * DAY,
+    });
+    const { active } = (await adminStats(db, NOW)).athletes;
+    expect(active).toEqual({ day: 0, week: 0, month: 1 });
   });
 
   it("counts athletes, how many came and how many are around", async () => {

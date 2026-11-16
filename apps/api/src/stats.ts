@@ -15,9 +15,10 @@ const SESSION_TTL_MS = { app: 90 * DAY_MS, web: 30 * DAY_MS };
  * collected. Read on demand, by Hop's team only (routes/admin.ts).
  *
  * "Active" athletes used the app, or the website's session was renewed or
- * started, in the window. App sessions renew at most daily, so the app's
- * count is right to the day; the website's is a lower bound (its sessions
- * renew in their last week).
+ * started, in the window: a lower bound either way. App sessions renew at
+ * most daily, so app use shows to the day, until a session nears its
+ * one-year limit (renewals stop at day 275 of it). Website sessions only
+ * renew in their last week.
  */
 export async function adminStats(db: Db, now = Date.now()): Promise<AdminStats> {
   const since = (days: number) => now - days * DAY_MS;
