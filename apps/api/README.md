@@ -80,10 +80,12 @@ You also need to:
 
 Hop sends its own emails through [Resend](https://resend.com) from `EMAIL_FROM` (see `wrangler.jsonc`); sign-in emails come from Caliplaces auth. Templates live in `src/email/` as JSX components that hono/jsx renders to table-based HTML with inline styles, with a plain-text version alongside. Each email goes only to verified addresses, and carries an idempotency key so retries never send it twice.
 
-| Email     | When                                                                                                       |
-| --------- | ---------------------------------------------------------------------------------------------------------- |
-| Welcome   | An athlete claims their handle                                                                             |
-| New clips | Clips arrived and uploads have been quiet for 10 minutes, or an hour after the first one (`src/notify.ts`) |
+| Email           | When                                                                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Welcome         | An athlete claims their handle                                                                                                                              |
+| New clips       | Clips arrived and uploads have been quiet for 10 minutes, or an hour after the first one (`src/notify.ts`)                                                  |
+| Report          | A clip or page is reported: to `REPORTS_EMAIL`, with the IDs needed to look at it                                                                           |
+| Account deleted | An athlete deletes their account: what went, that the handle stays reserved, what to do if it wasn't them, and that Hop+ is billed by Apple until cancelled |
 
 The new-clips digest runs every 5 minutes. A clip counts as announced once `files.notified_at` is set; each run claims an athlete's unannounced clips in one statement before sending, and hands them back if the send fails. Athletes turn it off in account settings, from the unsubscribe link in each email (a page that asks first), or with their mail app's one-click unsubscribe (`List-Unsubscribe`, RFC 8058).
 
@@ -145,6 +147,64 @@ wrangler d1 execute hop-production --remote --env production \
 ```
 
 The photo itself goes with the next hourly cleanup, and caches drop it within a week.
+
+## Deleting an account
+
+`DELETE /api/me` deletes the signed-in account, from the app (Account → Delete Account, which App Review requires) or the website. In one transaction (`src/lib/accounts.ts`):
+
+- **Everything that identifies them goes:**
+  - email, both names and the photo (deleted from R2 at once);
+  - the App Store account token, subscriptions and Live Activities;
+  - every session, so they're signed out everywhere;
+  - a verified address on the launch waitlist.
+
+  Their Caliplaces login is let go too (`oidc_sub` becomes `deleted:<id>`), so signing in with it again starts a new, empty account.
+
+- **Their hops close and their clips are marked for removal.** The hourly cleanup removes the clips from R2 in batches, then drops each hop once it's empty.
+- **Clips they sent other athletes stay with those athletes,** no longer tied to an account. They keep the sender's @handle (which stays reserved), but not a name: without a handle, that was their real one.
+- **The row stays as a tombstone (`users.deleted_at`).** It keeps the id, the handle, the colour and timestamps, nothing that identifies them. The page 404s, and the handle can't be claimed, theirs included: whoever took it would receive clips people send to the old link or QR code.
+
+A deleted account's sessions are refused, even one a sign-in under way created just after. A request already running when they delete could still write to the tombstone (a name, a photo, a clip sent to someone, a Live Activity). So for a week after a deletion, every cleanup run erases the account again. A handle claim only lands on an account with no handle that isn't deleted. Uploads re-check that the hop is still open when they reserve their place. Each of these cleanup steps runs on its own, so one failing doesn't stop the rest.
+
+Deleting the account doesn't cancel Hop+, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. The purchase carries the deleted account's token, so restoring it on a new account fails with `deleted_account`, which tells them to cancel it and subscribe again.
+
+## Reports and blocks
+
+Anyone with an athlete's link can send them clips, and anyone can open their page. App Review requires a way to report content and to block whoever sends it (Guideline 1.2).
+
+- **Reporting a clip.** `POST /api/me/files/:fileId/report { reason, note? }`, by the athlete it was sent to, from the app. The report keeps the clip's sender, note and file name.
+  - The clip is held for 30 days from its first report (`files.held_until`); reporting it again doesn't stretch that. Deleting it in that time only hides it (status `held`), and so does a block or deleting the account. The team can still look, and the hourly cleanup removes it once the hold is over.
+  - Deleting checks the hold and claims the clip in one statement, and a report only holds a clip that isn't already going. So a clip is either held or deleted, never both.
+- **Reporting a page.** `POST /api/h/:handle/report { reason, note?, turnstileToken }`, by anyone, from the upload page. It's behind Turnstile and a limit per IP (per /64 for IPv6). The same visitor reporting the same page again within a day changes nothing.
+- **Blocking a sender.** `POST /api/me/files/:fileId/block` blocks whoever sent that clip.
+  - The block covers every way they're known: their account if they were signed in, and each random key their browsers keep (`block_keys`). That includes every browser they sent this athlete clips from while signed in, so signing out on any of them doesn't help. That key is the `hop_sender` cookie, set by the upload routes, limited to `/api/hops` and renewed for a year with each use. Only its hash is stored, on each clip (`files.sender_key`) and block. The upload pass carries it too, so dropping the cookie doesn't make each upload a new sender. A block also ends the sender's pass.
+  - Blocking by IP address would also block everyone else on the same network, such as a whole crowd on an event's Wi-Fi. Someone who clears their cookies and solves Turnstile again gets past a block, which is why reports exist for anything worse.
+  - Their clips leave the athlete's inbox at once, uploads under way included, and the team hears about the block. The reply lists the clips that went (`removedIds`), so the app can drop them before it reloads.
+  - An athlete is never blocked from their own Hop while signed in. Clips from before sender keys can't be blocked (422), only reported.
+- **Managing blocks.** `GET /api/me/blocks` lists them, and `DELETE /api/me/blocks/:id` unblocks. Clips that went with a block don't come back.
+- **When a block applies.** A blocked sender hears "You can't send clips to this Hop." when they ask for an upload pass. The upload checks again, in the same statement that reserves its place.
+- **How the team hears.** Each report and block is kept in `reports` for a year. Every five minutes, the email job sends the new ones to `REPORTS_EMAIL` (hello@onmyhop.com) in one email (`src/reports.ts`). A flood of reports is at most one email a run.
+  - Each email is a batch claimed once (`reports.email_batch`), and the batch is its idempotency key.
+  - A send that fails, or whose reply is lost, goes again next run as the very same batch, so it can't repeat earlier reports. Reports that arrived since wait for the next batch. Someone should look within a day.
+- **Limits.** Reports and blocks are limited by `REPORT_LIMITER`.
+- **Deleted accounts.** Their blocks go, and their name is dropped from reports they made. Where they were the sender, a name is dropped from reports and others' blocks, and an @handle stays. Reports about them stay as the record.
+
+To look at a reported clip, find its key with the clip ID from the email, then fetch it:
+
+```sh
+wrangler d1 execute hop-production --remote --env production \
+  --command "select r2_key, status, held_until from files where id = 'fil_…'"
+wrangler r2 object get hop-production/<r2_key> --remote --file clip
+```
+
+To keep a clip longer, for example while working with the authorities, push its hold back:
+
+```sh
+wrangler d1 execute hop-production --remote --env production \
+  --command "update files set held_until = <ms since 1970> where id = 'fil_…'"
+```
+
+To take down a reported name or photo, see Profiles above.
 
 ## Hop+ subscriptions
 

@@ -1,45 +1,66 @@
+import { REPORT_REASONS } from "@hop/shared";
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
-export const users = sqliteTable("users", {
-  id: text("id").primaryKey(),
-  oidcSub: text("oidc_sub").notNull().unique(),
-  email: text("email"),
-  emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
-  name: text("name"),
-  /** Public handle (onmyhop.com/<handle>). One per account, claimed once. */
-  handle: text("handle").unique(),
-  /** Palette colour id for the athlete's page; null until chosen (a stable default is derived). */
-  color: text("color"),
-  /** The hop that onmyhop.com/<handle> uploads into. */
-  activeHopId: text("active_hop_id"),
-  /** Email the athlete when new clips arrive. On by default; unsubscribe links turn it off. */
-  emailNewClips: integer("email_new_clips", { mode: "boolean" }).notNull().default(true),
-  /**
-   * A UUID the iPhone app sets on App Store purchases (StoreKit's
-   * appAccountToken), so the API knows whose they are. Made when first needed.
-   */
-  appAccountToken: text("app_account_token").unique(),
-  /**
-   * Goes up whenever one of the athlete's subscriptions changes, so the app
-   * can tell a stale plan reply from a newer one (see GET /api/me/plan).
-   */
-  planRevision: integer("plan_revision").notNull().default(0),
-  /**
-   * The name others see, set in Hop. `name` is their Caliplaces account's,
-   * refreshed at every sign-in, and stands in until they set one.
-   */
-  displayName: text("display_name"),
-  /**
-   * Their profile photo in R2 (avatars/<random>.jpg), public. Unique and
-   * indexed: the cleanup looks photos up by it.
-   */
-  avatarKey: text("avatar_key").unique(),
-  /** When they confirmed their public profile, so the app asks only once. */
-  profileReviewedAt: integer("profile_reviewed_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    oidcSub: text("oidc_sub").notNull().unique(),
+    email: text("email"),
+    emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
+    name: text("name"),
+    /** Public handle (onmyhop.com/<handle>). One per account, claimed once. */
+    handle: text("handle").unique(),
+    /** Palette colour id for the athlete's page; null until chosen (a stable default is derived). */
+    color: text("color"),
+    /** The hop that onmyhop.com/<handle> uploads into. */
+    activeHopId: text("active_hop_id"),
+    /** Email the athlete when new clips arrive. On by default; unsubscribe links turn it off. */
+    emailNewClips: integer("email_new_clips", { mode: "boolean" }).notNull().default(true),
+    /**
+     * A UUID the iPhone app sets on App Store purchases (StoreKit's
+     * appAccountToken), so the API knows whose they are. Made when first needed.
+     */
+    appAccountToken: text("app_account_token").unique(),
+    /**
+     * Goes up whenever one of the athlete's subscriptions changes, so the app
+     * can tell a stale plan reply from a newer one (see GET /api/me/plan).
+     */
+    planRevision: integer("plan_revision").notNull().default(0),
+    /**
+     * The name others see, set in Hop. `name` is their Caliplaces account's,
+     * refreshed at every sign-in, and stands in until they set one.
+     */
+    displayName: text("display_name"),
+    /**
+     * Their profile photo in R2 (avatars/<random>.jpg), public. Unique and
+     * indexed: the cleanup looks photos up by it.
+     */
+    avatarKey: text("avatar_key").unique(),
+    /** When they confirmed their public profile, so the app asks only once. */
+    profileReviewedAt: integer("profile_reviewed_at"),
+    /**
+     * When they deleted their account. The row stays as a tombstone with
+     * nothing personal left, keeping only the handle, so nobody else can claim
+     * it and receive clips sent to their old link. See lib/accounts.ts.
+     */
+    deletedAt: integer("deleted_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    // Deleted accounts only: tiny, and what the cleanup reads them by.
+    index("users_deleted_idx").on(t.deletedAt).where(sql`${t.deletedAt} is not null`),
+  ],
+);
 
 export const sessions = sqliteTable(
   "sessions",
@@ -97,8 +118,12 @@ export const files = sqliteTable(
     size: integer("size").notNull(),
     partSize: integer("part_size").notNull(),
     partCount: integer("part_count").notNull(),
-    /** "deleting" rows are being removed; see lib/files.ts removeFile. */
-    status: text("status", { enum: ["pending", "complete", "deleting"] })
+    /**
+     * "deleting" rows are being removed; see lib/files.ts removeFile. "held"
+     * clips were reported, then deleted: gone for the athlete, kept for Hop's
+     * team until held_until.
+     */
+    status: text("status", { enum: ["pending", "complete", "deleting", "held"] })
       .notNull()
       .default("pending"),
     multipartUploadId: text("multipart_upload_id"),
@@ -112,6 +137,18 @@ export const files = sqliteTable(
     }),
     note: text("note"),
     uploaderIpHash: text("uploader_ip_hash"),
+    /**
+     * SHA-256 of the sender's browser key (the hop_sender cookie, see
+     * lib/senders.ts), so an athlete can block whoever sent a clip without
+     * blocking everyone else on the same network.
+     */
+    senderKey: text("sender_key"),
+    /**
+     * Set when the clip is reported: until then, deleting it (by the athlete,
+     * a block or deleting their account) only hides it, so Hop's team can
+     * still look at it. See lib/files.ts.
+     */
+    heldUntil: integer("held_until"),
     createdAt: integer("created_at").notNull(),
     /** Bumped on create, part signing and completion; drives quota reservation and cleanup. */
     lastActivityAt: integer("last_activity_at").notNull(),
@@ -134,6 +171,11 @@ export const files = sqliteTable(
     index("files_hop_status_completed_idx").on(t.hopId, t.status, t.completedAt),
     index("files_status_activity_idx").on(t.status, t.lastActivityAt),
     index("files_pass_status_idx").on(t.passId, t.status),
+    // Clips sent by signed-in contributors, so deleting an account finds
+    // theirs without reading every clip.
+    index("files_contributor_idx")
+      .on(t.contributorUserId)
+      .where(sql`${t.contributorUserId} is not null`),
     // Only finished uploads not yet announced: tiny, since almost every row is.
     // Keyed on completed_at rather than status, so SQLite can't prefer the
     // status indexes (and read every clip) for the digest's queries.
@@ -239,3 +281,97 @@ export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
+
+/**
+ * Reports of a clip (by the athlete it was sent to) or of an athlete's page
+ * (by anyone). Each is emailed to REPORTS_EMAIL; the row is the record, kept
+ * for a year (see cron.ts).
+ */
+export const reports = sqliteTable(
+  "reports",
+  {
+    id: text("id").primaryKey(),
+    /** A clip or a page reported, or a sender blocked (which tells the team too). */
+    kind: text("kind", { enum: ["clip", "profile", "block"] }).notNull(),
+    reason: text("reason", { enum: REPORT_REASONS }).notNull(),
+    note: text("note"),
+    /** The athlete reporting a clip; null for a page reported by a visitor. */
+    reporterId: text("reporter_id").references(() => users.id, { onDelete: "set null" }),
+    /** SHA-256 of a visitor's IP, for page reports. */
+    reporterIpHash: text("reporter_ip_hash"),
+    /** The account reported: the page's owner, or a clip's signed-in sender. */
+    subjectUserId: text("subject_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The clip reported. Not a foreign key: the report outlives the clip. */
+    fileId: text("file_id"),
+    /** The clip's sender as it showed them, and their browser key. */
+    contributorName: text("contributor_name"),
+    senderKey: text("sender_key"),
+    /** The clip's note and file name, which outlive it here. */
+    clipNote: text("clip_note"),
+    clipName: text("clip_name"),
+    /**
+     * The team's email about it (see src/reports.ts): the batch it was
+     * claimed into (the claim time), then when that batch's email went out.
+     */
+    emailBatch: integer("email_batch"),
+    emailedAt: integer("emailed_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("reports_created_idx").on(t.createdAt),
+    index("reports_unemailed_idx").on(t.createdAt).where(sql`${t.emailedAt} is null`),
+    // An athlete reports (or blocks from) each clip once.
+    uniqueIndex("reports_once_idx")
+      .on(t.kind, t.reporterId, t.fileId)
+      .where(sql`${t.reporterId} is not null and ${t.fileId} is not null`),
+    index("reports_page_idx").on(t.reporterIpHash, t.subjectUserId, t.createdAt),
+  ],
+);
+
+/**
+ * Senders an athlete blocked: by account, when they sent while signed in,
+ * and by every browser key they were seen with (block_keys). Uploads from a
+ * blocked sender are refused (lib/senders.ts).
+ */
+export const blocks = sqliteTable(
+  "blocks",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    contributorUserId: text("contributor_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    /** How they appeared on the clip that was blocked, for the athlete's list. */
+    label: text("label"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("blocks_owner_user_idx")
+      .on(t.ownerId, t.contributorUserId)
+      .where(sql`${t.contributorUserId} is not null`),
+    index("blocks_owner_created_idx").on(t.ownerId, t.createdAt),
+  ],
+);
+
+/** The browser keys (hashed) a block covers: each blocked once per athlete. */
+export const blockKeys = sqliteTable(
+  "block_keys",
+  {
+    ownerId: text("owner_id").notNull(),
+    senderKey: text("sender_key").notNull(),
+    blockId: text("block_id")
+      .notNull()
+      .references(() => blocks.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ownerId, t.senderKey] }),
+    index("block_keys_block_idx").on(t.blockId),
+  ],
+);
+
+export type ReportRow = typeof reports.$inferSelect;
+export type BlockRow = typeof blocks.$inferSelect;
+export type BlockKeyRow = typeof blockKeys.$inferSelect;

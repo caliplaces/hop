@@ -181,6 +181,19 @@ describe("a purchase from the app", () => {
     expect((await plan()).plan).toBe("free");
   });
 
+  it("says when a purchase belongs to a deleted account, which Apple still bills", async () => {
+    // A token no account has any more: deleting an account clears it.
+    const response = await send(transaction(crypto.randomUUID()));
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: string; message: string };
+    expect(body.error).toBe("deleted_account");
+    expect(body.message).toContain("Cancel it in your Apple Account");
+
+    // Another live account's purchase is still just that.
+    const theirs = await send(transaction(await tokenFor("usr_b")));
+    expect(((await theirs.json()) as { error: string }).error).toBe("other_account");
+  });
+
   it("can't take over a subscription another account already has", async () => {
     const { appAccountToken } = await plan();
     await db.insert(subscriptions).values({

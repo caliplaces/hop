@@ -8,6 +8,9 @@ const migrations = import.meta.glob<string>("../../migrations/*.sql", {
   eager: true,
 });
 
+/** D1 binds at most this many values per statement. */
+const MAX_BOUND_VALUES = 100;
+
 /**
  * An in-memory D1Database for tests: Node's SQLite with every migration in
  * apps/api/migrations applied, behind just enough of D1's API for
@@ -22,7 +25,13 @@ export function createTestD1(): D1Database {
   }
 
   const statement = (query: string, params: SqliteValue[] = []) => ({
-    bind: (...next: SqliteValue[]) => statement(query, next),
+    bind: (...next: SqliteValue[]) => {
+      // As on D1, which refuses a statement binding more than 100 values.
+      if (next.length > MAX_BOUND_VALUES) {
+        throw new Error(`D1_ERROR: too many SQL variables (${next.length} > ${MAX_BOUND_VALUES})`);
+      }
+      return statement(query, next);
+    },
     all: async () => ({ success: true, meta: {}, results: sqlite.prepare(query).all(...params) }),
     raw: async () => {
       const prepared = sqlite.prepare(query);

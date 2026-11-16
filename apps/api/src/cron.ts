@@ -1,13 +1,16 @@
 import { PENDING_UPLOAD_TTL_MS } from "@hop/shared";
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { files, liveActivities, sessions, users, waitlist } from "./db/schema";
+import { files, liveActivities, reports, sessions, users, waitlist } from "./db/schema";
 import type { Env } from "./env";
 import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
+import { dropEmptiedHops, eraseDeletedAccounts } from "./lib/accounts";
 import { AVATAR_PREFIX } from "./lib/avatars";
-import { finishRemoval } from "./lib/files";
+import { finishRemoval, goneStatus } from "./lib/files";
 
 const BATCH = 100;
+/** How long a report is kept. */
+const KEEP_REPORTS_MS = 365 * 24 * 60 * 60 * 1000;
 /** Upper bound per run so one invocation stays well inside Worker limits. */
 const MAX_BATCHES = 50;
 /** A removal still "deleting" after this long failed midway and is retried. */
@@ -15,18 +18,28 @@ const STUCK_DELETE_MS = 10 * 60 * 1000;
 
 /**
  * Removes uploads with no activity for a day, retries removals that failed
- * midway, and deletes expired sessions and Live Activity registrations.
+ * midway, finishes deleting accounts, and deletes expired sessions and Live
+ * Activity registrations.
  */
 export async function cleanup(env: Env) {
   const db = getDb(env.DB);
   let removed = 0;
   let failed = 0;
 
+  // Erases recently deleted accounts again and marks their clips for removal,
+  // which the loop below then does (see lib/accounts.ts). On its own, like
+  // each step that isn't the loop: one failing mustn't stop the rest.
+  await eraseDeletedAccounts(db).catch((error) =>
+    console.error("cleanup: erasing deleted accounts failed, will retry", error),
+  );
+
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
     const now = Date.now();
     const due = or(
       and(eq(files.status, "pending"), lt(files.lastActivityAt, now - PENDING_UPLOAD_TTL_MS)),
       and(eq(files.status, "deleting"), lt(files.lastActivityAt, now - STUCK_DELETE_MS)),
+      // Deleted clips held for a report, once the hold is over.
+      and(eq(files.status, "held"), lt(files.heldUntil, now)),
     );
     const candidates = await db.select({ id: files.id }).from(files).where(due).limit(BATCH);
     if (candidates.length === 0) break;
@@ -36,13 +49,15 @@ export async function cleanup(env: Env) {
         // Claim atomically. If the upload completed since it was read, the
         // conditions no longer match and it's left alone. Bumping the activity
         // time keeps a failing removal from being retried again in this run.
+        // A clip held for a report is hidden instead (lib/files.ts).
+        const now = Date.now();
         const file = await db
           .update(files)
-          .set({ status: "deleting", lastActivityAt: Date.now() })
+          .set({ status: goneStatus(now), lastActivityAt: now })
           .where(and(eq(files.id, id), due))
           .returning()
           .get();
-        if (!file) return false;
+        if (file?.status !== "deleting") return false;
         await finishRemoval(env, db, file);
         return true;
       }),
@@ -57,8 +72,14 @@ export async function cleanup(env: Env) {
     }
   }
 
+  const hopsDropped = await dropEmptiedHops(db).catch((error) => {
+    console.error("cleanup: dropping deleted accounts' hops failed, will retry", error);
+    return 0;
+  });
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
   await db.delete(liveActivities).where(lt(liveActivities.expiresAt, Date.now()));
+  // Reports are the record of what was reported, kept for a year.
+  await db.delete(reports).where(lt(reports.createdAt, Date.now() - KEEP_REPORTS_MS));
   // The waitlist keeps an address only until a day after its launch email,
   // or a week after the first try if it never got through.
   await db
@@ -77,7 +98,9 @@ export async function cleanup(env: Env) {
     console.error("cleanup: photo sweep failed, will retry", error);
     return 0;
   });
-  console.log(`cleanup: removed ${removed} uploads, ${failed} failed, ${avatars} unused photos`);
+  console.log(
+    `cleanup: removed ${removed} uploads, ${failed} failed, ${avatars} unused photos, ${hopsDropped} deleted accounts' hops`,
+  );
 }
 
 /** An upload under way finishes long before this, so its photo is never swept. */
