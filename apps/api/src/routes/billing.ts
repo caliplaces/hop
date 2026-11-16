@@ -110,7 +110,12 @@ async function apply(
   const purchasedAt = transaction.purchaseDate;
   const signedAt = transaction.signedDate;
   const revokedAt = transaction.revocationDate ?? null;
-  const sameKind = eq(subscriptions.environment, environment);
+  // Sandbox and production purchases never stand in for each other, nor
+  // App Store ones for the website's.
+  const sameKind = and(
+    eq(subscriptions.provider, "apple"),
+    eq(subscriptions.environment, environment),
+  );
   const newer = or(
     lt(subscriptions.purchasedAt, purchasedAt),
     and(eq(subscriptions.purchasedAt, purchasedAt), lte(subscriptions.signedAt, signedAt)),
@@ -135,6 +140,7 @@ async function apply(
     .values({
       originalTransactionId: transaction.originalTransactionId,
       userId: owner.userId,
+      provider: "apple",
       productId: transaction.productId,
       environment,
       expiresAt: transaction.expiresDate,
@@ -158,7 +164,6 @@ async function apply(
         signedAt,
         updatedAt: now,
       },
-      // Sandbox and production purchases never stand in for each other.
       setWhere: and(newer, mayWrite, sameKind),
     });
   if (!renewal) {
@@ -193,7 +198,7 @@ async function apply(
   await db.batch([revise, upsert, renewalUpdate]);
 }
 
-async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
+export async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
   // Read first: everything read after it is at least this new.
   const revision =
     (
@@ -220,6 +225,7 @@ async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
     retentionDays: plan.retentionDays,
     subscription: subscription
       ? {
+          provider: subscription.provider,
           productId: subscription.productId,
           expiresAt: subscription.expiresAt,
           graceExpiresAt:

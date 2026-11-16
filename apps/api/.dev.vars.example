@@ -27,3 +27,11 @@ TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 # APNS_KEY (Event mode's Live Activity pushes) isn't needed locally: wrangler
 # dev can't reach Apple's push service, so try pushes on staging. Without it,
 # the app still counts clips while it's open.
+
+# Optional: Hop+ on the website, through Stripe, in test mode. Without these,
+# the website doesn't sell Hop+. STRIPE_PRODUCT_ID is in wrangler.jsonc. To
+# get webhooks locally, run the Stripe CLI:
+#   stripe listen --forward-to localhost:8787/api/stripe/webhook
+# and set STRIPE_WEBHOOK_SECRET to the whsec_… it prints.
+# STRIPE_SECRET_KEY=
+# STRIPE_WEBHOOK_SECRET=

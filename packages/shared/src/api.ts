@@ -269,14 +269,22 @@ export type PlanStatus = {
   retentionDays: number | null;
   /** With Hop+: when the current period ends, and whether it renews. */
   subscription: {
+    /**
+     * Where it was bought, which is where it's managed: the App Store (in
+     * the iPhone app) or the website (Stripe). Servers from before the
+     * website sold Hop+ leave it out: the App Store.
+     */
+    provider?: "apple" | "stripe";
+    /** hop_plus (monthly) or hop_plus_annual, whichever the provider. */
     productId: string;
     expiresAt: number;
     /**
-     * Set while Apple retries a failed renewal: the period has ended, and
-     * Hop+ carries on until this unless the athlete fixes their payment.
+     * Set while a failed renewal is retried: the period has ended, and Hop+
+     * carries on until this unless the athlete fixes their payment.
      */
     graceExpiresAt: number | null;
     autoRenew: boolean;
+    /** Sandbox: an App Store test purchase, or Stripe's test mode. */
     environment: "Sandbox" | "Production";
   } | null;
   /**
@@ -300,6 +308,21 @@ export type PlanStatus = {
    */
   expiring: { clips: number; on: string; at: number } | null;
 };
+
+/** A Hop+ price on the website, from Stripe: `amount` in the currency's minor unit (cents). */
+export type WebPrice = {
+  id: string;
+  amount: number;
+  /** ISO 4217, lowercase, as Stripe gives it: "eur". */
+  currency: string;
+  interval: "month" | "year";
+};
+
+/** Starts a Stripe Checkout for one of the website's Hop+ prices. */
+export const webCheckoutSchema = z.object({ priceId: z.string().min(1).max(255) });
+
+/** Where to send the browser next: Stripe Checkout or Stripe's customer portal. */
+export type BillingRedirect = { url: string };
 
 /**
  * Registers the app's push token (the URL's last segment) for notifications,
