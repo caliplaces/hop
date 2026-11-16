@@ -30,7 +30,8 @@ export function PlanCard() {
         aria-label="Storage used"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={Math.round(used * 100)}
+        aria-valuenow={Math.min(100, Math.max(0, Math.round(used * 100)))}
+        aria-valuetext={`${formatBytes(status.storage.usedBytes)} of ${formatBytes(status.storage.limitBytes)}`}
       >
         <div
           className="h-full rounded-full bg-accent transition-[width]"

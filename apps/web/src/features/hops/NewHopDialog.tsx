@@ -30,7 +30,7 @@ export function NewHopDialog({
       open={open}
       onClose={close}
       title="New event"
-      description="Each event keeps its clips apart, and your link sends them to it. Close it when the event’s over."
+      description="Each event keeps its clips apart, with a link of its own. To have your main link send clips there too, choose “Send my link here”. Close it when the event’s over."
     >
       <form
         onSubmit={(e) => {
