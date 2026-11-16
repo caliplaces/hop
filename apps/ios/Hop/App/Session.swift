@@ -107,9 +107,12 @@ final class Session {
     }
 
     /// Signs out at once, then tells the server to end the session.
-    func signOut() async {
+    /// `before` runs with the session still valid on the server, such as
+    /// telling it this phone no longer takes the athlete's notifications.
+    func signOut(before: (APIClient) async -> Void = { _ in }) async {
         let client = api
         forget()
+        await before(client)
         try? await client.post("api/auth/logout")
     }
 
