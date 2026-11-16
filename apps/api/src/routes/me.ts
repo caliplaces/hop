@@ -23,7 +23,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { type FileRow, files, hops, users } from "../db/schema";
 import { sendWelcomeEmail } from "../email/welcome";
-import type { AppEnv } from "../env";
+import type { AppEnv, Env } from "../env";
 import { arrivalsSince } from "../lib/arrivals";
 import { AVATAR_CACHE, newAvatarKey } from "../lib/avatars";
 import { newId } from "../lib/crypto";
@@ -169,7 +169,7 @@ export const meRoutes = new Hono<AppEnv>()
       .get();
     const now = Date.now();
     await db.update(users).set({ avatarKey: key, updatedAt: now }).where(eq(users.id, user.id));
-    if (previous?.key) await c.env.BUCKET.delete(previous.key);
+    if (previous?.key) await removeAvatar(c.env, previous.key);
     return c.json({
       me: toMe(
         { ...user, avatarKey: key, updatedAt: now },
@@ -189,7 +189,7 @@ export const meRoutes = new Hono<AppEnv>()
       .get();
     const now = Date.now();
     await db.update(users).set({ avatarKey: null, updatedAt: now }).where(eq(users.id, user.id));
-    if (previous?.key) await c.env.BUCKET.delete(previous.key);
+    if (previous?.key) await removeAvatar(c.env, previous.key);
     return c.json({
       me: toMe(
         { ...user, avatarKey: null, updatedAt: now },
@@ -416,3 +416,15 @@ export const meRoutes = new Hono<AppEnv>()
     await removeFile(c.env, db, file);
     return c.json({ ok: true });
   });
+
+/**
+ * Deletes a photo no longer in use, best effort: if R2 fails, the hourly
+ * cleanup finds it unreferenced and deletes it then (see sweepAvatars).
+ */
+async function removeAvatar(env: Env, key: string): Promise<void> {
+  try {
+    await env.BUCKET.delete(key);
+  } catch (error) {
+    console.warn("avatar: delete failed, cleanup will retry", error);
+  }
+}

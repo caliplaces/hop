@@ -72,7 +72,14 @@ export const displayNameSchema = z
       .string()
       .min(1, "Enter a name.")
       .max(50, "That name is too long.")
-      .regex(/^[^\p{C}]+$/u, "That name has characters that can't be shown."),
+      // No control, format or other invisible characters (bidi overrides,
+      // zero-width joiners, the combining grapheme joiner)...
+      .regex(
+        /^[^\p{C}\p{Default_Ignorable_Code_Point}]+$/u,
+        "That name has characters that can't be shown.",
+      )
+      // ...and something to see: not only spaces or marks.
+      .regex(/[\p{L}\p{N}\p{S}\p{P}]/u, "Enter a name."),
   );
 
 export const updateProfileSchema = z

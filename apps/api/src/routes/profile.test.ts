@@ -1,6 +1,7 @@
 import type { Me, PublicHop } from "@hop/shared";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
+import { sweepAvatars } from "../cron";
 import { getDb } from "../db";
 import { hops, sessions, subscriptions, users } from "../db/schema";
 import type { Env } from "../env";
@@ -27,12 +28,14 @@ const PNG = new Uint8Array([
 let env: Env;
 let db: ReturnType<typeof getDb>;
 let objects: ReturnType<typeof createTestR2>["objects"];
+let faults: ReturnType<typeof createTestR2>["faults"];
 let token: string;
 
 beforeEach(async () => {
   const DB = createTestD1();
   const r2 = createTestR2();
   objects = r2.objects;
+  faults = r2.faults;
   env = {
     DB,
     BUCKET: r2.bucket,
@@ -109,10 +112,31 @@ describe("the public name", () => {
   });
 
   it("can't be empty, too long, or hide characters", async () => {
-    for (const displayName of ["", "   ", "x".repeat(51), "Alex‮evil", "A​dmin", "Tab\u0007bell"]) {
+    // Written by code point, so no invisible character sits in this file.
+    const char = (code: number) => String.fromCodePoint(code);
+    for (const displayName of [
+      "",
+      "   ",
+      "x".repeat(51),
+      `Alex${char(0x202e)}evil`, // right-to-left override
+      `A${char(0x200b)}dmin`, // zero-width space
+      `Tab${char(0x7)}bell`, // control character
+      char(0x34f), // combining grapheme joiner, invisible on its own
+      `Al${char(0x34f)}ex`, // ...and hidden inside a name
+      char(0x301), // a lone accent
+      `${char(0x34f)} ${char(0x301)}`,
+    ]) {
       expect((await patch({ displayName })).status).toBe(400);
     }
     expect((await me()).name).toBe("Alex Caliplaces");
+  });
+
+  it("takes any real name: accents, other scripts, emoji", async () => {
+    for (const displayName of ["Matěj Matiaško", "李小龍", "Zoë 🏃", "J.R. O'Neil-Smith"]) {
+      const response = await patch({ displayName });
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { me: Me }).me.name).toBe(displayName);
+    }
   });
 });
 
@@ -161,6 +185,26 @@ describe("the profile photo", () => {
     expect(objects.size).toBe(0);
   });
 
+  it("still saves when deleting the old one fails, and the sweep deletes it later", async () => {
+    await upload(JPEG);
+    faults.deleteFails = true;
+    const response = await upload(JPEG);
+    expect(response.status).toBe(200);
+    expect(objects.size).toBe(2);
+
+    // An hour on, the photo no account points to goes; the one in use stays.
+    const removed = await sweepAvatars(env, Date.now() + 2 * 60 * 60 * 1000);
+    expect(removed).toBe(1);
+    const url = ((await response.json()) as { me: Me }).me.avatarUrl ?? "";
+    expect([...objects.keys()]).toEqual([url.replace("/api/", "")]);
+  });
+
+  it("isn't swept while it may still be saving", async () => {
+    objects.set("avatars/AAAAAAAAAAAAAAAAAAAAAA.jpg", { body: JPEG, uploaded: new Date() });
+    expect(await sweepAvatars(env)).toBe(0);
+    expect(objects.size).toBe(1);
+  });
+
   it("must be a JPEG of a sensible size", async () => {
     expect((await upload(PNG)).status).toBe(415);
     expect((await upload(JPEG, "image/png")).status).toBe(415);
@@ -172,7 +216,7 @@ describe("the profile photo", () => {
 
   it("is only served under names the API makes", async () => {
     // Even where something sits in the bucket under another name.
-    objects.set("avatars/x.jpg", { body: JPEG });
+    objects.set("avatars/x.jpg", { body: JPEG, uploaded: new Date() });
     for (const file of [
       "../secret.jpg",
       "x.jpg",

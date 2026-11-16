@@ -1,9 +1,10 @@
 import { PENDING_UPLOAD_TTL_MS } from "@hop/shared";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { files, liveActivities, sessions, waitlist } from "./db/schema";
+import { files, liveActivities, sessions, users, waitlist } from "./db/schema";
 import type { Env } from "./env";
 import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
+import { AVATAR_PREFIX } from "./lib/avatars";
 import { finishRemoval } from "./lib/files";
 
 const BATCH = 100;
@@ -71,5 +72,47 @@ export async function cleanup(env: Env) {
         ),
       ),
     );
-  console.log(`cleanup: removed ${removed} uploads, ${failed} failed`);
+  // On its own: a failing sweep mustn't stop the rest of the cleanup.
+  const avatars = await sweepAvatars(env).catch((error) => {
+    console.error("cleanup: photo sweep failed, will retry", error);
+    return 0;
+  });
+  console.log(`cleanup: removed ${removed} uploads, ${failed} failed, ${avatars} unused photos`);
+}
+
+/** An upload under way finishes long before this, so its photo is never swept. */
+const AVATAR_GRACE_MS = 60 * 60 * 1000;
+/** D1 takes at most 100 bound values a query. */
+const KEYS_PER_QUERY = 90;
+
+/**
+ * Deletes profile photos no account points to: left by overlapping uploads,
+ * or by a delete that failed. Only photos older than AVATAR_GRACE_MS, so one
+ * being saved right now is left alone. Returns how many went.
+ */
+export async function sweepAvatars(env: Env, now = Date.now()): Promise<number> {
+  const db = getDb(env.DB);
+  let removed = 0;
+  let cursor: string | undefined;
+  do {
+    const page = await env.BUCKET.list({ prefix: AVATAR_PREFIX, cursor, limit: 500 });
+    const old = page.objects
+      .filter((object) => object.uploaded.getTime() < now - AVATAR_GRACE_MS)
+      .map((object) => object.key);
+    for (let i = 0; i < old.length; i += KEYS_PER_QUERY) {
+      const keys = old.slice(i, i + KEYS_PER_QUERY);
+      const used = await db
+        .select({ key: users.avatarKey })
+        .from(users)
+        .where(inArray(users.avatarKey, keys));
+      const inUse = new Set(used.map((row) => row.key));
+      const unused = keys.filter((key) => !inUse.has(key));
+      if (unused.length > 0) {
+        await env.BUCKET.delete(unused);
+        removed += unused.length;
+      }
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return removed;
 }
