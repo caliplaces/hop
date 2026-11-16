@@ -21,10 +21,15 @@ struct ClipViewer: View {
     /// The clip showing, kept in the list even if a refresh drops it.
     @State private var showing: Clip?
 
-    init(hopId: String, startAt clipId: String, model: InboxModel) {
+    /// Tells whoever presented it which clip is showing, so it can close
+    /// into that clip's place.
+    @Binding var reported: String?
+
+    init(hopId: String, startAt clipId: String, model: InboxModel, showing reported: Binding<String?> = .constant(nil)) {
         self.hopId = hopId
         self.model = model
         _current = State(initialValue: clipId)
+        _reported = reported
     }
 
     private var clips: [Clip] {
@@ -68,6 +73,7 @@ struct ClipViewer: View {
         }
         .onChange(of: current) {
             showing = clip
+            reported = current
             transfer.reset()
             problem = nil
             let showing = clip
