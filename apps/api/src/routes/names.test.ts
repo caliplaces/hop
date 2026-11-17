@@ -18,15 +18,13 @@ let cleo: string;
 async function session(userId: string) {
   const token = `hs_${randomToken()}`;
   const now = Date.now();
-  await db
-    .insert(sessions)
-    .values({
-      id: await sha256Hex(token),
-      userId,
-      kind: "app",
-      createdAt: now,
-      expiresAt: now + DAY,
-    });
+  await db.insert(sessions).values({
+    id: await sha256Hex(token),
+    userId,
+    kind: "app",
+    createdAt: now,
+    expiresAt: now + DAY,
+  });
   return token;
 }
 
