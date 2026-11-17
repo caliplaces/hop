@@ -2,6 +2,7 @@ import { PENDING_UPLOAD_TTL_MS } from "@hop/shared";
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "./db";
 import { devices, files, liveActivities, reports, sessions, users, waitlist } from "./db/schema";
+import { forgetOldSuppressions } from "./email/suppressions";
 import type { Env } from "./env";
 import { expireClips, forgetOldNotices } from "./expiry";
 import { KEEP_SENT_MS, KEEP_UNSENT_MS } from "./launch";
@@ -22,8 +23,9 @@ const STUCK_DELETE_MS = 10 * 60 * 1000;
 /**
  * Removes uploads with no activity for a day and free-plan clips that have
  * expired, retries removals that failed midway, finishes deleting accounts,
- * and deletes expired sessions, Live Activity registrations, stale phones and
- * old expiry notices.
+ * and deletes expired sessions, Live Activity registrations, stale phones,
+ * old expiry notices and year-old entries on the list of addresses Hop
+ * doesn't email.
  */
 export async function cleanup(env: Env) {
   const db = getDb(env.DB);
@@ -94,6 +96,9 @@ export async function cleanup(env: Env) {
   );
   // Reports are the record of what was reported, kept for a year.
   await db.delete(reports).where(lt(reports.createdAt, Date.now() - KEEP_REPORTS_MS));
+  // Addresses Hop stopped emailing are kept on that list for a year, and
+  // emails that never arrived are remembered for a month.
+  await forgetOldSuppressions(db);
   // The waitlist keeps an address only until a day after its launch email,
   // or a week after the first try if it never got through.
   await db

@@ -28,6 +28,7 @@ import {
   users,
   waitlist,
 } from "../db/schema";
+import { forgetForAccount } from "../email/suppressions";
 import { goneStatus } from "./files";
 
 /**
@@ -195,6 +196,9 @@ export async function deleteAccount(db: Db, userId: string, now = Date.now()) {
           .where(and(live, eq(users.emailVerified, true))),
       ),
     ),
+    // Their address's entry on the list Hop doesn't email, read while the
+    // address is still here: the list is kept no longer than the account.
+    forgetForAccount(db, userId),
     db
       .update(users)
       // A new sign-in with the same Caliplaces account starts a new account.
