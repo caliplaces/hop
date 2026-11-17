@@ -17,6 +17,7 @@ import {
 import { fail } from "../lib/http";
 import { activeSubscription } from "../lib/plans";
 import { currentUser, requireUser } from "../lib/session";
+import { stripeEnabled } from "../lib/stripe";
 import { validate } from "../lib/validate";
 
 /**
@@ -198,18 +199,37 @@ async function apply(
   await db.batch([revise, upsert, renewalUpdate]);
 }
 
-export async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
+/**
+ * Whether Stripe's customer portal has anything for the athlete: they've
+ * had Hop+ from the website, so it holds their invoices and card, after
+ * Hop+ ends too. Not for a checkout they left unpaid.
+ */
+async function hasWebBilling(
+  env: Env,
+  db: Db,
+  userId: string,
+  customer: string | null,
+): Promise<boolean> {
+  if (!customer || !stripeEnabled(env)) return false;
+  const had = await db
+    .select({ id: subscriptions.originalTransactionId })
+    .from(subscriptions)
+    .where(and(eq(subscriptions.userId, userId), eq(subscriptions.provider, "stripe")))
+    .limit(1)
+    .get();
+  return had !== undefined;
+}
+
+export async function planStatus(env: Env, db: Db, user: UserRow): Promise<PlanStatus> {
   // Read first: everything read after it is at least this new.
-  const revision =
-    (
-      await db
-        .select({ revision: users.planRevision })
-        .from(users)
-        .where(eq(users.id, user.id))
-        .get()
-    )?.revision ?? 0;
+  const fresh = await db
+    .select({ revision: users.planRevision, customer: users.stripeCustomerId })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .get();
+  const revision = fresh?.revision ?? 0;
   const now = Date.now();
-  const [subscription, used, token] = await Promise.all([
+  const [subscription, used, token, webBilling] = await Promise.all([
     activeSubscription(db, user.id, now),
     db
       .select({ bytes: sql<number>`coalesce(sum(${files.size}), 0)` })
@@ -217,6 +237,7 @@ export async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
       .where(and(eq(files.ownerId, user.id), eq(files.status, "complete")))
       .get(),
     appAccountToken(db, user),
+    hasWebBilling(env, db, user.id, fresh?.customer ?? null),
   ]);
   const plan = subscription ? PLANS.plus : PLANS.free;
   return {
@@ -237,6 +258,7 @@ export async function planStatus(db: Db, user: UserRow): Promise<PlanStatus> {
         }
       : null,
     appAccountToken: token,
+    webBilling,
     plans: PLANS,
     revision,
     expiring: subscription ? null : await expiring(db, user.id),
@@ -254,7 +276,7 @@ const limitBody = bodyLimit({
 export const billingRoutes = new Hono<AppEnv>()
   /** The athlete's plan, storage and subscription. */
   .get("/me/plan", requireUser, async (c) => {
-    return c.json(await planStatus(getDb(c.env.DB), currentUser(c)));
+    return c.json(await planStatus(c.env, getDb(c.env.DB), currentUser(c)));
   })
 
   /**
@@ -317,7 +339,7 @@ export const billingRoutes = new Hono<AppEnv>()
       if (owner && owner.userId !== user.id) {
         return fail(c, 403, "other_account", "This purchase belongs to another Hop account.");
       }
-      return c.json(await planStatus(db, { ...user, appAccountToken: token }));
+      return c.json(await planStatus(c.env, db, { ...user, appAccountToken: token }));
     },
   )
 

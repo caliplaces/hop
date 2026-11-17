@@ -8,17 +8,21 @@ export type AccountDeletedInput = {
   appUrl: string;
   /** Their handle, if they had claimed one. */
   handle: string | null;
+  /** Whether deleting it cancelled Hop+ bought on the website (Stripe). */
+  cancelledWebHopPlus: boolean;
 };
 
 /**
  * Sent once, right after an athlete deletes their account: a record for
- * them, and a warning if it wasn't them. It also says what deleting doesn't
- * do: a Hop+ subscription is billed by Apple until it's cancelled there, and
- * their Caliplaces account is separate.
+ * them, and a warning if it wasn't them. It also says what became of Hop+:
+ * bought on the website, it was cancelled with the account; bought in the
+ * iPhone app, Apple bills it until it's cancelled there. And their
+ * Caliplaces account is separate.
  */
 export async function accountDeletedEmail({
   appUrl,
   handle,
+  cancelledWebHopPlus,
 }: AccountDeletedInput): Promise<RenderedEmail> {
   const host = new URL(appUrl).host;
   const what = handle
@@ -32,8 +36,11 @@ export async function accountDeletedEmail({
     : "Clips you sent other athletes stay with them, without your name.";
   const notYou =
     "If you didn’t delete it, someone else can sign in to your Caliplaces account. Change your Caliplaces password.";
-  const hopPlus =
-    "If you had Hop+, deleting your account doesn’t cancel it. Apple keeps billing until you cancel it in your Apple Account’s subscriptions.";
+  const webHopPlus = cancelledWebHopPlus
+    ? "Your Hop+ from the website is cancelled with your account, and you won’t be charged for it again."
+    : null;
+  const appHopPlus =
+    "If you had Hop+ from the iPhone app, deleting your account doesn’t cancel it. Apple keeps billing until you cancel it in your Apple Account’s subscriptions.";
   const caliplaces =
     "Your Caliplaces account isn’t affected. You can sign in to Hop with it again any time, as a new account.";
   const footer = "You’re getting this because a Hop account using this address was deleted.";
@@ -52,7 +59,8 @@ export async function accountDeletedEmail({
       <Text>{notYou}</Text>
       <Subtitle>Good to know</Subtitle>
       <Text>{sent}</Text>
-      <Text>{hopPlus}</Text>
+      {webHopPlus && <Text>{webHopPlus}</Text>}
+      <Text>{appHopPlus}</Text>
       <Text>{caliplaces}</Text>
     </EmailDocument>,
   );
@@ -68,7 +76,8 @@ export async function accountDeletedEmail({
     "",
     "Good to know",
     sent,
-    hopPlus,
+    ...(webHopPlus ? [webHopPlus] : []),
+    appHopPlus,
     caliplaces,
     "",
     "--",
@@ -82,9 +91,14 @@ export async function accountDeletedEmail({
 export async function sendAccountDeletedEmail(
   env: Env,
   user: Pick<UserRow, "id" | "email" | "emailVerified" | "handle">,
+  { cancelledWebHopPlus }: Pick<AccountDeletedInput, "cancelledWebHopPlus">,
 ): Promise<void> {
   if (!user.email || !user.emailVerified) return;
-  const email = await accountDeletedEmail({ appUrl: env.APP_URL, handle: user.handle });
+  const email = await accountDeletedEmail({
+    appUrl: env.APP_URL,
+    handle: user.handle,
+    cancelledWebHopPlus,
+  });
   await sendEmail(env, {
     ...email,
     to: user.email,

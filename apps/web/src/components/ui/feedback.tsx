@@ -1,5 +1,13 @@
 import { CircleAlert, CircleCheck } from "lucide-react";
-import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
@@ -36,6 +44,30 @@ export function toastHost(doc: Document = document): Element {
   return modals.at(-1) ?? doc.body;
 }
 
+/**
+ * Gives `update` where toasts show now, and again whenever a dialog opens,
+ * closes, or comes or goes, until the returned function stops it. Dialogs
+ * open and close in effects, after the render that showed the toast: Report
+ * shows its toast and closes together, and the toast must then move to
+ * what's below.
+ */
+export function followToastHost(
+  update: (host: Element) => void,
+  doc: Document = document,
+  Observer: typeof MutationObserver = MutationObserver,
+): () => void {
+  const check = () => update(toastHost(doc));
+  check();
+  const observer = new Observer(check);
+  observer.observe(doc.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["open"],
+  });
+  return () => observer.disconnect();
+}
+
 /** In-app confirmations and toasts, replacing window.confirm/alert. */
 export function FeedbackProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<
@@ -43,6 +75,17 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   >(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(0);
+  const showing = toasts.length > 0;
+  // Followed only while toasts show; null until the first look.
+  const [host, setHost] = useState<Element | null>(null);
+  useLayoutEffect(() => {
+    if (!showing) return;
+    const stop = followToastHost(setHost);
+    return () => {
+      stop();
+      setHost(null);
+    };
+  }, [showing]);
 
   const confirm = useCallback(
     (options: ConfirmOptions) =>
@@ -103,8 +146,8 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             </div>
           ))}
         </div>,
-        // Looked up as toasts come and go, so one shows over the modal open then.
-        toasts.length > 0 ? toastHost() : document.body,
+        // Over whichever modal is on top while they show (followToastHost).
+        showing ? (host ?? toastHost()) : document.body,
       )}
     </FeedbackContext.Provider>
   );

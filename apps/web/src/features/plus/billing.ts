@@ -41,6 +41,18 @@ export function billingGraceEnds(
   return subscription.expiresAt <= now && now < grace ? grace : null;
 }
 
+/**
+ * Whether the plan card links Stripe's billing page on its own: for whoever
+ * has had Hop+ from the website (past invoices, an overdue card), unless
+ * they have it now, when its subscription links the page already.
+ */
+export function showsBillingLink(
+  status: Pick<PlanStatus, "plan" | "subscription" | "webBilling">,
+): boolean {
+  const webPlus = status.plan === "plus" && status.subscription?.provider === "stripe";
+  return status.webBilling === true && !webPlus;
+}
+
 /** Stripe's own pages: the only places these redirects go. */
 const STRIPE_HOSTS = new Set(["checkout.stripe.com", "billing.stripe.com"]);
 
