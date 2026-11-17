@@ -1,8 +1,8 @@
 import { PLANS } from "@hop/shared";
-import { Contact, LegalPage, List, OPERATOR, Section } from "../components/LegalPage";
+import { CONTACT, Contact, LegalPage, List, OPERATOR, Section } from "../components/LegalPage";
 import { formatBytes } from "../lib/format";
 
-const UPDATED = "16 November 2026";
+const UPDATED = "17 November 2026";
 
 /**
  * onmyhop.com/terms: the agreement for using Hop and paying for Hop+.
@@ -95,6 +95,10 @@ export function Terms() {
             are handled by Stripe.
           </li>
           <li>
+            When you subscribe, you agree to these terms and ask for Hop+ to start right away,
+            during the 14 days you have to withdraw (below).
+          </li>
+          <li>
             Hop+ renews automatically at the end of each period until you cancel. Cancel anytime in
             your account on onmyhop.com (Account → Manage subscription). You keep Hop+ until the end
             of the period you paid for; the rest of a period isn’t refunded.
@@ -113,13 +117,32 @@ export function Terms() {
       <Section title="Your right to withdraw">
         <p>
           If you live in the EU, you can withdraw from a Hop+ subscription bought on the website
-          within 14 days of subscribing, without giving a reason. Write to <Contact /> from the
-          address on your Hop account, and Hop refunds your payment in full within 14 days, the same
-          way you paid. Hop+ ends when you withdraw.
+          within 14 days of subscribing, without giving a reason. To do so, tell Hop clearly, for
+          example by writing to <Contact /> from the address on your Hop account.
         </p>
+        <p>
+          You asked for Hop+ to start right away, so you pay for the days you had it: Hop refunds
+          the rest of what you paid within 14 days of hearing from you, the same way you paid. Hop+
+          ends when you withdraw.
+        </p>
+        <p>You can use this form, but you don’t have to:</p>
+        <blockquote className="rounded-2xl bg-surface-2 px-4 py-3 text-sm">
+          To {OPERATOR.name}, {OPERATOR.address}, {CONTACT}: I withdraw from my Hop+ subscription,
+          bought on (date). Name. Email address of my Hop account. Date.
+        </blockquote>
       </Section>
 
-      <Section title="Hop+ in the iPhone app">
+      <Section title="The Hop app and Hop+ in it">
+        <p>
+          The Hop app for iPhone is licensed to you under Apple’s{" "}
+          <a
+            className="underline underline-offset-4"
+            href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
+          >
+            standard end user license agreement
+          </a>
+          , along with these terms.
+        </p>
         <p>
           Hop+ bought in the app is billed by Apple, under Apple’s terms. Manage or cancel it, and
           ask for refunds, in your Apple Account’s subscriptions.

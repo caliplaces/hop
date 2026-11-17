@@ -379,8 +379,13 @@ describe("checking out", () => {
       cancel_url: "https://onmyhop.com/app/my-hop",
       // Cards only: a bank debit could fail after Hop+ was given.
       "payment_method_types[0]": "card",
+      // The terms, and Hop+ starting within the 14 days to withdraw.
+      "consent_collection[terms_of_service]": "required",
     });
     expect(opened?.params.has("payment_method_types[1]")).toBe(false);
+    expect(opened?.params.get("custom_text[terms_of_service_acceptance][message]")).toContain(
+      "[Terms](https://onmyhop.com/terms) and ask for Hop+ to start right away",
+    );
     // Done: the next checkout can open.
     expect((await alex())?.stripeCheckoutAt).toBeNull();
 
