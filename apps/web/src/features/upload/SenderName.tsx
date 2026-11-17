@@ -3,6 +3,7 @@ import { BadgeCheck, MessageSquareText, Pencil, UserRound } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
+import { noteLength } from "./useUploadNote";
 
 function Row({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
@@ -101,6 +102,10 @@ function NoteField({
 }) {
   const [open, setOpen] = useState(note.length > 0);
   const id = useId();
+  const hintId = useId();
+  // Counted as the server cleans it, which can make it longer than typed.
+  const length = noteLength(note);
+  const over = length - UPLOAD_NOTE_MAX;
 
   if (!open) {
     return (
@@ -127,14 +132,22 @@ function NoteField({
         // biome-ignore lint/a11y/noAutofocus: it opens when they asked to write one
         autoFocus={note.length === 0}
         placeholder="e.g. Round 2, from the left side"
+        aria-describedby={hintId}
+        aria-invalid={over > 0 || undefined}
         className="mt-1.5 w-full resize-none rounded-2xl border border-line bg-surface px-3.5 py-2.5 text-[15px] outline-none transition placeholder:text-subtle focus:border-fg focus:ring-4 focus:ring-accent-soft"
       />
-      <p className="mt-1 flex justify-between gap-3 text-xs text-muted">
-        <span>
-          {started ? "Goes with the clips you add next." : "Goes with the clips you send."}
-        </span>
-        <span className="tabular-nums">
-          {note.length}/{UPLOAD_NOTE_MAX}
+      <p id={hintId} className="mt-1 flex justify-between gap-3 text-xs text-muted">
+        {over > 0 ? (
+          <span className="text-danger">
+            {over === 1 ? "1 character" : `${over} characters`} too long: the end will be cut.
+          </span>
+        ) : (
+          <span>
+            {started ? "Goes with the clips you add next." : "Goes with the clips you send."}
+          </span>
+        )}
+        <span className={over > 0 ? "text-danger tabular-nums" : "tabular-nums"}>
+          {length}/{UPLOAD_NOTE_MAX}
         </span>
       </p>
     </div>
