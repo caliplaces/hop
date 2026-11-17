@@ -336,6 +336,17 @@ export const emailSuppressions = sqliteTable("email_suppressions", {
   createdAt: integer("created_at").notNull(),
 });
 
+/**
+ * Emails Resend said never arrived (bounced, failed or not sent), by
+ * Resend's ID. The event can come back before Hop has written down which
+ * notice the email gave, so a notice only counts if its email isn't here
+ * (expiry.ts). Kept a month, far longer than a notice takes to give.
+ */
+export const undeliveredEmails = sqliteTable("undelivered_emails", {
+  emailId: text("email_id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+});
+
 export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;

@@ -23,6 +23,7 @@ import { z } from "zod";
 import { type Db, getDb } from "../db";
 import { type FileRow, files, hops, users } from "../db/schema";
 import { sendAccountDeletedEmail } from "../email/account-deleted";
+import { isSuppressed } from "../email/suppressions";
 import { sendWelcomeEmail } from "../email/welcome";
 import type { AppEnv, Env } from "../env";
 import { deleteAccount } from "../lib/accounts";
@@ -192,9 +193,13 @@ export const meRoutes = new Hono<AppEnv>()
         );
       }
     }
+    // Read before the account (and with it, its address's place on the
+    // do-not-email list) goes: an address Hop doesn't email gets no word of
+    // the deletion. Emailing it would only bounce, and put it back on the list.
+    const quiet = user.email ? await isSuppressed(db, user.email) : false;
     const was = await deleteAccount(db, user.id);
     if (was?.avatarKey) await removeAvatar(c.env, was.avatarKey);
-    if (was) {
+    if (was && !quiet) {
       // After the response: a slow or failing email never holds it up.
       c.executionCtx.waitUntil(
         sendAccountDeletedEmail(c.env, was).catch((error) =>

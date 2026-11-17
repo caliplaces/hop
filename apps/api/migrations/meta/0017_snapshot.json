@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "abdffd42-82bb-4897-9a4e-5b0fa3a57d9d",
+  "id": "0872546c-5060-4631-9352-bbde64400ded",
   "prevId": "eb93e61f-9f37-45a1-baa0-4980b34a3374",
   "tables": {
     "block_keys": {
@@ -1320,6 +1320,30 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "undelivered_emails": {
+      "name": "undelivered_emails",
+      "columns": {
+        "email_id": {
+          "name": "email_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

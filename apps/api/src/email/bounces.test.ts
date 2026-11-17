@@ -1,8 +1,9 @@
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../db";
-import { emailSuppressions, users } from "../db/schema";
+import { emailSuppressions, undeliveredEmails, users } from "../db/schema";
 import type { Env } from "../env";
+import { letGoUndelivered } from "../expiry";
 import worker from "../index";
 import { deleteAccount } from "../lib/accounts";
 import { createTestD1 } from "../test/d1";
@@ -13,6 +14,7 @@ import {
   forgetOldSuppressions,
   isSuppressed,
   KEEP_SUPPRESSIONS_MS,
+  KEEP_UNDELIVERED_MS,
   normalizeAddress,
   suppress,
 } from "./suppressions";
@@ -463,6 +465,15 @@ describe("the list's entries", () => {
     await suppress(db, ["recent@example.com"], "bounced", now - KEEP_SUPPRESSIONS_MS + DAY);
     await forgetOldSuppressions(db, now);
     expect(Object.keys(await reasons())).toEqual(["recent@example.com"]);
+  });
+
+  it("remember emails that never arrived for a month", async () => {
+    const now = Date.now();
+    await letGoUndelivered(db, "email_old", now - KEEP_UNDELIVERED_MS - DAY);
+    await letGoUndelivered(db, "email_recent", now - KEEP_UNDELIVERED_MS + DAY);
+    await forgetOldSuppressions(db, now);
+    const left = await db.select({ id: undeliveredEmails.emailId }).from(undeliveredEmails);
+    expect(left.map((row) => row.id)).toEqual(["email_recent"]);
   });
 
   it("go with the account, however its address is written", async () => {

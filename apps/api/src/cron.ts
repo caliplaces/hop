@@ -96,7 +96,8 @@ export async function cleanup(env: Env) {
   );
   // Reports are the record of what was reported, kept for a year.
   await db.delete(reports).where(lt(reports.createdAt, Date.now() - KEEP_REPORTS_MS));
-  // Addresses Hop stopped emailing are kept on that list for a year.
+  // Addresses Hop stopped emailing are kept on that list for a year, and
+  // emails that never arrived are remembered for a month.
   await forgetOldSuppressions(db);
   // The waitlist keeps an address only until a day after its launch email,
   // or a week after the first try if it never got through.

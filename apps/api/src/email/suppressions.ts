@@ -1,6 +1,6 @@
 import { eq, lt, sql } from "drizzle-orm";
 import type { Db } from "../db";
-import { emailSuppressions, users } from "../db/schema";
+import { emailSuppressions, undeliveredEmails, users } from "../db/schema";
 
 /**
  * Addresses Hop no longer emails (see emailSuppressions in db/schema.ts):
@@ -12,6 +12,8 @@ import { emailSuppressions, users } from "../db/schema";
 export type SuppressionReason = (typeof emailSuppressions.$inferSelect)["reason"];
 
 export const KEEP_SUPPRESSIONS_MS = 365 * 24 * 60 * 60 * 1000;
+/** How long Hop remembers that an email never arrived (see undeliveredEmails). */
+export const KEEP_UNDELIVERED_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * An address as the list keys it: spaces trimmed, A–Z lowercased. Exactly
@@ -81,7 +83,8 @@ export function forgetForAccount(db: Db, userId: string) {
 
 /** The cleanup's part: entries older than KEEP_SUPPRESSIONS_MS go. */
 export async function forgetOldSuppressions(db: Db, now = Date.now()): Promise<void> {
-  await db
-    .delete(emailSuppressions)
-    .where(lt(emailSuppressions.createdAt, now - KEEP_SUPPRESSIONS_MS));
+  await db.batch([
+    db.delete(emailSuppressions).where(lt(emailSuppressions.createdAt, now - KEEP_SUPPRESSIONS_MS)),
+    db.delete(undeliveredEmails).where(lt(undeliveredEmails.createdAt, now - KEEP_UNDELIVERED_MS)),
+  ]);
 }

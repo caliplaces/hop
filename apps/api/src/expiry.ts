@@ -10,6 +10,7 @@ import {
   lte,
   min,
   not,
+  notExists,
   type SQL,
   type SQLWrapper,
   sql,
@@ -21,6 +22,7 @@ import {
   expiryNotices,
   files,
   type UserRow,
+  undeliveredEmails,
   users,
 } from "./db/schema";
 import { clipsExpiringEmail, clipsExpiringPush } from "./email/clips-expiring";
@@ -353,22 +355,50 @@ async function sendNotice(env: Env, db: Db, listed: ExpiryNoticeRow, now: number
     await letGo();
     return false;
   }
-  if (emailed.status === "sent") {
-    await db.batch([
+  // Resend gives each email an ID, which is how a bounce finds the notice.
+  // Without one (an answer that couldn't be read) the email is tried again,
+  // under the same key, rather than counted. Only local development, which
+  // logs emails instead of sending them, has none.
+  const confirmed = emailed.status === "sent" && (emailed.emailId !== null || !env.RESEND_API_KEY);
+  if (emailed.status === "sent" && confirmed) {
+    const { emailId } = emailed;
+    // Unless Resend has said already that it never arrived: its event can
+    // come back before this is written. Checked in the same statement, so a
+    // bounce either finds the notice given (letGoUndelivered) or stops it.
+    const delivered = emailId
+      ? notExists(
+          db
+            .select({ id: undeliveredEmails.emailId })
+            .from(undeliveredEmails)
+            .where(eq(undeliveredEmails.emailId, emailId)),
+        )
+      : undefined;
+    const [given] = await db.batch([
       db
         .update(expiryNotices)
-        // The email's ID: if Resend says it never arrived, the notice is let go.
-        .set({
-          givenAt: now,
-          emailId: emailed.emailId,
-          attempts: notice.attempts + 1,
-          ...pushedAt,
-        })
-        .where(stillSending),
-      // Clips another run let go meanwhile are no longer in it.
-      db.update(files).set({ expiryGoesAt: notice.goesAt }).where(inNotice),
+        .set({ givenAt: now, emailId, attempts: notice.attempts + 1, ...pushedAt })
+        .where(and(stillSending, delivered))
+        .returning({ userId: expiryNotices.userId }),
+      // Only if it was given just now. Clips another run let go meanwhile
+      // are no longer in it.
+      db
+        .update(files)
+        .set({ expiryGoesAt: notice.goesAt })
+        .where(
+          and(
+            inNotice,
+            sql`exists (
+              select 1 from ${expiryNotices} as notice
+              where notice.user_id = ${notice.userId} and notice.batch = ${notice.batch}
+                and notice.given_at = ${now} and notice.abandoned_at is null
+            )`,
+          ),
+        ),
     ]);
-    return true;
+    if (given.length > 0) return true;
+    // Resend said it never arrived before it could be counted.
+    if (emailId) await letGo();
+    return false;
   }
   const wait = Math.min(FIRST_RETRY_MS * 2 ** notice.attempts, MAX_RETRY_MS);
   await db
@@ -530,6 +560,8 @@ function push(
 export async function letGoUndelivered(db: Db, emailId: string, now = Date.now()) {
   const open = and(eq(expiryNotices.emailId, emailId), isNull(expiryNotices.abandonedAt));
   await db.batch([
+    // Written down first, for a notice whose email hasn't been counted yet.
+    db.insert(undeliveredEmails).values({ emailId, createdAt: now }).onConflictDoNothing(),
     // First the clips, while their notice still reads as not let go.
     db
       .update(files)

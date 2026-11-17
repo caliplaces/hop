@@ -6,6 +6,7 @@ import { cleanup, sweepAvatars } from "../cron";
 import { getDb } from "../db";
 import * as schema from "../db/schema";
 import {
+  emailSuppressions,
   files,
   hops,
   liveActivities,
@@ -15,6 +16,7 @@ import {
   waitlist,
 } from "../db/schema";
 import { accountDeletedEmail } from "../email/account-deleted";
+import { suppress } from "../email/suppressions";
 import type { Env } from "../env";
 import worker from "../index";
 import { deleteAccount, RECENT_MS } from "../lib/accounts";
@@ -383,6 +385,15 @@ describe("deleting an account", () => {
     // Already deleted: nothing more to do, and no second email.
     expect(await deleteAccount(db, "usr_a")).toBeNull();
     expect(sent).toHaveLength(1);
+  });
+
+  it("doesn't email an address Hop no longer emails, which would only put it back on the list", async () => {
+    await suppress(db, ["alex@example.com"], "bounced");
+    expect((await deleteMe()).status).toBe(200);
+    await Promise.all(pending);
+    expect(sent).toEqual([]);
+    // Gone with the account, and nothing brings it back.
+    expect(await db.select().from(emailSuppressions)).toEqual([]);
   });
 
   it("doesn't email an unverified address", async () => {
