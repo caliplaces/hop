@@ -315,7 +315,14 @@ export async function startCheckout(
     subscription_data: { metadata: { hop_user_id: userId } },
     success_url: `${env.APP_URL}/app/my-hop?hopplus=welcome`,
     cancel_url: `${env.APP_URL}/app/my-hop`,
+    // A box to tick before paying, which Stripe records on the session: the
+    // terms, and asking for Hop+ to start within the 14 days to withdraw, so
+    // a withdrawal refunds only the days not used (see /terms).
+    consent_collection: { terms_of_service: "required" },
     custom_text: {
+      terms_of_service_acceptance: {
+        message: `I agree to Hop's [Terms](${env.APP_URL}/terms) and ask for Hop+ to start right away. If I withdraw within 14 days, I'm refunded for the days I didn't use.`,
+      },
       submit: {
         message:
           "Hop+ renews automatically until you cancel. You can cancel anytime in your account on onmyhop.com.",

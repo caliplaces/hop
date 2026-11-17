@@ -103,6 +103,15 @@ struct AccountView: View {
                 }
 
                 Section {
+                    Link(destination: HopLegal.privacy) {
+                        Label("Privacy", systemImage: "hand.raised.square")
+                    }
+                    Link(destination: HopLegal.terms) {
+                        Label("Terms", systemImage: "doc.text")
+                    }
+                }
+
+                Section {
                     Button(role: .destructive) {
                         dismiss()
                         Task {
