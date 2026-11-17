@@ -231,15 +231,16 @@ describe("the signature check", () => {
   it("reads only the first few signatures, so a forged header can't make much work", async () => {
     const event = bounce("Permanent");
     const forged = "v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-    const after = (count: number) => async (body: string) => {
+    // The real signature, behind `count` forged ones.
+    const behind = (count: number) => async (body: string) => {
       const headers = await svixHeaders(body);
       return {
         ...headers,
         "svix-signature": `${Array(count).fill(forged).join(" ")} ${headers["svix-signature"]}`,
       };
     };
-    expect((await hook(event, after(5))).status).toBe(400);
-    expect((await hook(event, after(4))).status).toBe(200);
+    expect((await hook(event, behind(5))).status).toBe(400);
+    expect((await hook(event, behind(4))).status).toBe(200);
   });
 
   it("compares with Workers' constant-time check where there is one", async () => {
