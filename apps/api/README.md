@@ -157,10 +157,10 @@ Handles, event links and event names are public, so none may contain a slur or a
 
 How it matches:
 
-- Case and accents don't count, and leetspeak digits and symbols read as letters (`sh1t`, `p0rn`).
+- Case and accents don't count, and leetspeak digits and symbols read as letters (`sh1t`, `p0rn`). Each `1` reads as `i` or `l` on its own (`h1t1er`).
 - Letters may be stretched (`fuuuck`), and spelled out with separators (`f.u.c.k`, `f-u-c-k`).
 - Most words count inside other words too (`pornstar`). A short list only counts on its own, because innocent words contain it (`classic`, `cockburn`, `sussex`, `analyst`): `big_ass` is caught but `bigass` isn't.
-- Innocent words that contain a listed word are set aside first (`scunthorpe`, `therapist`, `yamashita`).
+- Innocent words that contain a listed word (`scunthorpe`, `therapist`, `yamashita`) excuse only what lies wholly inside them, so `shitass` is still caught. They're whole words and names, not fragments.
 - The list is English, Czech and Slovak. Reports and blocks cover what it misses.
 
 The rule doesn't touch names already taken. To find those that break it, read them (read-only) and check them from the repository root:

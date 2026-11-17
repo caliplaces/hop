@@ -63,8 +63,18 @@ describe("offensive names", () => {
         "píča",
         "Čurák",
         "FUCK",
+        // Each "1" reads as "i" or "l" on its own.
+        "h1t1er",
+        "h1tl3r",
+        "5h1t",
       ]),
     ).toEqual([]);
+  });
+
+  it("only lets an innocent word excuse what lies inside it", () => {
+    // "shita" is in Yamashita, but nothing innocent surrounds this "shit".
+    expect(offensive(["shitass", "fukyou", "scunthorpecunt", "therapist_rapist"])).toEqual([]);
+    expect(innocent(["yamashita", "fukuoka", "fukushima", "shiitake", "yoshito"])).toEqual([]);
   });
 
   it("catches hate numbers", () => {
