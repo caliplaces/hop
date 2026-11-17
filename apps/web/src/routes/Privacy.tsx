@@ -122,6 +122,12 @@ export function Privacy() {
           clips are about to be removed, and other messages about your account, come whatever those
           settings.
         </p>
+        <p>
+          If an email Hop sends bounces for good, or is reported as spam, Hop puts the address on a
+          list and stops emailing it, for a year or until you delete your account. Clips are only
+          removed after a notice reached you: if it never arrives, they stay. A notice you received
+          still counts if you then report it as spam.
+        </p>
       </Section>
 
       <Section title="Who else handles it">

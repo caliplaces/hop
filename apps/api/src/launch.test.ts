@@ -6,6 +6,7 @@ import { getDb } from "./db";
 import { waitlist } from "./db/schema";
 import { launchEmail } from "./email/launch";
 import { setResendPacing } from "./email/send";
+import { suppress } from "./email/suppressions";
 import type { Env } from "./env";
 import { sendEmails } from "./index";
 import { announceLaunch, launchAt } from "./launch";
@@ -90,6 +91,18 @@ describe("the launch email", () => {
     // Later runs have nothing left to send.
     await run({ now: LAUNCH_AT + DAY });
     expect(sends).toHaveLength(3);
+  });
+
+  it("skips an address Hop no longer emails, and is done with it", async () => {
+    await join("maya@example.com", "leo@example.com");
+    await suppress(db, ["leo@example.com"], "complained");
+    await run();
+    expect(sends.map((send) => send.to)).toEqual(["maya@example.com"]);
+    expect((await row("leo@example.com"))?.notifiedAt).toBeTypeOf("number");
+    expect(console.log).toHaveBeenCalledWith("launch: sent 1, not emailed 1, failed 0");
+
+    await run({ now: LAUNCH_AT + 10 * 60 * 1000 });
+    expect(sends).toHaveLength(1);
   });
 
   it("never sends one twice, even with runs overlapping", async () => {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup } from "../cron";
 import { getDb } from "../db";
 import { blockKeys, blocks, files, hops, reports, sessions, users } from "../db/schema";
+import { suppress } from "../email/suppressions";
 import type { Env } from "../env";
 import worker from "../index";
 import { deleteAccount } from "../lib/accounts";
@@ -901,6 +902,13 @@ describe("telling Hop's team", () => {
     expect(sent[0]?.key).toMatch(/^reports\/production\/\d+$/);
 
     expect(await announceReports(env)).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("goes out even if the team's address once bounced: a lost report is worse", async () => {
+    await suppress(db, ["reports@example.com"], "bounced");
+    await post("/h/bea/report", { reason: "spam", turnstileToken: "report-token" });
+    expect(await announceReports(env)).toBe(1);
     expect(sent).toHaveLength(1);
   });
 

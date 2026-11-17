@@ -321,6 +321,32 @@ export const waitlist = sqliteTable("waitlist", {
   launchAttempts: integer("launch_attempts").notNull().default(0),
 });
 
+/**
+ * Addresses Hop no longer emails: one whose mail server refused Hop's email
+ * for good (a permanent bounce), one whose owner reported it as spam, or one
+ * Resend won't send to (its account's suppression list). Learned from
+ * Resend's webhook (routes/email.ts); every email checks it (email/send.ts).
+ * Keyed by the address as normalizeAddress writes it (email/suppressions.ts),
+ * so it covers the waitlist too, and an athlete whose address changes is
+ * emailed again at the new one. Kept a year, and gone with the account.
+ */
+export const emailSuppressions = sqliteTable("email_suppressions", {
+  email: text("email").primaryKey(),
+  reason: text("reason", { enum: ["bounced", "complained", "suppressed"] }).notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+/**
+ * Emails Resend said never arrived (bounced, failed or not sent), by
+ * Resend's ID. The event can come back before Hop has written down which
+ * notice the email gave, so a notice only counts if its email isn't here
+ * (expiry.ts). Kept a month, far longer than a notice takes to give.
+ */
+export const undeliveredEmails = sqliteTable("undelivered_emails", {
+  emailId: text("email_id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+});
+
 export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;
@@ -470,6 +496,11 @@ export const expiryNotices = sqliteTable(
     pushedAt: integer("pushed_at"),
     /** It reached the athlete: their clips may go at goes_at. */
     givenAt: integer("given_at"),
+    /**
+     * Resend's ID for the email that gave it. If Resend later says that email
+     * never arrived (it bounced, or failed), the notice is let go.
+     */
+    emailId: text("email_id"),
     /** Tried for long enough without reaching them: its clips were let go. */
     abandonedAt: integer("abandoned_at"),
     /** The day-before reminder went (or was skipped). */
@@ -485,6 +516,8 @@ export const expiryNotices = sqliteTable(
     index("expiry_notices_reminder_idx")
       .on(t.goesAt)
       .where(sql`${t.givenAt} is not null and ${t.remindedAt} is null`),
+    // The notice an email from Resend's webhook was.
+    index("expiry_notices_email_idx").on(t.emailId).where(sql`${t.emailId} is not null`),
   ],
 );
 

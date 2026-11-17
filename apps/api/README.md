@@ -92,6 +92,31 @@ The new-clips digest runs every 5 minutes. A clip counts as announced once `file
 
 The same digest goes to the athlete's phones as a notification ("2 new clips from Street Kings Prague", "Coach Peter and Lea sent you clips."), once per batch: when it's claimed, never again on an email retry, and only one run can claim it. It goes whether or not they get the email, unless they turned `users.push_new_clips` off (in the app's Account). Clips the athlete watched arrive on Event mode's Live Activity (in that event, since it started) are left out, and nothing is pushed if that's all of them. Notifications of one event are grouped on the phone (`thread-id`), and carry `{ hop: "clips", hopId }` for the app to open it.
 
+### Bounces and spam complaints
+
+Resend's webhook tells Hop which emails never arrived, and which addresses not to email again (`src/email/webhook.ts`, `src/email/suppressions.ts`):
+
+- `POST /api/email/resend-webhook` receives Resend's events. Each must carry a valid Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`: an HMAC-SHA256 of `${id}.${timestamp}.${body}` with the endpoint's signing secret, at most five minutes old either way). The HMAC is computed once and compared in constant time with at most the first five signatures in the header. Without `RESEND_WEBHOOK_SECRET` the endpoint isn't there (404).
+- Only this environment's emails count. Every email Hop sends is tagged `env` with its `ENVIRONMENT`, and an event must carry the same tag, from `EMAIL_FROM`'s domain. Staging and production share the Resend account and both hear of every email, and the account sends for other products too.
+- **An email that never arrived:** any bounce (`email.bounced`, permanent or temporary), a failure to send (`email.failed`), or Resend refusing to send (`email.suppressed`). Free-plan expiry only counts a notice that reached the athlete. Each notice keeps Resend's ID for the email that gave it (`expiry_notices.email_id`), so the event's `email_id` finds it, whatever the athlete's address is by then. That notice is let go and its clips go back unclaimed. They stay, and a fresh notice is claimed the next day. The event can come back before Hop has written down which email gave the notice, so the email's ID is also kept for a month (`undelivered_emails`), and a notice only counts if its email isn't there. That is checked in the same statement that counts it. An answer from Resend without an ID isn't counted either: the email is tried again, under the same key.
+- **An address not to email again:** a permanent bounce (`bounce.type` `Permanent`), a spam complaint (`email.complained`), or `email.suppressed` (the address is on Resend's account-wide suppression list). It goes into `email_suppressions`, keyed by `normalizeAddress`: spaces trimmed and A–Z lowercased, exactly what SQLite's `lower(trim())` does, so SQL matching an account's address agrees with it. A spam complaint means the email did arrive: a notice it gave still counts.
+- `sendEmail` checks every email against the list, so nothing goes to a listed address: not the welcome, the new-clips digest, the launch email, clips expiring, or account deleted. The digest and the launch email treat such an address as handled, like an opt-out. Only the report emails to `REPORTS_EMAIL` go regardless: a lost report is worse than a bounce.
+- An athlete whose address is listed is never sent a notice, so their free clips stay past 30 days, within the free plan's storage. A notice waiting to be sent is let go, unsent and unpushed.
+- An entry is kept a year (the hourly cleanup), and goes when its account is deleted: if the address was verified and no other live account has it. A listed address gets no account deleted email, which would only bounce and put it back on the list. An athlete whose Caliplaces address changes is emailed again at the new one. To email a listed address sooner, delete its row (and remove it from Resend's suppression list in its dashboard).
+
+Setup, per environment, in Resend's dashboard (Webhooks › Add endpoint):
+
+1. Endpoint URL: `https://onmyhop.com/api/email/resend-webhook` for production, `https://staging.onmyhop.com/api/email/resend-webhook` for staging. Staging only lets the team's IPs in, so its firewall needs an exception for that one path, as for Stripe's webhook.
+2. Events: `email.bounced`, `email.failed`, `email.complained`, `email.suppressed`.
+3. The endpoint's signing secret (`whsec_…`) is the environment's `RESEND_WEBHOOK_SECRET`:
+
+```sh
+wrangler secret put RESEND_WEBHOOK_SECRET --env production
+wrangler secret put RESEND_WEBHOOK_SECRET --env staging
+```
+
+Emails sent before the `env` tag existed carry none, and their events are ignored.
+
 While `pnpm dev` runs, open [localhost:5173/email-lab.html](http://localhost:5173/email-lab.html) to see every email with sample data, in each colour, at phone and desktop width, and in dark mode. Without `RESEND_API_KEY` in `.dev.vars`, emails are printed to the wrangler console instead of sent.
 
 The Bobble images in emails are rendered per colour by `pnpm --filter @hop/web mascot:assets email` into `apps/web/public/email/`.
@@ -150,6 +175,32 @@ wrangler d1 execute hop-production --remote --env production \
 ```
 
 The photo itself goes with the next hourly cleanup, and caches drop it within a week.
+
+### Names Hop doesn't allow
+
+Handles, event links and event names are public, so none may contain a slur or a sexual or profane word (`isOffensive` in `packages/shared/src/offensive.ts`). A handle that does is `unavailable`, on `GET /api/handles/:handle` and `PUT /api/me/handle` (`400 handle_unavailable`). An event whose name or link does can't be made or renamed (`400 name_unavailable`). Athletes are only told it isn't available.
+
+How it matches:
+
+- Case and accents don't count, and leetspeak digits and symbols read as letters (`sh1t`, `p0rn`). Each `1` reads as `i` or `l` on its own (`h1t1er`).
+- Letters may be stretched (`fuuuck`), and spelled out with separators (`f.u.c.k`, `f-u-c-k`).
+- Most words count inside other words too (`pornstar`). A short list only counts on its own, because innocent words contain it (`classic`, `cockburn`, `sussex`, `analyst`): `big_ass` is caught but `bigass` isn't.
+- Innocent words that contain a listed word (`scunthorpe`, `therapist`, `yamashita`) excuse only what lies wholly inside them, so `shitass` is still caught. They're whole words and names, not fragments.
+- The list is English, Czech and Slovak. Reports and blocks cover what it misses.
+
+The rule doesn't touch names already taken. To find those that break it, read them (read-only) and check them from the repository root:
+
+```sh
+wrangler d1 execute hop-production --remote --env production --json --command "
+  select 'handle' as kind, handle as name from users where handle is not null
+  union all select 'event', slug from hops union all select 'event', title from hops" |
+node --input-type=module -e '
+  import { isOffensive } from "./packages/shared/src/offensive.ts";
+  let input = ""; for await (const chunk of process.stdin) input += chunk;
+  for (const row of JSON.parse(input)[0].results) if (isOffensive(row.name)) console.log(row.kind, row.name);'
+```
+
+To deal with one, either delete the account (its page goes, and the tombstone keeps the handle out of reach), or rename the handle by hand: `update users set handle = '<new>' where handle = '<old>'`. Renaming breaks the old link and QR code, which is what's wanted here, and nobody can claim the old handle again, since it breaks the rule.
 
 ## Deleting an account
 
