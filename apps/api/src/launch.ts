@@ -3,7 +3,7 @@ import { and, asc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { waitlist } from "./db/schema";
 import { launchEmail } from "./email/launch";
-import { ResendError, sendEmail } from "./email/send";
+import { ResendError, type SendResult, sendEmail } from "./email/send";
 import type { Env } from "./env";
 import { sha256Hex } from "./lib/crypto";
 
@@ -62,6 +62,7 @@ export async function announceLaunch(
 
   const email = await launchEmail({ appUrl: env.APP_URL, appStoreUrl: env.APP_STORE_URL });
   let sent = 0;
+  let suppressed = 0;
   let failed = 0;
   let stop = false;
 
@@ -93,8 +94,9 @@ export async function announceLaunch(
       if (!claimed) continue;
 
       try {
+        let result: SendResult = "sent";
         try {
-          await sendEmail(env, {
+          result = await sendEmail(env, {
             ...email,
             to: address,
             idempotencyKey: `launch/${await sha256Hex(address)}`,
@@ -107,11 +109,13 @@ export async function announceLaunch(
             throw error;
           }
         }
+        // An address Hop no longer emails is done with too, without an email.
         await db
           .update(waitlist)
           .set({ notifiedAt: Date.now() })
           .where(eq(waitlist.email, address));
-        sent++;
+        if (result === "sent") sent++;
+        else suppressed++;
       } catch (error) {
         failed++;
         // Never log the address. Rate limited: the next run carries on.
@@ -122,5 +126,7 @@ export async function announceLaunch(
       if (stop) break;
     }
   }
-  if (sent || failed) console.log(`launch: sent ${sent}, failed ${failed}`);
+  if (sent || suppressed || failed) {
+    console.log(`launch: sent ${sent}, not emailed ${suppressed}, failed ${failed}`);
+  }
 }

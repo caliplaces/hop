@@ -1,4 +1,6 @@
+import { getDb } from "../db";
 import type { Env } from "../env";
+import { isSuppressed } from "./suppressions";
 
 const RESEND_API = "https://api.resend.com/emails";
 const TIMEOUT_MS = 10_000;
@@ -53,19 +55,31 @@ export type OutgoingEmail = RenderedEmail & {
   category: string;
   /** Extra headers, e.g. List-Unsubscribe. */
   headers?: Record<string, string>;
+  /**
+   * To Hop's own team (REPORTS_EMAIL): sent even if that address is on the
+   * suppression list, since a report that never goes out is worse than a
+   * bounce. Resend still drops it if it won't send there.
+   */
+  team?: boolean;
 };
 
+/** "suppressed": not sent, because Hop no longer emails that address (see suppressions.ts). */
+export type SendResult = "sent" | "suppressed";
+
 /**
- * Sends through Resend's HTTP API. Without an API key, local development
+ * Sends through Resend's HTTP API, unless Hop no longer emails the address
+ * (a permanent bounce, or reported as spam): every email Hop sends comes
+ * through here, so none goes to one. Without an API key, local development
  * prints the email instead; anywhere else that's a misconfiguration.
  */
-export async function sendEmail(env: Env, email: OutgoingEmail): Promise<void> {
+export async function sendEmail(env: Env, email: OutgoingEmail): Promise<SendResult> {
+  if (!email.team && (await isSuppressed(getDb(env.DB), email.to))) return "suppressed";
   const subject = env.ENVIRONMENT === "staging" ? `[Staging] ${email.subject}` : email.subject;
 
   if (!env.RESEND_API_KEY) {
     if (env.ENVIRONMENT !== "development") throw new Error("RESEND_API_KEY is not set");
     console.log(`[email] to ${email.to}: ${subject}\n\n${email.text}`);
-    return;
+    return "sent";
   }
 
   await waitForTurn();
@@ -102,4 +116,5 @@ export async function sendEmail(env: Env, email: OutgoingEmail): Promise<void> {
       ),
     );
   }
+  return "sent";
 }

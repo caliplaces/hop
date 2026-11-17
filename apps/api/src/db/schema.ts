@@ -321,6 +321,20 @@ export const waitlist = sqliteTable("waitlist", {
   launchAttempts: integer("launch_attempts").notNull().default(0),
 });
 
+/**
+ * Addresses Hop no longer emails: one whose mail server refused Hop's email
+ * for good (a permanent bounce), one whose owner reported it as spam, or one
+ * Resend won't send to (its account's suppression list). Learned from
+ * Resend's webhook (routes/email.ts); every email checks it (email/send.ts).
+ * Keyed by the address lowercased and trimmed, so it covers the waitlist too,
+ * and an athlete whose address changes is emailed again at the new one.
+ */
+export const emailSuppressions = sqliteTable("email_suppressions", {
+  email: text("email").primaryKey(),
+  reason: text("reason", { enum: ["bounced", "complained", "suppressed"] }).notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
 export type UserRow = typeof users.$inferSelect;
 export type HopRow = typeof hops.$inferSelect;
 export type FileRow = typeof files.$inferSelect;

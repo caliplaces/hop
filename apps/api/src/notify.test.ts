@@ -2,6 +2,7 @@ import { eq, isNull } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "./db";
 import { devices, files, hops, liveActivities, users } from "./db/schema";
+import { suppress } from "./email/suppressions";
 import type { Env } from "./env";
 import { forgetProviderToken } from "./lib/apns";
 import { announceNewClips } from "./notify";
@@ -211,6 +212,17 @@ describe("new-clips digest", () => {
     await announceNewClips(env, T0);
     expect(attempts).toHaveLength(0);
     expect(await unannounced()).toBe(0);
+  });
+
+  it("doesn't email an address Hop no longer emails, and still marks its clips announced", async () => {
+    await athlete("bounced", { email: "Bounced@Example.com" });
+    await suppress(db, ["bounced@example.com"], "bounced");
+    await clip("bounced", T0 - 15 * MIN);
+
+    await announceNewClips(env, T0);
+    expect(attempts).toHaveLength(0);
+    expect(await unannounced()).toBe(0);
+    expect(console.log).toHaveBeenCalledWith("new clips: 0 sent, 1 skipped, 0 failed");
   });
 
   it("gives up on a batch that can't be confirmed within 23 hours", async () => {

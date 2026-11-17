@@ -1,6 +1,7 @@
 import { PALETTE } from "@hop/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../env";
+import { createTestD1 } from "../test/d1";
 import { sendEmail } from "./send";
 import { tint } from "./theme";
 import { sendWelcomeEmail, welcomeEmail } from "./welcome";
@@ -9,6 +10,7 @@ const ocean = PALETTE.find((c) => c.id === "ocean") as (typeof PALETTE)[number];
 
 function env(overrides: Partial<Env> = {}): Env {
   return {
+    DB: createTestD1(),
     ENVIRONMENT: "production",
     APP_URL: "https://onmyhop.com",
     EMAIL_FROM: "Hop <hello@onmyhop.com>",

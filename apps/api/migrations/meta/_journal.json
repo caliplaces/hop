@@ -120,6 +120,13 @@
       "when": 1794859596125,
       "tag": "0016_stripe",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1794920568241,
+      "tag": "0017_email_suppressions",
+      "breakpoints": true
     }
   ]
 }

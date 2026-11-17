@@ -48,6 +48,12 @@ export type Env = {
   /** Resend API key. Optional locally, where emails are logged instead of sent. */
   RESEND_API_KEY?: string;
   /**
+   * The signing secret (whsec_…) of Resend's webhook to this environment,
+   * which reports bounces and spam complaints (routes/email.ts). Without it
+   * the webhook isn't there.
+   */
+  RESEND_WEBHOOK_SECRET?: string;
+  /**
    * When the launch email goes out (ISO 8601), for trying it on staging
    * early. Defaults to LAUNCH_AT in packages/shared.
    */

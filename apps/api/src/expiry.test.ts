@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup } from "./cron";
 import { getDb } from "./db";
 import { devices, expiryNotices, files, hops, sessions, subscriptions, users } from "./db/schema";
+import { suppress } from "./email/suppressions";
 import type { Env } from "./env";
 import {
   expireClips,
@@ -21,6 +22,7 @@ import { forgetProviderToken } from "./lib/apns";
 import { randomToken, sha256Hex } from "./lib/crypto";
 import { createTestD1, type SqliteValue } from "./test/d1";
 import { createTestR2 } from "./test/r2";
+import { emailEvent, svixHeaders, WEBHOOK_SECRET } from "./test/svix";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -48,7 +50,7 @@ let pushes: {
 let resendUp: boolean;
 /** Addresses Resend fails for, even while up. */
 let resendRefuses: Set<string>;
-let apnsReply: (token: string) => Response;
+let apnsReply: (token: string) => Response | Promise<Response>;
 let limited: boolean;
 let queries: { query: string; params: SqliteValue[] }[];
 let token: string;
@@ -214,7 +216,7 @@ beforeEach(async () => {
           collapseId: headers.get("apns-collapse-id"),
           body: JSON.parse(String(init?.body)),
         });
-        return apnsReply(device);
+        return await apnsReply(device);
       }
       expect(url).toBe("https://api.resend.com/emails");
       const body = JSON.parse(String(init?.body));
@@ -910,6 +912,120 @@ describe("overlapping runs", () => {
     resendUp = false;
     await runAt(NOW);
     expect(await row(due)).toMatchObject({ expiryNoticeBatch: NOW, expiryGoesAt: null });
+  });
+});
+
+describe("an address Hop's email can't reach", () => {
+  /** Resend's webhook, as it tells Hop of an email to `to`. */
+  async function webhook(type: string, to = "alex@example.com", data: object = {}) {
+    env = { ...env, RESEND_WEBHOOK_SECRET: WEBHOOK_SECRET };
+    const body = JSON.stringify(emailEvent(type, { to: [to], ...data }));
+    const response = await call("/email/resend-webhook", {
+      method: "POST",
+      body,
+      headers: await svixHeaders(body),
+    });
+    expect(response.status).toBe(200);
+  }
+  const bounced = (to?: string) => webhook("email.bounced", to, { bounce: { type: "Permanent" } });
+
+  it("is never noticed: the clips stay, however it's written", async () => {
+    await db.update(users).set({ email: " Alex@Example.com" }).where(eq(users.id, "alex"));
+    await suppress(db, ["alex@example.com"], "bounced");
+    const old = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    expect(tried).toEqual([]);
+    expect(pushes).toEqual([]);
+    expect(await notices()).toEqual([]);
+    expect(await expireClips(db, NOW + 100 * DAY)).toBe(0);
+    expect((await row(old))?.status).toBe("complete");
+  });
+
+  it("lets a notice waiting to be sent go, unsent, and doesn't tell the phone of it", async () => {
+    const due = await clip("alex", 25 * DAY);
+    resendUp = false;
+    apnsReply = () => Response.json({ reason: "InternalServerError" }, { status: 500 });
+    await runAt(NOW);
+    expect(tried).toHaveLength(1);
+    const pushed = pushes.length;
+    await suppress(db, ["alex@example.com"], "complained");
+    resendUp = true;
+    apnsReply = () => new Response(null, { status: 200 });
+    await runAt(NOW + 5 * MIN);
+    expect(tried).toHaveLength(1);
+    // The clips stay, so the phone isn't told they're going.
+    expect(pushes).toHaveLength(pushed);
+    expect((await notices())[0]?.abandonedAt).toBe(NOW + 5 * MIN);
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+  });
+
+  it("lets a notice go when its address is stopped while it's being sent", async () => {
+    const due = await clip("alex", 25 * DAY);
+    // Between the check and the email: while the phone is being told.
+    apnsReply = async () => {
+      await suppress(db, ["alex@example.com"], "bounced");
+      return new Response(null, { status: 200 });
+    };
+    await runAt(NOW);
+    expect(tried).toEqual([]);
+    expect((await notices())[0]).toMatchObject({ givenAt: null, abandonedAt: NOW });
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+  });
+
+  it("takes back a notice whose email bounced for good after it was sent: the clips stay", async () => {
+    // However the account writes the address.
+    await db.update(users).set({ email: "Alex@Example.com" }).where(eq(users.id, "alex"));
+    const due = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    expect(emails).toHaveLength(1);
+    expect((await row(due))?.expiryGoesAt).toBe(GOES);
+
+    await bounced();
+    expect((await notices())[0]?.abandonedAt).toBeTypeOf("number");
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+    expect(((await (await call("/me/plan")).json()) as PlanStatus).expiring).toBeNull();
+    expect(await expireClips(db, GOES + DAY)).toBe(0);
+
+    // Nor is another one tried, or reminded of.
+    await runAt(NOW + 2 * DAY, GOES - DAY);
+    expect(tried).toHaveLength(1);
+    expect((await row(due))?.status).toBe("complete");
+  });
+
+  it("takes it back too when Resend didn't send it", async () => {
+    const due = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    await webhook("email.suppressed", "alex@example.com", {
+      suppressed: { type: "OnAccountSuppressionList" },
+    });
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+    expect(await expireClips(db, GOES + DAY)).toBe(0);
+  });
+
+  it("keeps a notice that arrived, though they reported it as spam; nothing more is emailed", async () => {
+    const due = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    await webhook("email.complained");
+    expect((await notices())[0]).toMatchObject({ abandonedAt: null, givenAt: NOW });
+
+    // The reminder reaches only the phone.
+    const pushed = pushes.length;
+    await runAt(GOES - DAY);
+    expect(tried).toHaveLength(1);
+    expect(pushes.length).toBe(pushed + 1);
+    expect(await expireClips(db, GOES)).toBe(1);
+    expect((await row(due))?.status).toBe("deleting");
+  });
+
+  it("leaves other athletes' notices alone", async () => {
+    const alexs = await clip("alex", 25 * DAY);
+    const beas = await clip("bea", 25 * DAY);
+    await runAt(NOW);
+    await bounced("bea@example.com");
+    expect((await row(alexs))?.expiryGoesAt).toBe(GOES);
+    expect((await row(beas))?.expiryGoesAt).toBeNull();
+    expect(await expireClips(db, GOES)).toBe(1);
+    expect((await row(alexs))?.status).toBe("deleting");
   });
 });
 
