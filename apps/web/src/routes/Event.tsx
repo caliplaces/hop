@@ -11,6 +11,7 @@ import { DownloadSheet } from "../features/inbox/DownloadSheet";
 import { eventSummary } from "../features/inbox/EventCard";
 import { FileGrid, FileGridSkeleton } from "../features/inbox/FileGrid";
 import { LoadMore } from "../features/inbox/LoadMore";
+import { viewingAfter } from "../features/inbox/neighbour";
 import { SelectionBar } from "../features/inbox/SelectionBar";
 import { useInboxActions } from "../features/inbox/useInboxActions";
 import { Viewer } from "../features/inbox/Viewer";
@@ -55,9 +56,20 @@ function EventPage({ me }: { me: AthleteMe }) {
   const prev = viewingIndex > 0 ? files[viewingIndex - 1] : undefined;
   const next = viewingIndex >= 0 ? files[viewingIndex + 1] : undefined;
 
+  /** After clips leave the list, the viewer moves on to one still there, or closes. */
+  const moveOnFrom = (removedIds: string[]) =>
+    setViewingId((current) =>
+      current
+        ? viewingAfter(
+            files.map((f) => f.id),
+            current,
+            new Set(removedIds),
+          )
+        : null,
+    );
+
   const deleteFromViewer = async (file: InboxFile) => {
-    const neighbour = next ?? prev;
-    if (await actions.remove([file.id])) setViewingId(neighbour?.id ?? null);
+    if (await actions.remove([file.id])) moveOnFrom([file.id]);
   };
 
   const downloadAll = () =>
@@ -173,8 +185,14 @@ function EventPage({ me }: { me: AthleteMe }) {
       {viewing && (
         <Viewer
           file={viewing}
+          // The event's count, which includes clips not loaded yet.
+          position={{
+            index: viewingIndex,
+            total: Math.max(hop?.fileCount ?? 0, files.length),
+          }}
           onClose={() => setViewingId(null)}
           onDelete={deleteFromViewer}
+          onBlocked={moveOnFrom}
           onPrev={prev ? () => setViewingId(prev.id) : undefined}
           onNext={next ? () => setViewingId(next.id) : undefined}
         />

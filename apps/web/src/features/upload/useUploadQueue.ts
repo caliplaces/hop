@@ -8,10 +8,11 @@ export function useUploadQueue(
   hopId: string | undefined,
   getPass: () => Promise<string>,
   getName: () => string | undefined,
+  getNote: () => string | undefined,
 ) {
   const uploader = useMemo(
-    () => (hopId ? new Uploader(hopId, getPass, getName) : null),
-    [hopId, getPass, getName],
+    () => (hopId ? new Uploader(hopId, getPass, getName, getNote) : null),
+    [hopId, getPass, getName, getNote],
   );
   const [items, setItems] = useState<UploadItem[]>([]);
   useEffect(() => uploader?.subscribe(setItems), [uploader]);

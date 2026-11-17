@@ -1,6 +1,4 @@
-import { colorFor, DEFAULT_HOP_SLUG, type PublicHop } from "@hop/shared";
-import { Avatar } from "../../components/ui/Avatar";
-import { Badge } from "../../components/ui/Badge";
+import { colorFor, type PublicHop } from "@hop/shared";
 import { Mascot, type MascotState } from "../mascot/Mascot";
 
 export function ownerNames(hop: PublicHop) {
@@ -13,7 +11,7 @@ type Phase = "ready" | "sending" | "done";
 
 const plural = (n: number) => (n === 1 ? "1 file" : `${n} files`);
 
-/** Who you're sending to, and where things stand. */
+/** Bobble, narrating, and where things stand. Who it's for is on the pass above. */
 export function HopHero({
   hop,
   phase,
@@ -25,7 +23,7 @@ export function HopHero({
   doneCount: number;
   mascot: MascotState;
 }) {
-  const { full, first } = ownerNames(hop);
+  const { first } = ownerNames(hop);
   const title = {
     ready: `Send your clips to ${first}`,
     sending: `Sending to ${first}…`,
@@ -42,24 +40,18 @@ export function HopHero({
       <Mascot
         state={mascot}
         color={colorFor(hop.owner.color, hop.owner.handle).hex}
-        size={176}
+        // One size throughout: Bobble is made afresh for each size.
+        size={140}
         follow
         interactive
         label={`Bobble, ${first}’s Hop mascot`}
       />
-      {/* Who they're sending to, as the athlete set it up in the app. */}
-      <div className="mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm font-medium text-muted">
-        <Avatar name={full} src={hop.owner.avatarUrl} size="sm" />
-        <span className="text-fg">{full}</span>
-        {hop.owner.hopPlus && <Badge tone="event">Hop+</Badge>}
-        {hop.owner.name && <span>@{hop.owner.handle}</span>}
-        {hop.slug !== DEFAULT_HOP_SLUG && <Badge tone="event">{hop.title}</Badge>}
-      </div>
-      <h1 className="mt-2 text-[32px] leading-[1.1] font-bold tracking-tight text-balance">
+      {/* Not a live region: the upload list's summary already announces progress. */}
+      <h1 className="mt-1 text-[32px] leading-[1.1] font-bold tracking-tight text-balance">
         {title}
       </h1>
       <p
-        className={`mt-3 text-[15px] text-balance ${phase === "sending" ? "font-medium text-fg" : "text-muted"}`}
+        className={`mt-2.5 text-[15px] text-balance ${phase === "sending" ? "font-medium text-fg" : "text-muted"}`}
       >
         {body}
       </p>

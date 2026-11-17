@@ -132,6 +132,8 @@ export class Uploader {
     private readonly hopId: string,
     private readonly getPass: () => Promise<string>,
     private readonly getContributorName: () => string | undefined,
+    /** The sender's note, read as each upload starts: it goes with the clips sent after it. */
+    private readonly getNote: () => string | undefined = () => undefined,
   ) {}
 
   subscribe(listener: Listener) {
@@ -230,6 +232,7 @@ export class Uploader {
             size: item.file.size,
             type: item.file.type || "application/octet-stream",
             contributorName: this.getContributorName(),
+            note: this.getNote(),
           },
         });
         creating.then(

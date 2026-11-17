@@ -1,9 +1,10 @@
-import { Check, Film, RotateCcw, X } from "lucide-react";
+import { Check, CircleAlert, Film, RotateCcw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { IconButton } from "../../components/ui/Button";
-import { Card } from "../../components/ui/Card";
+import { cx } from "../../components/ui/cx";
 import { formatBytes } from "../../lib/format";
 import type { Uploader, UploadItem } from "../../lib/uploader";
+import { queueSummary, summaryText } from "./progress";
 
 function useObjectUrl(file: File, enabled: boolean) {
   const [url, setUrl] = useState<string | null>(null);
@@ -16,12 +17,28 @@ function useObjectUrl(file: File, enabled: boolean) {
   return url;
 }
 
+function statusText(item: UploadItem, progress: number): string {
+  switch (item.status) {
+    case "uploading":
+      return `${Math.floor(progress * 100)}%`;
+    case "finishing":
+      return "Finishing…";
+    case "queued":
+      return "Waiting";
+    case "done":
+      return "Sent";
+    default:
+      return formatBytes(item.file.size);
+  }
+}
+
 function UploadRow({ item, uploader }: { item: UploadItem; uploader: Uploader }) {
   const progress = item.file.size ? item.uploadedBytes / item.file.size : 0;
   const isImage = item.file.type.startsWith("image/");
   const preview = useObjectUrl(item.file, isImage);
   const active =
     item.status === "queued" || item.status === "uploading" || item.status === "finishing";
+  const failed = item.status === "error";
 
   return (
     <li className="animate-fade-up flex items-center gap-3 py-3">
@@ -36,47 +53,55 @@ function UploadRow({ item, uploader }: { item: UploadItem; uploader: Uploader })
             <Check className="size-5" strokeWidth={3} />
           </span>
         )}
+        {failed && (
+          <span className="absolute inset-0 grid place-items-center bg-danger/85 text-white">
+            <CircleAlert className="size-5" />
+          </span>
+        )}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
           <p className="truncate text-[15px] font-medium">{item.file.name}</p>
-          <p className="shrink-0 text-xs font-medium text-muted tabular-nums">
-            {item.status === "uploading"
-              ? `Uploading ${Math.floor(progress * 100)}%`
-              : item.status === "finishing"
-                ? "Finishing…"
-                : item.status === "queued"
-                  ? "Waiting"
-                  : item.status === "done"
-                    ? "Sent"
-                    : formatBytes(item.file.size)}
-          </p>
+          {!failed && (
+            <p
+              className={cx(
+                "shrink-0 text-xs font-medium tabular-nums",
+                item.status === "done" ? "text-fg" : "text-muted",
+              )}
+            >
+              {statusText(item, progress)}
+            </p>
+          )}
         </div>
-        {item.status === "error" ? (
+        {failed ? (
           <p className="mt-1 text-xs text-danger">{item.error}</p>
         ) : (
           <div
             className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2"
             role="progressbar"
-            aria-label={`Uploading ${item.file.name}`}
+            aria-label={`Sending ${item.file.name}`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={item.status === "done" ? 100 : Math.floor(progress * 100)}
           >
             <div
-              className={`h-full rounded-full transition-[width] duration-300 ${item.status === "done" ? "bg-accent" : "bg-fg"}`}
+              className="h-full rounded-full bg-accent transition-[width] duration-300"
               style={{ width: `${item.status === "done" ? 100 : Math.max(3, progress * 100)}%` }}
             />
           </div>
         )}
       </div>
-      {item.status === "error" && (
-        <IconButton label="Retry" onClick={() => uploader.retry(item.id)}>
+      {failed && (
+        <IconButton label={`Retry ${item.file.name}`} onClick={() => uploader.retry(item.id)}>
           <RotateCcw className="size-4" />
         </IconButton>
       )}
-      {(active || item.status === "error") && item.status !== "finishing" && (
-        <IconButton label="Cancel" className="text-muted" onClick={() => uploader.cancel(item.id)}>
+      {(active || failed) && item.status !== "finishing" && (
+        <IconButton
+          label={`Cancel ${item.file.name}`}
+          className="text-muted"
+          onClick={() => uploader.cancel(item.id)}
+        >
           <X className="size-4" />
         </IconButton>
       )}
@@ -84,6 +109,7 @@ function UploadRow({ item, uploader }: { item: UploadItem; uploader: Uploader })
   );
 }
 
+/** Every file being sent, in a glass card, with where the whole batch stands on top. */
 export function UploadList({
   items,
   uploader,
@@ -93,14 +119,22 @@ export function UploadList({
   uploader: Uploader;
   canClear: boolean;
 }) {
-  const sentCount = items.filter((i) => i.status === "done").length;
+  const summary = queueSummary(items);
+  const shown = items.filter((i) => i.status !== "cancelled");
+  if (shown.length === 0) return null;
+
   return (
-    <Card flush className="px-5 py-2 sm:px-6 sm:py-2">
-      <p aria-live="polite" className="sr-only">
-        {sentCount} of {items.length} sent
-      </p>
-      <ul className="divide-y divide-line">
-        {items.map((item) => (
+    <section aria-label="Your files" className="glass rounded-(--radius-card) px-4 pt-4 sm:px-5">
+      <div className="flex items-center justify-between gap-3">
+        <p aria-live="polite" className="text-sm font-semibold">
+          {summaryText(summary)}
+        </p>
+        <p className="text-xs font-medium text-muted tabular-nums">
+          {summary.active > 0 ? `${Math.floor(summary.fraction * 100)}%` : null}
+        </p>
+      </div>
+      <ul className="mt-1 divide-y divide-line">
+        {shown.map((item) => (
           <UploadRow key={item.id} item={item} uploader={uploader} />
         ))}
       </ul>
@@ -108,13 +142,14 @@ export function UploadList({
         <div className="flex justify-center border-t border-line py-3">
           <button
             type="button"
-            className="text-sm font-medium text-muted hover:text-fg"
+            className="rounded-full px-3 py-1 text-sm font-medium text-muted transition hover:bg-surface-2 hover:text-fg"
             onClick={() => uploader.clearFinished()}
           >
             Clear list
           </button>
         </div>
       )}
-    </Card>
+      {!canClear && <div className="h-1" />}
+    </section>
   );
 }

@@ -79,6 +79,33 @@ describe("Uploader cancellation", () => {
     expect(localStorage.getItem(`hop:upload:hop_1:clip.mp4:2048:${file.lastModified}`)).toBeNull();
   });
 
+  it("sends the sender's name and note with each upload, as they are when it starts", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", (url: string, init: RequestInit = {}) => {
+      if (url.endsWith("/uploads") && init.method === "POST") {
+        bodies.push(JSON.parse(String(init.body)));
+      }
+      return new Promise(() => {});
+    });
+    let note: string | undefined;
+    const uploader = new Uploader(
+      "hop_1",
+      async () => "pass",
+      () => "Tester",
+      () => note,
+    );
+    uploader.add([new File([new Uint8Array(2048)], "a.mp4", { type: "video/mp4" })]);
+    await flush();
+    note = "Round 2";
+    uploader.add([new File([new Uint8Array(2048)], "b.mp4", { type: "video/mp4" })]);
+    await flush();
+    expect(bodies).toMatchObject([
+      { name: "a.mp4", contributorName: "Tester" },
+      { name: "b.mp4", contributorName: "Tester", note: "Round 2" },
+    ]);
+    expect(bodies[0]).not.toHaveProperty("note");
+  });
+
   it("ignores picking the same file twice", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const uploader = new Uploader(
