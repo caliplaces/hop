@@ -45,9 +45,15 @@ const onboardingRoute = createRoute({
   path: "/app/onboarding",
   component: lazyRouteComponent(() => import("./routes/Onboarding"), "Onboarding"),
 });
+export type MyHopSearch = { hopplus?: "welcome" };
+
 const myHopRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app/my-hop",
+  // Back from Stripe Checkout (see features/plus/useWelcomeBack.ts).
+  validateSearch: (search: Record<string, unknown>): MyHopSearch => ({
+    hopplus: search.hopplus === "welcome" ? "welcome" : undefined,
+  }),
   component: lazyRouteComponent(() => import("./routes/MyHop"), "MyHop"),
 });
 // Where events were managed before My Hop.
@@ -72,6 +78,11 @@ const privacyRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/privacy",
   component: lazyRouteComponent(() => import("./routes/Privacy"), "Privacy"),
+});
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/terms",
+  component: lazyRouteComponent(() => import("./routes/Terms"), "Terms"),
 });
 
 const adminRoute = createRoute({
@@ -108,6 +119,7 @@ const routeTree = rootRoute.addChildren([
   hopsRoute,
   unsubscribeRoute,
   privacyRoute,
+  termsRoute,
   adminRoute,
   handleRoute,
   hopRoute,

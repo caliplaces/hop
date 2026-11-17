@@ -1,15 +1,20 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { ApiError, api } from "../../lib/api";
 import { displayHopUrl, hopUrl } from "../../lib/format";
+import { queries } from "../../lib/queries";
 
 /**
  * Deleting the account, as a step of the account dialog: what goes, what
- * stays, a word about Hop+, and the button. Once the server confirms, the
+ * stays, a word about Hop+ (cancelled with it if bought on the website; not
+ * if bought from Apple), and the button. Once the server confirms, the
  * site starts over signed out (the API clears the cookie).
  */
 export function DeleteAccount({ handle, onCancel }: { handle: string; onCancel: () => void }) {
+  const plan = useQuery(queries.plan());
+  // Hop+ from the website, which the API cancels in Stripe first.
+  const web = plan.data?.subscription?.provider === "stripe";
   const remove = useMutation({
     mutationFn: () => api<{ ok: true }>("/me", { method: "DELETE", json: {} }),
     onSuccess: () => window.location.assign("/"),
@@ -33,10 +38,16 @@ export function DeleteAccount({ handle, onCancel }: { handle: string; onCancel: 
         <li>You’re signed out everywhere, in the app too.</li>
       </ul>
 
-      <p className="mt-5 rounded-2xl bg-surface-2 px-4 py-3 text-sm leading-relaxed">
-        If you have Hop+, deleting your account doesn’t cancel it. Apple keeps billing you until you
-        cancel it in your Apple Account’s subscriptions.
-      </p>
+      {web ? (
+        <p className="mt-5 rounded-2xl bg-surface-2 px-4 py-3 text-sm leading-relaxed">
+          Your Hop+ subscription is cancelled at once, and the rest of this period isn’t refunded.
+        </p>
+      ) : (
+        <p className="mt-5 rounded-2xl bg-surface-2 px-4 py-3 text-sm leading-relaxed">
+          If you have Hop+ from the iPhone app, deleting your account doesn’t cancel it. Apple keeps
+          billing you until you cancel it in your Apple Account’s subscriptions.
+        </p>
+      )}
       <p className="mt-3 text-sm text-muted">
         Save any clips you want to keep first. Your Caliplaces account isn’t affected.
       </p>

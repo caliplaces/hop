@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { getRouteApi } from "@tanstack/react-router";
 import { Check, Copy, Download, Plus, Share } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../components/ui/Button";
@@ -6,6 +7,7 @@ import type { AthleteMe } from "../features/account/AccountDialog";
 import { RequireAthlete } from "../features/account/RequireAthlete";
 import { EventRow } from "../features/hops/EventRow";
 import { NewHopDialog } from "../features/hops/NewHopDialog";
+import { useWelcomeBack } from "../features/plus/useWelcomeBack";
 import { HopPass } from "../features/share/HopPass";
 import { useCopy } from "../features/share/useCopy";
 import { useQrCode } from "../features/share/useQrCode";
@@ -17,7 +19,12 @@ import { queries } from "../lib/queries";
  * ways to share the link, then their events and which one the link sends
  * clips to.
  */
+const route = getRouteApi("/app/my-hop");
+
 function MyHopPage({ me }: { me: AthleteMe }) {
+  const search = route.useSearch();
+  const navigate = route.useNavigate();
+  useWelcomeBack(search.hopplus === "welcome", () => navigate({ search: {}, replace: true }));
   const hops = useQuery(queries.hops());
   const url = hopUrl(me.handle);
   const qr = useQrCode(url, true);

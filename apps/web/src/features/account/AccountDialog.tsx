@@ -152,9 +152,14 @@ export function AccountDialog({
       </section>
 
       <div className="mt-6 flex items-center justify-between gap-4 border-t border-line pt-4 text-sm">
-        <a className="text-muted underline-offset-4 hover:underline" href="/privacy">
-          Privacy
-        </a>
+        <span className="flex items-center gap-4">
+          <a className="text-muted underline-offset-4 hover:underline" href="/privacy">
+            Privacy
+          </a>
+          <a className="text-muted underline-offset-4 hover:underline" href="/terms">
+            Terms
+          </a>
+        </span>
         <button
           type="button"
           className="inline-flex items-center gap-1.5 font-medium text-danger underline-offset-4 hover:underline"
