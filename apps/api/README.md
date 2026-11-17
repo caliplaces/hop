@@ -151,6 +151,31 @@ wrangler d1 execute hop-production --remote --env production \
 
 The photo itself goes with the next hourly cleanup, and caches drop it within a week.
 
+### Names Hop doesn't allow
+
+Handles, event links and event names are public, so none may contain a slur or a sexual or profane word (`isOffensive` in `packages/shared/src/offensive.ts`). A handle that does is `unavailable`, on `GET /api/handles/:handle` and `PUT /api/me/handle` (`400 handle_unavailable`). An event whose name or link does can't be made or renamed (`400 name_unavailable`). Athletes are only told it isn't available.
+
+How it matches:
+- Case and accents don't count, and leetspeak digits and symbols read as letters (`sh1t`, `p0rn`).
+- Letters may be stretched (`fuuuck`), and spelled out with separators (`f.u.c.k`, `f-u-c-k`).
+- Most words count inside other words too (`pornstar`). A short list only counts on its own, because innocent words contain it (`classic`, `cockburn`, `sussex`, `analyst`): `big_ass` is caught but `bigass` isn't.
+- Innocent words that contain a listed word are set aside first (`scunthorpe`, `therapist`, `yamashita`).
+- The list is English, Czech and Slovak. Reports and blocks cover what it misses.
+
+The rule doesn't touch names already taken. To find those that break it, read them (read-only) and check them from the repository root:
+
+```sh
+wrangler d1 execute hop-production --remote --env production --json --command "
+  select 'handle' as kind, handle as name from users where handle is not null
+  union all select 'event', slug from hops union all select 'event', title from hops" |
+node --input-type=module -e '
+  import { isOffensive } from "./packages/shared/src/offensive.ts";
+  let input = ""; for await (const chunk of process.stdin) input += chunk;
+  for (const row of JSON.parse(input)[0].results) if (isOffensive(row.name)) console.log(row.kind, row.name);'
+```
+
+To deal with one, either delete the account (its page goes, and the tombstone keeps the handle out of reach), or rename the handle by hand: `update users set handle = '<new>' where handle = '<old>'`. Renaming breaks the old link and QR code, which is what's wanted here, and nobody can claim the old handle again, since it breaks the rule.
+
 ## Deleting an account
 
 `DELETE /api/me` deletes the signed-in account, from the app (Account → Delete Account, which App Review requires) or the website. In one transaction (`src/lib/accounts.ts`):

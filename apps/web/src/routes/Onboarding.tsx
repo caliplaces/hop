@@ -17,6 +17,7 @@ import { queries } from "../lib/queries";
 const REASONS = {
   invalid: "2–30 characters: letters, numbers, dots and underscores.",
   reserved: "That one is reserved.",
+  unavailable: "That handle isn't available.",
   taken: "That handle is taken.",
 } as const;
 
