@@ -150,8 +150,8 @@ struct HopPlusView: View {
 
 /// Where the store's Terms and Privacy buttons lead.
 enum HopLegal {
-    /// Apple's standard licence agreement for apps without their own.
-    static let terms = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+    /// Hop's terms, which say Apple's standard licence agreement applies to the app too.
+    static var terms: URL { HopServer.baseURL.appending(path: "terms") }
     static var privacy: URL { HopServer.baseURL.appending(path: "privacy") }
 }
 

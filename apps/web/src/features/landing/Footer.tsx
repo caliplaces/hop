@@ -1,7 +1,7 @@
 import { Logo } from "../../components/Logo";
 import { signInUrl } from "../../lib/api";
 
-/** The one place the landing page mentions who makes Hop. */
+/** The one place the landing page mentions who makes Hop, with its Privacy and Terms. */
 export function Footer() {
   return (
     <footer className="border-t border-white/8 py-10 text-sm text-white/50">
@@ -19,12 +19,22 @@ export function Footer() {
             · © {new Date().getFullYear()}
           </p>
         </div>
-        <nav aria-label="Footer" className="flex items-center gap-6">
+        {/* Wraps on phones: five links don't fit one line there. */}
+        <nav
+          aria-label="Footer"
+          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 sm:justify-end"
+        >
           <a href="#faq" className="transition hover:text-fg">
             FAQ
           </a>
           <a href="https://github.com/caliplaces/hop" className="transition hover:text-fg">
             Open source on GitHub
+          </a>
+          <a href="/privacy" className="transition hover:text-fg">
+            Privacy
+          </a>
+          <a href="/terms" className="transition hover:text-fg">
+            Terms
           </a>
           <a href={signInUrl("/app")} className="transition hover:text-fg">
             Sign in

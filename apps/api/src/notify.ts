@@ -3,7 +3,7 @@ import { and, eq, gt, isNotNull, isNull, lte, max, min, or } from "drizzle-orm";
 import { type Db, getDb } from "./db";
 import { files, hops, liveActivities, users } from "./db/schema";
 import { newClipsEmail, newClipsPush } from "./email/new-clips";
-import { ResendError, sendEmail } from "./email/send";
+import { ResendError, type SendResult, sendEmail } from "./email/send";
 import { listUnsubscribeHeaders, unsubscribeLinks } from "./email/unsubscribe";
 import type { Env } from "./env";
 import { pushToPhones } from "./lib/phones";
@@ -187,8 +187,9 @@ async function sendBatch(
     unsubscribeUrl: links.page,
   });
 
+  let result: SendResult = { status: "sent", emailId: null };
   try {
-    await sendEmail(env, {
+    result = await sendEmail(env, {
       ...email,
       to: user.email,
       // One key per batch: if an earlier attempt went through but timed out,
@@ -205,7 +206,8 @@ async function sendBatch(
     }
   }
   await confirm();
-  return "sent";
+  // An address Hop no longer emails: announced all the same, like an opt-out.
+  return result.status === "sent" || pushed ? "sent" : "skipped";
 }
 
 /**

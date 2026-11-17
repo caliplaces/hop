@@ -17,6 +17,8 @@ export type UploadItem = {
   error?: string;
   /** The failure was the network (or a temporary server error), so reconnecting can resume it. */
   retryable?: boolean;
+  /** The sender's note as it was when the file was added: it goes with this file, retries too. */
+  note?: string;
 };
 
 type Session = CreateUploadResult & { etags: Record<number, string> };
@@ -132,6 +134,8 @@ export class Uploader {
     private readonly hopId: string,
     private readonly getPass: () => Promise<string>,
     private readonly getContributorName: () => string | undefined,
+    /** The sender's note, read as files are added: it goes with the clips added after it. */
+    private readonly getNote: () => string | undefined = () => undefined,
   ) {}
 
   subscribe(listener: Listener) {
@@ -143,12 +147,19 @@ export class Uploader {
   }
 
   add(files: File[]) {
+    const note = this.getNote();
     for (const file of files) {
       // Picking the same file again while it's still in the queue would start a
       // second upload sharing the first one's resume state.
       const duplicate = this.items.some((i) => i.status !== "cancelled" && sameFile(i.file, file));
       if (!duplicate) {
-        this.items.push({ id: crypto.randomUUID(), file, status: "queued", uploadedBytes: 0 });
+        this.items.push({
+          id: crypto.randomUUID(),
+          file,
+          status: "queued",
+          uploadedBytes: 0,
+          note,
+        });
       }
     }
     this.emit();
@@ -230,6 +241,7 @@ export class Uploader {
             size: item.file.size,
             type: item.file.type || "application/octet-stream",
             contributorName: this.getContributorName(),
+            note: item.note,
           },
         });
         creating.then(

@@ -41,7 +41,7 @@ Moving off the custom scheme, which any app could claim:
 ## How uploads work
 
 1. The contributor page solves Turnstile once. `POST /api/hops/:hopId/pass` returns a signed pass that's valid for 2 hours. One pass can have at most 6 active and 300 total uploads.
-2. `POST /api/hops/:hopId/uploads` checks the Hop and the declared type, and reserves quota atomically. Only completed files and uploads active in the last hour count against the quota, so abandoned uploads can't make a Hop look full. It then starts an R2 multipart upload and returns a `fileId` plus a per-file upload token.
+2. `POST /api/hops/:hopId/uploads` checks the Hop and the declared type, and reserves quota atomically. It can carry the sender's name and a note for the athlete (up to 280 characters), both cleaned as names are (`cleanName` in `packages/shared`): one line, no invisible or control characters. Only completed files and uploads active in the last hour count against the quota, so abandoned uploads can't make a Hop look full. It then starts an R2 multipart upload and returns a `fileId` plus a per-file upload token.
 3. `POST /api/uploads/:fileId/parts` returns presigned `UploadPart` URLs, with `Content-Length` signed into each one. The browser PUTs 10 MiB parts straight to R2, and a URL won't accept more bytes than its part should have.
 4. `POST /api/uploads/:fileId/complete` completes the upload and checks the final size. It then reads the first bytes to work out the real media type, which decides the stored MIME type and file extension. Anything else is deleted. Retrying it is safe.
 5. The browser grabs a frame and uploads a small JPEG thumbnail with `PUT /api/uploads/:fileId/thumbnail`. The body is read with a hard 512 KiB cap.
@@ -91,6 +91,31 @@ Hop sends its own emails through [Resend](https://resend.com) from `EMAIL_FROM` 
 The new-clips digest runs every 5 minutes. A clip counts as announced once `files.notified_at` is set; each run claims an athlete's unannounced clips in one statement before sending, and hands them back if the send fails. Athletes turn it off in account settings, from the unsubscribe link in each email (a page that asks first), or with their mail app's one-click unsubscribe (`List-Unsubscribe`, RFC 8058).
 
 The same digest goes to the athlete's phones as a notification ("2 new clips from Street Kings Prague", "Coach Peter and Lea sent you clips."), once per batch: when it's claimed, never again on an email retry, and only one run can claim it. It goes whether or not they get the email, unless they turned `users.push_new_clips` off (in the app's Account). Clips the athlete watched arrive on Event mode's Live Activity (in that event, since it started) are left out, and nothing is pushed if that's all of them. Notifications of one event are grouped on the phone (`thread-id`), and carry `{ hop: "clips", hopId }` for the app to open it.
+
+### Bounces and spam complaints
+
+Resend's webhook tells Hop which emails never arrived, and which addresses not to email again (`src/email/webhook.ts`, `src/email/suppressions.ts`):
+
+- `POST /api/email/resend-webhook` receives Resend's events. Each must carry a valid Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`: an HMAC-SHA256 of `${id}.${timestamp}.${body}` with the endpoint's signing secret, at most five minutes old either way). The HMAC is computed once and compared in constant time with at most the first five signatures in the header. Without `RESEND_WEBHOOK_SECRET` the endpoint isn't there (404).
+- Only this environment's emails count. Every email Hop sends is tagged `env` with its `ENVIRONMENT`, and an event must carry the same tag, from `EMAIL_FROM`'s domain. Staging and production share the Resend account and both hear of every email, and the account sends for other products too.
+- **An email that never arrived:** any bounce (`email.bounced`, permanent or temporary), a failure to send (`email.failed`), or Resend refusing to send (`email.suppressed`). Free-plan expiry only counts a notice that reached the athlete. Each notice keeps Resend's ID for the email that gave it (`expiry_notices.email_id`), so the event's `email_id` finds it, whatever the athlete's address is by then. That notice is let go and its clips go back unclaimed. They stay, and a fresh notice is claimed the next day. The event can come back before Hop has written down which email gave the notice, so the email's ID is also kept for a month (`undelivered_emails`), and a notice only counts if its email isn't there. That is checked in the same statement that counts it. An answer from Resend without an ID isn't counted either: the email is tried again, under the same key.
+- **An address not to email again:** a permanent bounce (`bounce.type` `Permanent`), a spam complaint (`email.complained`), or `email.suppressed` (the address is on Resend's account-wide suppression list). It goes into `email_suppressions`, keyed by `normalizeAddress`: spaces trimmed and A–Z lowercased, exactly what SQLite's `lower(trim())` does, so SQL matching an account's address agrees with it. A spam complaint means the email did arrive: a notice it gave still counts.
+- `sendEmail` checks every email against the list, so nothing goes to a listed address: not the welcome, the new-clips digest, the launch email, clips expiring, or account deleted. The digest and the launch email treat such an address as handled, like an opt-out. Only the report emails to `REPORTS_EMAIL` go regardless: a lost report is worse than a bounce.
+- An athlete whose address is listed is never sent a notice, so their free clips stay past 30 days, within the free plan's storage. A notice waiting to be sent is let go, unsent and unpushed.
+- An entry is kept a year (the hourly cleanup), and goes when its account is deleted: if the address was verified and no other live account has it. A listed address gets no account deleted email, which would only bounce and put it back on the list. An athlete whose Caliplaces address changes is emailed again at the new one. To email a listed address sooner, delete its row (and remove it from Resend's suppression list in its dashboard).
+
+Setup, per environment, in Resend's dashboard (Webhooks › Add endpoint):
+
+1. Endpoint URL: `https://onmyhop.com/api/email/resend-webhook` for production, `https://staging.onmyhop.com/api/email/resend-webhook` for staging. Staging only lets the team's IPs in, so its firewall needs an exception for that one path, as for Stripe's webhook.
+2. Events: `email.bounced`, `email.failed`, `email.complained`, `email.suppressed`.
+3. The endpoint's signing secret (`whsec_…`) is the environment's `RESEND_WEBHOOK_SECRET`:
+
+```sh
+wrangler secret put RESEND_WEBHOOK_SECRET --env production
+wrangler secret put RESEND_WEBHOOK_SECRET --env staging
+```
+
+Emails sent before the `env` tag existed carry none, and their events are ignored.
 
 While `pnpm dev` runs, open [localhost:5173/email-lab.html](http://localhost:5173/email-lab.html) to see every email with sample data, in each colour, at phone and desktop width, and in dark mode. Without `RESEND_API_KEY` in `.dev.vars`, emails are printed to the wrangler console instead of sent.
 
@@ -151,13 +176,39 @@ wrangler d1 execute hop-production --remote --env production \
 
 The photo itself goes with the next hourly cleanup, and caches drop it within a week.
 
+### Names Hop doesn't allow
+
+Handles, event links and event names are public, so none may contain a slur or a sexual or profane word (`isOffensive` in `packages/shared/src/offensive.ts`). A handle that does is `unavailable`, on `GET /api/handles/:handle` and `PUT /api/me/handle` (`400 handle_unavailable`). An event whose name or link does can't be made or renamed (`400 name_unavailable`). Athletes are only told it isn't available.
+
+How it matches:
+
+- Case and accents don't count, and leetspeak digits and symbols read as letters (`sh1t`, `p0rn`). Each `1` reads as `i` or `l` on its own (`h1t1er`).
+- Letters may be stretched (`fuuuck`), and spelled out with separators (`f.u.c.k`, `f-u-c-k`).
+- Most words count inside other words too (`pornstar`). A short list only counts on its own, because innocent words contain it (`classic`, `cockburn`, `sussex`, `analyst`): `big_ass` is caught but `bigass` isn't.
+- Innocent words that contain a listed word (`scunthorpe`, `therapist`, `yamashita`) excuse only what lies wholly inside them, so `shitass` is still caught. They're whole words and names, not fragments.
+- The list is English, Czech and Slovak. Reports and blocks cover what it misses.
+
+The rule doesn't touch names already taken. To find those that break it, read them (read-only) and check them from the repository root:
+
+```sh
+wrangler d1 execute hop-production --remote --env production --json --command "
+  select 'handle' as kind, handle as name from users where handle is not null
+  union all select 'event', slug from hops union all select 'event', title from hops" |
+node --input-type=module -e '
+  import { isOffensive } from "./packages/shared/src/offensive.ts";
+  let input = ""; for await (const chunk of process.stdin) input += chunk;
+  for (const row of JSON.parse(input)[0].results) if (isOffensive(row.name)) console.log(row.kind, row.name);'
+```
+
+To deal with one, either delete the account (its page goes, and the tombstone keeps the handle out of reach), or rename the handle by hand: `update users set handle = '<new>' where handle = '<old>'`. Renaming breaks the old link and QR code, which is what's wanted here, and nobody can claim the old handle again, since it breaks the rule.
+
 ## Deleting an account
 
 `DELETE /api/me` deletes the signed-in account, from the app (Account → Delete Account, which App Review requires) or the website. In one transaction (`src/lib/accounts.ts`):
 
 - **Everything that identifies them goes:**
   - email, both names and the photo (deleted from R2 at once);
-  - the App Store account token, subscriptions and Live Activities;
+  - the App Store account token, which Stripe customer was theirs, subscriptions and Live Activities;
   - every session, so they're signed out everywhere;
   - a verified address on the launch waitlist.
 
@@ -169,13 +220,15 @@ The photo itself goes with the next hourly cleanup, and caches drop it within a 
 
 A deleted account's sessions are refused, even one a sign-in under way created just after. A request already running when they delete could still write to the tombstone (a name, a photo, a clip sent to someone, a Live Activity). So for a week after a deletion, every cleanup run erases the account again. A handle claim only lands on an account with no handle that isn't deleted. Uploads re-check that the hop is still open when they reserve their place. Each of these cleanup steps runs on its own, so one failing doesn't stop the rest.
 
-Deleting the account doesn't cancel Hop+, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. The purchase carries the deleted account's token, so restoring it on a new account fails with `deleted_account`, which tells them to cancel it and subscribe again.
+Deleting the account doesn't cancel Hop+ from the App Store, which Apple bills until it's cancelled in their Apple Account. The app says so before they delete, and so does the confirmation email. The purchase carries the deleted account's token, so restoring it on a new account fails with `deleted_account`, which tells them to cancel it and subscribe again.
+
+Hop+ from the website is cancelled at once, in Stripe, before anything else (see "Hop+ on the website"). If Stripe can't be reached, the deletion answers `503 billing_unavailable` and the account stays, rather than be billed after it's gone.
 
 ## Reports and blocks
 
 Anyone with an athlete's link can send them clips, and anyone can open their page. App Review requires a way to report content and to block whoever sends it (Guideline 1.2).
 
-- **Reporting a clip.** `POST /api/me/files/:fileId/report { reason, note? }`, by the athlete it was sent to, from the app. The report keeps the clip's sender, note and file name.
+- **Reporting a clip.** `POST /api/me/files/:fileId/report { reason, note? }`, by the athlete it was sent to, from the app or the website's clip viewer. The report keeps the clip's sender, note and file name.
   - The clip is held for 30 days from its first report (`files.held_until`); reporting it again doesn't stretch that. Deleting it in that time only hides it (status `held`), and so does a block or deleting the account. The team can still look, and the hourly cleanup removes it once the hold is over.
   - Deleting checks the hold and claims the clip in one statement, and a report only holds a clip that isn't already going. So a clip is either held or deleted, never both.
 - **Reporting a page.** `POST /api/h/:handle/report { reason, note?, turnstileToken }`, by anyone, from the upload page. It's behind Turnstile and a limit per IP (per /64 for IPv6). The same visitor reporting the same page again within a day changes nothing.
@@ -244,7 +297,7 @@ pnpm --filter @hop/api exec wrangler secret put ADMIN_USER_IDS --env production
 
 ## Hop+ subscriptions
 
-Athletes subscribe to Hop+ in the iPhone app, through the App Store. The plans are in `packages/shared/src/limits.ts`:
+Athletes subscribe to Hop+ in the iPhone app, through the App Store, or on the website, through Stripe (see "Hop+ on the website" below). The plans are in `packages/shared/src/limits.ts`:
 
 | Plan | Storage | Clips kept |
 | ---- | ------- | ---------- |
@@ -291,6 +344,48 @@ wrangler secret put APPLE_SANDBOX_USERS --env production
 
 - Nothing catches up on notifications Apple gave up retrying (after about 3 days). Asking the App Store Server API for the subscription's status would, and needs an In-App Purchase key.
 - Purchases that carry no `appAccountToken`, such as offer codes redeemed in the App Store app, can't be credited.
+
+## Hop+ on the website
+
+The website sells Hop+ through Stripe Checkout, and Stripe's customer portal handles everything after: payment method, invoices, switching plans, cancelling (`src/lib/stripe.ts`, `src/routes/stripe.ts`). Stripe Tax isn't on: the price set on the product is what's charged.
+
+- `GET /api/billing/web/prices`: the Hop+ product's active monthly and yearly prices (the newest of each), cached for five minutes. None where Stripe isn't set up, webhook included, and the website then doesn't offer Hop+: without the webhook, renewals would never reach Hop.
+- `POST /api/billing/web/checkout` `{ priceId }`: a Checkout page, with a box to tick that agrees to Hop's terms and asks for Hop+ to start right away. It is for cards only (Apple Pay and Google Pay among them): bank debits mark a subscription active before the money arrives, and can fail or be reversed weeks later. The athlete gets a Stripe customer the first time (`users.stripe_customer_id`). It catches up with Stripe first, then:
+  - refuses with `409 already_plus` with Hop+ from anywhere, so a checkout paid moments ago counts;
+  - refuses with `409 payment_due` while a subscription is still billing but behind, since fixing the card in the portal brings Hop+ back;
+  - cancels a subscription still waiting for its first payment;
+  - expires any checkout left open, so only the newest can be paid. One checkout opens at a time per account (`users.stripe_checkout_at`, a two-minute lock), or two at once could each leave theirs open (`409 checkout_opening`). A checkout that has run so long that its lock may run out before Stripe answers doesn't open one. Deleting the account takes the same lock, then reads the customer, so a checkout can't make one unseen.
+- `POST /api/billing/web/portal`: a portal page, for athletes with a customer, with Hop's own portal configuration (`STRIPE_PORTAL_CONFIGURATION`): the account's default is shared with its other products and could let a subscription switch to one of them.
+- `POST /api/billing/web/sync`: reads their subscriptions from Stripe now, ended ones too, and returns the plan, for coming back from Checkout or the portal before the webhook lands. Stored Hop+ that Stripe didn't list (its customer was deleted) is read one by one.
+- `POST /api/stripe/webhook`: Stripe's events.
+
+Checkout, the portal and syncing are rate limited per account (`BILLING_LIMITER`), since Stripe's own limit is shared with the account's other products. A customer Stripe no longer has (deleted in its dashboard, which cancels its subscriptions) is forgotten, and the next checkout makes a new one.
+
+How it's kept right:
+
+- **Only Stripe's word.** A webhook must carry a valid `Stripe-Signature` (HMAC-SHA256 with the endpoint's signing secret, at most five minutes old). Even then it only names a subscription, which is fetched from Stripe and stored as it is now. Data fetched earlier never overwrites data fetched later, so retried and out-of-order events can't roll it back.
+- **Only Hop+.** The Stripe account sells other products: only subscriptions whose every item is `STRIPE_PRODUCT_ID` count, and only for a customer Hop made for a live account. One moved to another product, or one Stripe no longer has, ends its Hop+ there and then.
+- **Test and live mode.** Live mode only in production; test mode locally and on staging. An event or subscription in the other mode is refused.
+- **What it gives.** Stored with the App Store's in `subscriptions`, as `provider = 'stripe'`, the subscription ID as its key, and `hop_plus` or `hop_plus_annual` for its period. Paid up: Hop+ to the period's end. Past due, while Stripe retries the renewal: Hop+ carries on as a billing grace period, for up to 16 days. Cancelled: until it ended. Unpaid or paused: it ended when the unpaid period began. Never paid (incomplete): not stored.
+- **Deleted accounts.** Deleting an account cancels every subscription its Stripe customer has (Hop made it, and nothing else uses it) and expires its open checkouts first. A checkout paid after all (Stripe can't expire one being paid) makes a subscription whose metadata names the deleted account: the webhook cancels it. Stripe keeps the customer and its invoices, as accounting law requires; Hop forgets which one it was.
+
+Setup, per environment (test mode for staging, live mode for production):
+
+1. The product: `STRIPE_PRODUCT_ID` in `wrangler.jsonc`. Give it a monthly price and, if wanted, a yearly one, both recurring every 1 month or 1 year.
+2. An API key. A restricted key needs write access to Customers, Checkout Sessions, Subscriptions and the Customer portal, and read access to Prices.
+3. A webhook endpoint at `https://onmyhop.com/api/stripe/webhook` (or staging's), with the events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.paused`, `customer.subscription.resumed`, `invoice.paid` and `invoice.payment_failed`. Staging only lets the team's IPs in, so its firewall needs an exception for that one path.
+4. Hop's own customer portal configuration, as `STRIPE_PORTAL_CONFIGURATION` in `wrangler.jsonc`: cancelling at the end of the period, updating the payment method and email, invoices, and no plan switching (`features[subscription_update][enabled]=false`; to let people switch between monthly and yearly, enable it with only Hop+'s two prices). Make it with `POST /v1/billing_portal/configurations`, as staging's was, not by editing the account's default, which the other products share. Under Settings › Business › Customer emails, turn on receipts.
+5. Refunds and disputes don't end Hop+ on their own: when refunding, cancel the subscription too, at once. Then Hop+ ends. An EU withdrawal within 14 days (see /terms) refunds only the days not used: Checkout has the athlete ask for Hop+ to start right away (Stripe records it on the session, `consent.terms_of_service`). Refund that part of the payment, then cancel.
+6. Checkout's box to tick (`consent_collection`) needs a terms of service URL under Settings › Public details. The box's own text links Hop's terms, whatever URL is set there, since the account is shared.
+
+```sh
+wrangler secret put STRIPE_SECRET_KEY --env staging       # sk_test_… or rk_test_…
+wrangler secret put STRIPE_WEBHOOK_SECRET --env staging   # whsec_… from the endpoint
+```
+
+Locally, run `stripe listen --forward-to localhost:8787/api/stripe/webhook` and put the `whsec_…` it prints in `.dev.vars`.
+
+Not covered yet: two checkouts paid at the same moment. The checkout lock and expiring open checkouts make it unlikely: Stripe can't expire a checkout while it's being paid. If it happens, the athlete has two subscriptions, and one needs cancelling and refunding by hand.
 
 ## Deploys
 

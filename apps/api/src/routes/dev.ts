@@ -31,9 +31,14 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
       name: query("name") ?? "Matej Matiasko",
       color: colorFor(query("color"), "preview"),
     }),
-  // ?handle= (empty) shows an account deleted before it claimed a handle.
+  // ?handle= (empty) shows an account deleted before it claimed a handle;
+  // ?web=1, one whose Hop+ from the website was cancelled with it.
   "account-deleted": (appUrl, query) =>
-    accountDeletedEmail({ appUrl, handle: query("handle") ?? "matej" }),
+    accountDeletedEmail({
+      appUrl,
+      handle: query("handle") ?? "matej",
+      cancelledWebHopPlus: query("web") === "1",
+    }),
   // ?count=3 shows several in one email.
   report: (appUrl, query) => {
     const base = {

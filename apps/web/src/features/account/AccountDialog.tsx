@@ -12,6 +12,7 @@ import { hopUrl } from "../../lib/format";
 import { queries } from "../../lib/queries";
 import { ColorPicker } from "./ColorPicker";
 import { DeleteAccount } from "./DeleteAccount";
+import { PlanCard } from "./PlanCard";
 
 export type AthleteMe = Me & { handle: string };
 
@@ -91,31 +92,40 @@ export function AccountDialog({
 
   if (deleting) {
     return (
-      <Dialog open={open} onClose={close} size="sm" hideClose>
+      <Dialog open={open} onClose={close} size="sm" placement="side" hideClose>
         <DeleteAccount handle={me.handle} onCancel={() => setDeleting(false)} />
       </Dialog>
     );
   }
 
   return (
-    <Dialog open={open} onClose={close} size="sm">
-      <div className="flex items-center gap-3">
-        <Avatar name={me.name ?? me.handle} src={me.avatarUrl} />
+    <Dialog open={open} onClose={close} size="md" placement="side" title="Account">
+      <div className="flex items-center gap-4">
+        <Avatar name={me.name ?? me.handle} src={me.avatarUrl} size="lg" />
         <div className="min-w-0">
-          <p className="truncate font-semibold">{me.name ?? `@${me.handle}`}</p>
+          <p className="flex items-center gap-2 truncate text-xl font-bold tracking-tight">
+            {me.name ?? `@${me.handle}`}
+            {me.hopPlus && <span className="badge bg-accent-soft text-fg">Hop+</span>}
+          </p>
           <p className="truncate text-sm text-muted">@{me.handle}</p>
+          <p className="mt-1 text-xs text-subtle">Change your name and photo in the Hop app.</p>
         </div>
       </div>
 
-      <div className="mt-6">
-        <p className="mb-3 text-sm font-medium text-muted">Your page colour</p>
-        <ColorPicker value={me.color} onChange={(color) => setColor.mutate(color)} />
-      </div>
+      <section className="mt-6">
+        <h3 className="mb-3 text-sm font-semibold text-muted">Plan</h3>
+        <PlanCard />
+      </section>
 
-      <div className="mt-6">
-        <p className="mb-3 text-sm font-medium text-muted">Email</p>
+      <section className="mt-6">
+        <h3 className="mb-3 text-sm font-semibold text-muted">Your page colour</h3>
+        <ColorPicker value={me.color} onChange={(color) => setColor.mutate(color)} />
+      </section>
+
+      <section className="mt-6">
+        <h3 className="mb-3 text-sm font-semibold text-muted">New clips</h3>
         <Switch
-          label="New clips"
+          label="Email"
           description={
             me.email
               ? `One email to ${me.email} when a burst of clips arrives.`
@@ -124,9 +134,10 @@ export function AccountDialog({
           checked={me.emailNewClips}
           onChange={(checked) => setEmailNewClips.mutate(checked)}
         />
-      </div>
+        <p className="mt-2 text-sm text-muted">Notifications on your phone are in the Hop app.</p>
+      </section>
 
-      <div className="mt-6 flex flex-col gap-2">
+      <section className="mt-6 flex flex-col gap-2">
         <a
           className={buttonClass({ variant: "soft", className: "justify-start" })}
           href={hopUrl(me.handle)}
@@ -135,15 +146,20 @@ export function AccountDialog({
         >
           <ExternalLink className="size-4" /> Open my upload page
         </a>
-        <Button variant="soft" className="justify-start" onClick={() => signOut()}>
+        <Button variant="soft" className="justify-start text-danger" onClick={() => signOut()}>
           <LogOut className="size-4" /> Sign out
         </Button>
-      </div>
+      </section>
 
       <div className="mt-6 flex items-center justify-between gap-4 border-t border-line pt-4 text-sm">
-        <a className="text-muted underline-offset-4 hover:underline" href="/privacy">
-          Privacy
-        </a>
+        <span className="flex items-center gap-4">
+          <a className="text-muted underline-offset-4 hover:underline" href="/privacy">
+            Privacy
+          </a>
+          <a className="text-muted underline-offset-4 hover:underline" href="/terms">
+            Terms
+          </a>
+        </span>
         <button
           type="button"
           className="inline-flex items-center gap-1.5 font-medium text-danger underline-offset-4 hover:underline"

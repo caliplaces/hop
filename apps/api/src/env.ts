@@ -13,6 +13,8 @@ export type Env = {
   REPORT_LIMITER: RateLimit;
   /** Per account, on profile changes: name and photo. */
   PROFILE_LIMITER: RateLimit;
+  /** Per account, on the website's Hop+ calls that reach Stripe. */
+  BILLING_LIMITER: RateLimit;
 
   ENVIRONMENT: "development" | "staging" | "production";
   APP_URL: string;
@@ -46,6 +48,12 @@ export type Env = {
   /** Resend API key. Optional locally, where emails are logged instead of sent. */
   RESEND_API_KEY?: string;
   /**
+   * The signing secret (whsec_…) of Resend's webhook to this environment,
+   * which reports bounces and spam complaints (routes/email.ts). Without it
+   * the webhook isn't there.
+   */
+  RESEND_WEBHOOK_SECRET?: string;
+  /**
    * When the launch email goes out (ISO 8601), for trying it on staging
    * early. Defaults to LAUNCH_AT in packages/shared.
    */
@@ -72,6 +80,26 @@ export type Env = {
    * elsewhere, where sandbox purchases always count.
    */
   APPLE_SANDBOX_USERS?: string;
+  /**
+   * Hop+ on the website, through Stripe (lib/stripe.ts). STRIPE_SECRET_KEY
+   * is the API key, a restricted one will do; STRIPE_WEBHOOK_SECRET is the
+   * webhook endpoint's signing secret (whsec_…). Both are secrets: test mode
+   * locally and on staging, live mode in production. Without them the
+   * website doesn't sell Hop+.
+   */
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * The Hop+ product in that Stripe account (prod_…). Its active monthly and
+   * yearly prices are what the website sells; nothing else there counts.
+   */
+  STRIPE_PRODUCT_ID: string;
+  /**
+   * Hop's own customer portal settings (bpc_…): Hop+ prices only, cancelling
+   * at the period's end. Without it, the account's default is used, which
+   * its other products share.
+   */
+  STRIPE_PORTAL_CONFIGURATION?: string;
 };
 
 export type AppEnv = {

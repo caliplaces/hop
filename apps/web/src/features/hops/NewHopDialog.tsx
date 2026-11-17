@@ -1,4 +1,4 @@
-import { slugify } from "@hop/shared";
+import { isOffensive, slugify } from "@hop/shared";
 import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
@@ -19,6 +19,8 @@ export function NewHopDialog({
   const [title, setTitle] = useState("");
   const { create } = useHopMutations();
   const slug = slugify(title);
+  // As the API checks it: the name and its link are both public.
+  const unavailable = Boolean(slug) && (isOffensive(title) || isOffensive(slug));
   const close = () => {
     setTitle("");
     create.reset();
@@ -29,8 +31,8 @@ export function NewHopDialog({
     <Dialog
       open={open}
       onClose={close}
-      title="New Hop"
-      description="One per event keeps clips apart. Close it when the event’s over."
+      title="New event"
+      description="Each event keeps its clips apart, with a link of its own. To have your main link send clips there too, choose “Send my link here”. Close it when the event’s over."
     >
       <form
         onSubmit={(e) => {
@@ -46,9 +48,11 @@ export function NewHopDialog({
           autoFocus
           onChange={(e) => setTitle(e.target.value)}
         />
-        {create.error ? (
+        {unavailable ? (
+          <FieldHint tone="danger">That name isn’t available. Pick another.</FieldHint>
+        ) : create.error ? (
           <FieldHint tone="danger">
-            {create.error instanceof ApiError ? create.error.message : "Couldn't create the Hop."}
+            {create.error instanceof ApiError ? create.error.message : "Couldn't create the event."}
           </FieldHint>
         ) : (
           <FieldHint>{slug ? displayHopUrl(hopUrl(handle, slug)) : " "}</FieldHint>
@@ -57,9 +61,9 @@ export function NewHopDialog({
           type="submit"
           size="lg"
           className="mt-4 w-full"
-          disabled={!slug || create.isPending}
+          disabled={!slug || unavailable || create.isPending}
         >
-          {create.isPending ? "Creating…" : "Create Hop"}
+          {create.isPending ? "Creating…" : "Create event"}
         </Button>
       </form>
     </Dialog>

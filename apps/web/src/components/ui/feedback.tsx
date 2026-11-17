@@ -1,5 +1,14 @@
 import { CircleAlert, CircleCheck } from "lucide-react";
-import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 
@@ -18,6 +27,47 @@ type Feedback = {
 
 const FeedbackContext = createContext<Feedback | null>(null);
 
+/**
+ * Where toasts show: inside the topmost open modal dialog, such as the clip
+ * viewer, if there is one. A modal sits above everything outside it, and
+ * makes it inert, whatever its z-index.
+ */
+export function toastHost(doc: Document = document): Element {
+  const isModal = (dialog: HTMLDialogElement) => {
+    try {
+      return dialog.matches(":modal");
+    } catch {
+      return true; // Too old to know: an open dialog is most likely one.
+    }
+  };
+  const modals = [...doc.querySelectorAll("dialog")].filter((d) => d.open && isModal(d));
+  return modals.at(-1) ?? doc.body;
+}
+
+/**
+ * Gives `update` where toasts show now, and again whenever a dialog opens,
+ * closes, or comes or goes, until the returned function stops it. Dialogs
+ * open and close in effects, after the render that showed the toast: Report
+ * shows its toast and closes together, and the toast must then move to
+ * what's below.
+ */
+export function followToastHost(
+  update: (host: Element) => void,
+  doc: Document = document,
+  Observer: typeof MutationObserver = MutationObserver,
+): () => void {
+  const check = () => update(toastHost(doc));
+  check();
+  const observer = new Observer(check);
+  observer.observe(doc.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["open"],
+  });
+  return () => observer.disconnect();
+}
+
 /** In-app confirmations and toasts, replacing window.confirm/alert. */
 export function FeedbackProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<
@@ -25,6 +75,17 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   >(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(0);
+  const showing = toasts.length > 0;
+  // Followed only while toasts show; null until the first look.
+  const [host, setHost] = useState<Element | null>(null);
+  useLayoutEffect(() => {
+    if (!showing) return;
+    const stop = followToastHost(setHost);
+    return () => {
+      stop();
+      setHost(null);
+    };
+  }, [showing]);
 
   const confirm = useCallback(
     (options: ConfirmOptions) =>
@@ -66,24 +127,28 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
           </Button>
         </div>
       </Dialog>
-      <div
-        aria-live="polite"
-        className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--tabbar-h)+1.5rem)] z-(--z-toast) flex flex-col items-center gap-2 px-4 sm:bottom-8"
-      >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className="animate-fade-up flex items-center gap-2 rounded-full bg-fg py-2.5 pr-5 pl-3 text-sm font-medium text-canvas shadow-lift"
-          >
-            {t.tone === "success" ? (
-              <CircleCheck className="size-5 text-canvas" />
-            ) : (
-              <CircleAlert className="size-5 text-danger" />
-            )}
-            {t.message}
-          </div>
-        ))}
-      </div>
+      {createPortal(
+        <div
+          aria-live="polite"
+          className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--tabbar-h)+1.5rem)] z-(--z-toast) flex flex-col items-center gap-2 px-4 sm:bottom-8"
+        >
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className="animate-fade-up flex items-center gap-2 rounded-full bg-fg py-2.5 pr-5 pl-3 text-sm font-medium text-canvas shadow-lift"
+            >
+              {t.tone === "success" ? (
+                <CircleCheck className="size-5 text-canvas" />
+              ) : (
+                <CircleAlert className="size-5 text-danger" />
+              )}
+              {t.message}
+            </div>
+          ))}
+        </div>,
+        // Over whichever modal is on top while they show (followToastHost).
+        showing ? (host ?? toastHost()) : document.body,
+      )}
     </FeedbackContext.Provider>
   );
 }

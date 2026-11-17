@@ -11,6 +11,7 @@ import {
   type HopSummary,
   type InboxFile,
   type InboxPage,
+  isOffensive,
   MAX_AVATAR_BYTES,
   normalizeHandle,
   slugify,
@@ -18,11 +19,12 @@ import {
   updateProfileSchema,
 } from "@hop/shared";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { type Db, getDb } from "../db";
 import { type FileRow, files, hops, users } from "../db/schema";
 import { sendAccountDeletedEmail } from "../email/account-deleted";
+import { isSuppressed } from "../email/suppressions";
 import { sendWelcomeEmail } from "../email/welcome";
 import type { AppEnv, Env } from "../env";
 import { deleteAccount } from "../lib/accounts";
@@ -35,6 +37,7 @@ import { sanitizeJpeg } from "../lib/jpeg";
 import { hasPlus } from "../lib/plans";
 import { currentUser, destroySession, requireUser } from "../lib/session";
 import { presignGet } from "../lib/storage";
+import { cancelForDeletion, lockCheckout, stripeEnabled, unlockCheckout } from "../lib/stripe";
 import { validate } from "../lib/validate";
 import { findUserByHandle, toMe } from "./auth";
 
@@ -56,6 +59,10 @@ function toInboxFile(f: FileRow): InboxFile {
     createdAt: f.createdAt,
   };
 }
+
+/** An event's name or link with a word Hop doesn't allow; athletes aren't told which. */
+const nameUnavailable = (c: Context) =>
+  fail(c, 400, "name_unavailable", "That name isn't available. Pick another.");
 
 function isUniqueViolation(error: unknown): boolean {
   return (
@@ -89,7 +96,14 @@ export const meRoutes = new Hono<AppEnv>()
     const input = c.req.valid("json");
     const handle = normalizeHandle(input.handle);
     const problem = checkHandle(handle);
-    if (problem) return fail(c, 400, `handle_${problem}`, "That handle can't be used.");
+    if (problem) {
+      return fail(
+        c,
+        400,
+        `handle_${problem}`,
+        problem === "unavailable" ? "That handle isn't available." : "That handle can't be used.",
+      );
+    }
 
     const db = getDb(c.env.DB);
     const hopId = newId("hop");
@@ -164,12 +178,44 @@ export const meRoutes = new Hono<AppEnv>()
    */
   .delete("/me", requireUser, async (c) => {
     const user = currentUser(c);
-    const was = await deleteAccount(getDb(c.env.DB), user.id);
+    const db = getDb(c.env.DB);
+    // No checkout may open meanwhile, and the Stripe customer is read only
+    // once it can't: one opening just now may have made it.
+    const lockedAt = Date.now();
+    if (!(await lockCheckout(db, user.id, lockedAt))) {
+      return fail(c, 409, "checkout_opening", "Checkout is opening. Try again in a moment.");
+    }
+    const customer = (
+      await db.select({ id: users.stripeCustomerId }).from(users).where(eq(users.id, user.id)).get()
+    )?.id;
+    let cancelledWebHopPlus = false;
+    if (customer) {
+      // Hop+ from the website: nothing would stop Stripe billing a deleted
+      // account, so the account stays until it's cancelled.
+      try {
+        if (!stripeEnabled(c.env)) throw new Error("Stripe isn't set up");
+        cancelledWebHopPlus = (await cancelForDeletion(c.env, customer)) > 0;
+      } catch (error) {
+        console.error("stripe: cancelling for deletion failed", error);
+        await unlockCheckout(db, user.id, lockedAt);
+        return fail(
+          c,
+          503,
+          "billing_unavailable",
+          "Couldn't cancel your Hop+ just now, so your account is still here. Try again in a minute.",
+        );
+      }
+    }
+    // Read before the account (and with it, its address's place on the
+    // do-not-email list) goes: an address Hop doesn't email gets no word of
+    // the deletion. Emailing it would only bounce, and put it back on the list.
+    const quiet = user.email ? await isSuppressed(db, user.email) : false;
+    const was = await deleteAccount(db, user.id);
     if (was?.avatarKey) await removeAvatar(c.env, was.avatarKey);
-    if (was) {
+    if (was && !quiet) {
       // After the response: a slow or failing email never holds it up.
       c.executionCtx.waitUntil(
-        sendAccountDeletedEmail(c.env, was).catch((error) =>
+        sendAccountDeletedEmail(c.env, was, { cancelledWebHopPlus }).catch((error) =>
           console.error("Account deleted email failed", error),
         ),
       );
@@ -263,6 +309,8 @@ export const meRoutes = new Hono<AppEnv>()
     const slug = slugify(input.slug || input.title);
     if (!HOP_SLUG_PATTERN.test(slug))
       return fail(c, 400, "invalid_slug", "Pick a different link name.");
+    // Both are public: the link, and the name on the upload page.
+    if (isOffensive(slug) || isOffensive(input.title)) return nameUnavailable(c);
 
     const hop = {
       id: newId("hop"),
@@ -289,6 +337,7 @@ export const meRoutes = new Hono<AppEnv>()
     const changes = c.req.valid("json");
     if (Object.keys(changes).length === 0)
       return fail(c, 400, "invalid_request", "Nothing to update.");
+    if (changes.title !== undefined && isOffensive(changes.title)) return nameUnavailable(c);
     const updated = await getDb(c.env.DB)
       .update(hops)
       .set(changes)
@@ -350,10 +399,18 @@ export const meRoutes = new Hono<AppEnv>()
 
   .get(
     "/me/files",
-    validate("query", z.object({ hopId: z.string().optional(), cursor: z.string().optional() })),
+    validate(
+      "query",
+      z.object({
+        hopId: z.string().optional(),
+        cursor: z.string().optional(),
+        /** Fewer than a page, such as an event card's cover. */
+        limit: z.coerce.number().int().min(1).max(PAGE_SIZE).optional(),
+      }),
+    ),
     async (c) => {
       const user = currentUser(c);
-      const { hopId, cursor } = c.req.valid("query");
+      const { hopId, cursor, limit = PAGE_SIZE } = c.req.valid("query");
       const conditions = [eq(files.ownerId, user.id), eq(files.status, "complete")];
       if (hopId) conditions.push(eq(files.hopId, hopId));
       if (cursor) {
@@ -371,13 +428,13 @@ export const meRoutes = new Hono<AppEnv>()
         .from(files)
         .where(and(...conditions))
         .orderBy(desc(files.createdAt), desc(files.id))
-        .limit(PAGE_SIZE + 1);
+        .limit(limit + 1);
 
-      const page = rows.slice(0, PAGE_SIZE);
+      const page = rows.slice(0, limit);
       const last = page.at(-1);
       const result: InboxPage = {
         files: page.map(toInboxFile),
-        nextCursor: rows.length > PAGE_SIZE && last ? `${last.createdAt}:${last.id}` : null,
+        nextCursor: rows.length > limit && last ? `${last.createdAt}:${last.id}` : null,
       };
       return c.json(result);
     },

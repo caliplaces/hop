@@ -69,6 +69,7 @@ export async function announceReports(env: Env): Promise<number> {
       to: env.REPORTS_EMAIL,
       idempotencyKey: `reports/${env.ENVIRONMENT}/${batch}`,
       category: "report",
+      team: true,
     });
   } catch (error) {
     // This key was already used for a send whose text differed (an account

@@ -66,9 +66,14 @@ struct ClaimHopModelTests {
 
     @Test func explainsTakenAndReservedHandles() async throws {
         server.reply = { request in
-            request.url?.path == "/api/handles/admin"
-                ? (200, #"{"handle":"admin","available":false,"problem":"reserved"}"#)
-                : (200, #"{"handle":"x","available":false,"problem":"taken"}"#)
+            switch request.url?.path {
+            case "/api/handles/admin":
+                (200, #"{"handle":"admin","available":false,"problem":"reserved"}"#)
+            case "/api/handles/big_ass":
+                (200, #"{"handle":"big_ass","available":false,"problem":"unavailable"}"#)
+            default:
+                (200, #"{"handle":"x","available":false,"problem":"taken"}"#)
+            }
         }
         let model = try makeModel()
         await settle(model)
@@ -76,6 +81,11 @@ struct ClaimHopModelTests {
         model.input = "admin"
         await settle(model)
         #expect(model.status == .unavailable(ClaimHopModel.Reason.reserved))
+        #expect(!model.canClaim)
+        // A word Hop doesn't allow: said without the reason.
+        model.input = "big_ass"
+        await settle(model)
+        #expect(model.status == .unavailable(ClaimHopModel.Reason.unavailable))
         #expect(!model.canClaim)
     }
 
@@ -158,9 +168,10 @@ struct MyHopTests {
 
 @Suite("Deleting an account")
 struct DeleteAccountTests {
-    private func status(plan: String, autoRenew: Bool?) throws -> PlanStatus {
+    private func status(plan: String, autoRenew: Bool?, provider: String? = nil) throws -> PlanStatus {
+        let from = provider.map { #""provider":"\#($0)","# } ?? ""
         let subscription = autoRenew.map {
-            #"{"productId":"hop_plus","expiresAt":9999999999999,"graceExpiresAt":null,"autoRenew":\#($0),"environment":"Production"}"#
+            #"{\#(from)"productId":"hop_plus","expiresAt":9999999999999,"graceExpiresAt":null,"autoRenew":\#($0),"environment":"Production"}"#
         } ?? "null"
         let json = """
             {"plan":"\(plan)","storage":{"usedBytes":0,"limitBytes":1},"retentionDays":null,
@@ -173,6 +184,15 @@ struct DeleteAccountTests {
 
     @Test func warnsAboutHopPlusThatRenews() throws {
         #expect(DeleteAccountView.billingNote(for: try status(plan: "plus", autoRenew: true)) == .renews)
+    }
+
+    @Test func saysHopPlusFromTheWebsiteEndsWithTheAccount() throws {
+        for autoRenew in [true, false] {
+            let note = DeleteAccountView.billingNote(for: try status(plan: "plus", autoRenew: autoRenew, provider: "stripe"))
+            #expect(note == .endsWithAccount)
+        }
+        // From the App Store, or from a server too old to say.
+        #expect(DeleteAccountView.billingNote(for: try status(plan: "plus", autoRenew: true, provider: "apple")) == .renews)
     }
 
     @Test func warnsAnywayWhileThePlanIsUnknown() {

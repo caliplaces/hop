@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup } from "../cron";
 import { getDb } from "../db";
 import { blockKeys, blocks, files, hops, reports, sessions, users } from "../db/schema";
+import { suppress } from "../email/suppressions";
 import type { Env } from "../env";
 import worker from "../index";
 import { deleteAccount } from "../lib/accounts";
@@ -333,6 +334,27 @@ describe("reporting a clip", () => {
       (await post(`/me/files/${trollClip}/report`, { reason: "spam" }, as(alexToken))).status,
     ).toBe(429);
     expect(await db.select().from(reports)).toEqual([]);
+  });
+});
+
+describe("the inbox list", () => {
+  type Page = { files: { id: string }[]; nextCursor: string | null };
+  const list = async (query: string) =>
+    (await (await call(`/me/files?${query}`, { headers: as(alexToken) })).json()) as Page;
+
+  it("can be just a few, newest first, such as an event card's cover", async () => {
+    const ids = [];
+    for (let i = 0; i < 4; i++) ids.push(await clip("hop_a", "usr_a"));
+    const cover = await list("hopId=hop_a&limit=3");
+    expect(cover.files).toHaveLength(3);
+    expect(cover.nextCursor).not.toBeNull();
+    // The rest, from where the cover stopped.
+    const rest = await list(`hopId=hop_a&limit=3&cursor=${cover.nextCursor}`);
+    expect([...cover.files, ...rest.files].map((file) => file.id)).toEqual(
+      expect.arrayContaining(ids),
+    );
+    expect((await call("/me/files?limit=0", { headers: as(alexToken) })).status).toBe(400);
+    expect((await call("/me/files?limit=1000", { headers: as(alexToken) })).status).toBe(400);
   });
 });
 
@@ -880,6 +902,13 @@ describe("telling Hop's team", () => {
     expect(sent[0]?.key).toMatch(/^reports\/production\/\d+$/);
 
     expect(await announceReports(env)).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("goes out even if the team's address once bounced: a lost report is worse", async () => {
+    await suppress(db, ["reports@example.com"], "bounced");
+    await post("/h/bea/report", { reason: "spam", turnstileToken: "report-token" });
+    expect(await announceReports(env)).toBe(1);
     expect(sent).toHaveLength(1);
   });
 

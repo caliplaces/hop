@@ -6,6 +6,7 @@ import { cleanup, sweepAvatars } from "../cron";
 import { getDb } from "../db";
 import * as schema from "../db/schema";
 import {
+  emailSuppressions,
   files,
   hops,
   liveActivities,
@@ -15,6 +16,7 @@ import {
   waitlist,
 } from "../db/schema";
 import { accountDeletedEmail } from "../email/account-deleted";
+import { suppress } from "../email/suppressions";
 import type { Env } from "../env";
 import worker from "../index";
 import { deleteAccount, RECENT_MS } from "../lib/accounts";
@@ -385,6 +387,15 @@ describe("deleting an account", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("doesn't email an address Hop no longer emails, which would only put it back on the list", async () => {
+    await suppress(db, ["alex@example.com"], "bounced");
+    expect((await deleteMe()).status).toBe(200);
+    await Promise.all(pending);
+    expect(sent).toEqual([]);
+    // Gone with the account, and nothing brings it back.
+    expect(await db.select().from(emailSuppressions)).toEqual([]);
+  });
+
   it("doesn't email an unverified address", async () => {
     await db.update(users).set({ emailVerified: false }).where(eq(users.id, "usr_a"));
     await deleteMe();
@@ -748,7 +759,11 @@ describe("the cleanup, after an account is deleted", () => {
 
 describe("the account deleted email", () => {
   it("says what went, what stays reserved, and what to do if it wasn't them", async () => {
-    const email = await accountDeletedEmail({ appUrl: "https://onmyhop.com", handle: "alex" });
+    const email = await accountDeletedEmail({
+      appUrl: "https://onmyhop.com",
+      handle: "alex",
+      cancelledWebHopPlus: false,
+    });
     expect(email.subject).toBe("Your Hop account is deleted");
     expect(email.text).toContain("Your Hop account, onmyhop.com/alex, is deleted.");
     // Clips are queued for removal, not gone yet: it doesn't claim otherwise.
@@ -756,12 +771,33 @@ describe("the account deleted email", () => {
     expect(email.text).toContain("Nobody can take onmyhop.com/alex again, you included");
     expect(email.text).toContain("Clips you sent other athletes stay with them, under @alex.");
     expect(email.text).toContain("Change your Caliplaces password");
-    expect(email.text).toContain("deleting your account doesn’t cancel it");
+    // Hop+ from the app is Apple's to cancel; nothing was cancelled on the website.
+    expect(email.text).toContain(
+      "If you had Hop+ from the iPhone app, deleting your account doesn’t cancel it.",
+    );
+    expect(email.text).not.toContain("from the website");
     expect(email.html).toContain("Your Hop account is deleted");
   });
 
+  it("says Hop+ from the website was cancelled with it, when it was", async () => {
+    const email = await accountDeletedEmail({
+      appUrl: "https://onmyhop.com",
+      handle: "alex",
+      cancelledWebHopPlus: true,
+    });
+    const said = "Your Hop+ from the website is cancelled with your account";
+    expect(email.text).toContain(said);
+    expect(email.html).toContain(said);
+    // Hop+ from the app is still Apple's to cancel, if there was one too.
+    expect(email.text).toContain("If you had Hop+ from the iPhone app");
+  });
+
   it("reads right without a handle", async () => {
-    const email = await accountDeletedEmail({ appUrl: "https://onmyhop.com", handle: null });
+    const email = await accountDeletedEmail({
+      appUrl: "https://onmyhop.com",
+      handle: null,
+      cancelledWebHopPlus: false,
+    });
     expect(email.text).toContain(
       "Your Hop account is deleted. Your name, email and photo are gone",
     );

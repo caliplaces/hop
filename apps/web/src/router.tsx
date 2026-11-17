@@ -4,6 +4,7 @@ import {
   createRouter,
   lazyRouteComponent,
   Outlet,
+  redirect,
 } from "@tanstack/react-router";
 import { PageSpinner } from "./components/ui/Spinner";
 
@@ -27,17 +28,41 @@ const inboxRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): InboxSearch => ({
     hop: typeof search.hop === "string" && search.hop ? search.hop : undefined,
   }),
+  // Links from before events had their own page (new-clips emails among
+  // them) open that event's page.
+  beforeLoad: ({ search }) => {
+    if (search.hop) throw redirect({ to: "/app/events/$hopId", params: { hopId: search.hop } });
+  },
   component: lazyRouteComponent(() => import("./routes/Inbox"), "Inbox"),
+});
+const eventRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/app/events/$hopId",
+  component: lazyRouteComponent(() => import("./routes/Event"), "Event"),
 });
 const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app/onboarding",
   component: lazyRouteComponent(() => import("./routes/Onboarding"), "Onboarding"),
 });
+export type MyHopSearch = { hopplus?: "welcome" };
+
+const myHopRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/app/my-hop",
+  // Back from Stripe Checkout (see features/plus/useWelcomeBack.ts).
+  validateSearch: (search: Record<string, unknown>): MyHopSearch => ({
+    hopplus: search.hopplus === "welcome" ? "welcome" : undefined,
+  }),
+  component: lazyRouteComponent(() => import("./routes/MyHop"), "MyHop"),
+});
+// Where events were managed before My Hop.
 const hopsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app/hops",
-  component: lazyRouteComponent(() => import("./routes/Hops"), "Hops"),
+  beforeLoad: () => {
+    throw redirect({ to: "/app/my-hop" });
+  },
 });
 
 const unsubscribeRoute = createRoute({
@@ -53,6 +78,11 @@ const privacyRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/privacy",
   component: lazyRouteComponent(() => import("./routes/Privacy"), "Privacy"),
+});
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/terms",
+  component: lazyRouteComponent(() => import("./routes/Terms"), "Terms"),
 });
 
 const adminRoute = createRoute({
@@ -83,10 +113,13 @@ const hopRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   landingRoute,
   inboxRoute,
+  eventRoute,
   onboardingRoute,
+  myHopRoute,
   hopsRoute,
   unsubscribeRoute,
   privacyRoute,
+  termsRoute,
   adminRoute,
   handleRoute,
   hopRoute,

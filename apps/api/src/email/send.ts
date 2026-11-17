@@ -1,4 +1,6 @@
+import { getDb } from "../db";
 import type { Env } from "../env";
+import { isSuppressed } from "./suppressions";
 
 const RESEND_API = "https://api.resend.com/emails";
 const TIMEOUT_MS = 10_000;
@@ -53,19 +55,39 @@ export type OutgoingEmail = RenderedEmail & {
   category: string;
   /** Extra headers, e.g. List-Unsubscribe. */
   headers?: Record<string, string>;
+  /**
+   * To Hop's own team (REPORTS_EMAIL): sent even if that address is on the
+   * suppression list, since a report that never goes out is worse than a
+   * bounce. Resend still drops it if it won't send there.
+   */
+  team?: boolean;
 };
 
 /**
- * Sends through Resend's HTTP API. Without an API key, local development
- * prints the email instead; anywhere else that's a misconfiguration.
+ * "sent", with Resend's ID for the email (which its webhook names it by), or
+ * "suppressed": not sent, because Hop no longer emails that address (see
+ * suppressions.ts).
  */
-export async function sendEmail(env: Env, email: OutgoingEmail): Promise<void> {
+export type SendResult = { status: "sent"; emailId: string | null } | { status: "suppressed" };
+
+/**
+ * Sends through Resend's HTTP API, unless Hop no longer emails the address
+ * (a permanent bounce, or reported as spam): every email Hop sends comes
+ * through here, so none goes to one. Each is tagged with this environment,
+ * so a webhook only acts on its own environment's emails (routes/email.ts).
+ * Without an API key, local development prints the email instead; anywhere
+ * else that's a misconfiguration.
+ */
+export async function sendEmail(env: Env, email: OutgoingEmail): Promise<SendResult> {
+  if (!email.team && (await isSuppressed(getDb(env.DB), email.to))) {
+    return { status: "suppressed" };
+  }
   const subject = env.ENVIRONMENT === "staging" ? `[Staging] ${email.subject}` : email.subject;
 
   if (!env.RESEND_API_KEY) {
     if (env.ENVIRONMENT !== "development") throw new Error("RESEND_API_KEY is not set");
     console.log(`[email] to ${email.to}: ${subject}\n\n${email.text}`);
-    return;
+    return { status: "sent", emailId: null };
   }
 
   await waitForTurn();
@@ -82,7 +104,10 @@ export async function sendEmail(env: Env, email: OutgoingEmail): Promise<void> {
       subject,
       html: email.html,
       text: email.text,
-      tags: [{ name: "category", value: email.category }],
+      tags: [
+        { name: "category", value: email.category },
+        { name: "env", value: env.ENVIRONMENT },
+      ],
       headers: email.headers,
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -102,4 +127,6 @@ export async function sendEmail(env: Env, email: OutgoingEmail): Promise<void> {
       ),
     );
   }
+  const sent = (await response.json().catch(() => null)) as { id?: unknown } | null;
+  return { status: "sent", emailId: typeof sent?.id === "string" ? sent.id : null };
 }

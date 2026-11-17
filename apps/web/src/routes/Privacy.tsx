@@ -1,31 +1,6 @@
-import type { ReactNode } from "react";
-import { Logo } from "../components/Logo";
+import { Contact, LegalPage, List, OPERATOR, Section } from "../components/LegalPage";
 
-/**
- * Who runs Hop: App Review and the GDPR both need a name and an address on
- * this page. From the Czech business register (ARES).
- */
-const OPERATOR = {
-  name: "Caliplaces s.r.o.",
-  address: "Uralská 689/7, Bubeneč, 160 00 Praha 6, Czech Republic",
-  registration:
-    "Company ID (IČO) 23311207, registered with the Municipal Court in Prague, file C 424636",
-};
-const CONTACT = "hello@onmyhop.com";
 const UPDATED = "16 November 2026";
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="mt-10">
-      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-      <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-fg/85">{children}</div>
-    </section>
-  );
-}
-
-function List({ children }: { children: ReactNode }) {
-  return <ul className="list-disc space-y-2 pl-5 marker:text-muted">{children}</ul>;
-}
 
 /**
  * onmyhop.com/privacy: what Hop keeps about whom, why, for how long, and who
@@ -34,16 +9,7 @@ function List({ children }: { children: ReactNode }) {
  */
 export function Privacy() {
   return (
-    <main className="mx-auto max-w-2xl px-5 pt-6 pb-16">
-      <header>
-        <a href="/" aria-label="Hop home">
-          <Logo />
-        </a>
-      </header>
-
-      <h1 className="mt-10 text-[32px] leading-tight font-bold tracking-tight">Privacy</h1>
-      <p className="mt-2 text-sm text-muted">Last updated {UPDATED}</p>
-
+    <LegalPage title="Privacy" updated={UPDATED}>
       <p className="mt-6 text-[15px] leading-relaxed text-fg/85">
         Hop gives athletes a link (onmyhop.com/your-name) where anyone who filmed them can send
         their clips, straight to the athlete’s private inbox. This page explains what Hop keeps
@@ -55,11 +21,7 @@ export function Privacy() {
         <p>
           Hop (onmyhop.com and the Hop app) is run by {OPERATOR.name}, {OPERATOR.address} (
           {OPERATOR.registration}). It decides how your data is used, and answers for it. For
-          anything about your data, write to{" "}
-          <a className="underline underline-offset-4" href={`mailto:${CONTACT}`}>
-            {CONTACT}
-          </a>
-          .
+          anything about your data, write to <Contact />.
         </p>
       </Section>
 
@@ -84,9 +46,16 @@ export function Privacy() {
             sender’s name and note, and when it arrived.
           </li>
           <li>
-            If you subscribe to Hop+: what Apple tells Hop about the subscription (the product, when
-            it renews or ends, and an account token that ties it to you). Apple handles the payment;
-            Hop never sees your card.
+            If you subscribe to Hop+ in the app: what Apple tells Hop about the subscription (the
+            product, when it renews or ends, and an account token that ties it to you). Apple
+            handles the payment; Hop never sees your card.
+          </li>
+          <li>
+            If you subscribe to Hop+ on the website: your customer ID at Stripe, and what Stripe
+            tells Hop about the subscription (the plan, when it renews or ends, whether a payment
+            failed). Stripe handles the payment and keeps your card, billing details and invoices;
+            Hop never sees your card. Hop gives Stripe your email address, if you confirmed it, for
+            your receipts.
           </li>
           <li>
             For Event mode: the push token Apple gives your Live Activity, until the event ends.
@@ -153,6 +122,12 @@ export function Privacy() {
           clips are about to be removed, and other messages about your account, come whatever those
           settings.
         </p>
+        <p>
+          If an email Hop sends bounces for good, or is reported as spam, Hop puts the address on a
+          list and stops emailing it, for a year or until you delete your account. Clips are only
+          removed after a notice reached you: if it never arrives, they stay. A notice you received
+          still counts if you then report it as spam.
+        </p>
       </Section>
 
       <Section title="Who else handles it">
@@ -164,6 +139,10 @@ export function Privacy() {
           </li>
           <li>Resend delivers Hop’s emails.</li>
           <li>Apple handles App Store purchases and the app’s push notifications.</li>
+          <li>
+            Stripe handles payments for Hop+ on the website. It keeps payment records for as long as
+            the law requires, even after you delete your Hop account.
+          </li>
         </List>
         <p>
           You sign in with your Caliplaces account, which Caliplaces, the company behind Hop, runs.
@@ -201,8 +180,8 @@ export function Privacy() {
         </p>
         <p>
           Your handle stays reserved, so nobody else can take your link and receive clips meant for
-          you. Deleting your account doesn’t cancel Hop+: cancel it in your Apple Account’s
-          subscriptions. Your Caliplaces account isn’t affected.
+          you. Hop+ from the website is cancelled with your account. Hop+ from the app isn’t: cancel
+          it in your Apple Account’s subscriptions. Your Caliplaces account isn’t affected.
         </p>
       </Section>
 
@@ -223,11 +202,8 @@ export function Privacy() {
         <p>
           You can ask to see the data Hop has about you, to correct it, to take it with you, to
           delete it, or to object to how it’s used. Most of this you can do yourself in your
-          account. For anything else, write to{" "}
-          <a className="underline underline-offset-4" href={`mailto:${CONTACT}`}>
-            {CONTACT}
-          </a>
-          , and you can always complain to your data protection authority.
+          account. For anything else, write to <Contact />, and you can always complain to your data
+          protection authority.
         </p>
         <p>
           If you’re under the age of digital consent where you live, use Hop only with a parent’s or
@@ -238,6 +214,6 @@ export function Privacy() {
       <Section title="Changes">
         <p>If this page changes, the date at the top changes with it.</p>
       </Section>
-    </main>
+    </LegalPage>
   );
 }

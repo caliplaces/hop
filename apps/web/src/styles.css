@@ -20,6 +20,10 @@
   --shadow-color: 30 30 20;
   --accent: #0b0b0c;
   --on-accent: #fafaf7;
+  /* Glass, as the iPhone app's: a frosted surface with a lit top edge. */
+  --glass: color-mix(in oklab, var(--surface) 70%, transparent);
+  --glass-edge: rgb(11 11 12 / 0.07);
+  --glass-shine: rgb(255 255 255 / 0.7);
 
   /* Layout and stacking, shared by the tab bar, floating bars and overlays. */
   --tabbar-h: 4.5rem;
@@ -50,6 +54,9 @@
     --shadow-color: 0 0 0;
     --accent: #f4f4ef;
     --on-accent: #0b0b0c;
+    --glass: color-mix(in oklab, var(--surface-2) 64%, transparent);
+    --glass-edge: rgb(255 255 255 / 0.09);
+    --glass-shine: rgb(255 255 255 / 0.08);
   }
 }
 :root[data-theme="dark"] {
@@ -66,6 +73,9 @@
   --shadow-color: 0 0 0;
   --accent: #f4f4ef;
   --on-accent: #0b0b0c;
+  --glass: color-mix(in oklab, var(--surface-2) 64%, transparent);
+  --glass-edge: rgb(255 255 255 / 0.09);
+  --glass-shine: rgb(255 255 255 / 0.08);
 }
 
 @theme inline {
@@ -100,6 +110,7 @@
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-drift: drift 22s ease-in-out infinite;
   --animate-slide-in: slide-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-slide-in-right: slide-in-right 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 /*
@@ -141,6 +152,12 @@
   }
 }
 
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -233,9 +250,6 @@ body:has([data-selection-bar]) [data-tabbar] {
 @utility input {
   @apply h-12 w-full rounded-2xl border border-line-strong bg-surface px-4 text-base text-fg outline-none transition placeholder:text-subtle focus:border-fg focus:ring-4 focus:ring-accent-soft;
 }
-@utility pill {
-  @apply relative inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-line bg-surface px-4 text-sm font-medium text-muted transition hover:text-fg has-checked:border-fg has-checked:bg-fg has-checked:text-canvas has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-accent-soft;
-}
 @utility badge {
   @apply inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-semibold;
 }
@@ -249,6 +263,37 @@ body:has([data-selection-bar]) [data-tabbar] {
   background-size: 200% 100%;
   @apply animate-shimmer;
 }
+/* ---------- Glass ---------- */
+
+/* Frosted, floating chrome: the tab bar, the nav pill, badges over photos. */
+@utility glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(1.7);
+  backdrop-filter: blur(24px) saturate(1.7);
+  border: 1px solid var(--glass-edge);
+  box-shadow:
+    inset 0 1px 0 var(--glass-shine),
+    0 10px 30px -14px rgb(var(--shadow-color) / 0.35);
+}
+
+/*
+ * The athlete's colour as a soft wash at the top of their pages, as the
+ * app's aura: chrome stays neutral, the colour is only ever a glow.
+ */
+@utility aura {
+  background:
+    radial-gradient(
+      60% 55% at 12% -8%,
+      color-mix(in oklab, var(--accent) 22%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 45% at 92% -4%,
+      color-mix(in oklab, var(--accent) 12%, transparent),
+      transparent 70%
+    );
+}
+
 @utility safe-bottom {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }

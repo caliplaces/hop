@@ -12,6 +12,11 @@ type Props = {
   /** Wider dialogs on desktop; still a full-width sheet on phones. */
   size?: "sm" | "md" | "lg";
   hideClose?: boolean;
+  /**
+   * "side": a panel along the right edge on larger screens, as the app's
+   * account sheet (still a sheet from the bottom on phones).
+   */
+  placement?: "center" | "side";
 };
 
 const widths = { sm: "sm:max-w-sm", md: "sm:max-w-md", lg: "sm:max-w-xl" };
@@ -28,7 +33,9 @@ export function Dialog({
   children,
   size = "md",
   hideClose,
+  placement = "center",
 }: Props) {
+  const side = placement === "side";
   const ref = useModalDialog(open);
   const titleId = useId();
   const descriptionId = useId();
@@ -48,10 +55,20 @@ export function Dialog({
       }}
       aria-labelledby={title ? titleId : undefined}
       aria-describedby={description ? descriptionId : undefined}
-      className={`m-0 mt-auto w-full max-w-none bg-transparent p-0 text-fg backdrop:bg-black/40 backdrop:backdrop-blur-sm sm:m-auto ${widths[size]}`}
+      className={
+        side
+          ? `m-0 mt-auto w-full max-w-none bg-transparent p-0 text-fg backdrop:bg-black/30 backdrop:backdrop-blur-sm sm:my-0 sm:mr-0 sm:ml-auto sm:h-dvh sm:max-h-dvh sm:p-3 ${widths[size]}`
+          : `m-0 mt-auto w-full max-w-none bg-transparent p-0 text-fg backdrop:bg-black/40 backdrop:backdrop-blur-sm sm:m-auto ${widths[size]}`
+      }
     >
       {open && (
-        <div className="safe-bottom animate-fade-up max-h-[92dvh] overflow-y-auto rounded-t-[2rem] border border-line bg-surface p-6 shadow-lift sm:rounded-[2rem] sm:pb-6">
+        <div
+          className={
+            side
+              ? "safe-bottom animate-fade-up sm:animate-slide-in-right max-h-[92dvh] overflow-y-auto rounded-t-[2rem] border border-line bg-surface p-6 shadow-lift sm:h-full sm:max-h-none sm:rounded-[2rem] sm:pb-6"
+              : "safe-bottom animate-fade-up max-h-[92dvh] overflow-y-auto rounded-t-[2rem] border border-line bg-surface p-6 shadow-lift sm:rounded-[2rem] sm:pb-6"
+          }
+        >
           <div className="mx-auto -mt-2 mb-4 h-1 w-10 rounded-full bg-line-strong sm:hidden" />
           {(title || !hideClose) && (
             <div className="flex items-start justify-between gap-4">
