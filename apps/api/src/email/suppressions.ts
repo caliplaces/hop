@@ -21,7 +21,13 @@ export const KEEP_SUPPRESSIONS_MS = 365 * 24 * 60 * 60 * 1000;
  * mailbox's other letters are the server's to interpret.
  */
 export function normalizeAddress(address: string): string {
-  return address.replace(/^ +| +$/g, "").replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
+  // Spaces trimmed by index, as SQLite's trim() does: a regex like / +$/
+  // takes quadratic time on a long run of spaces that isn't at the end.
+  let start = 0;
+  let end = address.length;
+  while (start < end && address[start] === " ") start++;
+  while (end > start && address[end - 1] === " ") end--;
+  return address.slice(start, end).replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
 }
 
 /** Whether Hop no longer emails this address. */

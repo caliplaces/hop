@@ -349,12 +349,23 @@ describe("normalising an address", () => {
       "Ångström@example.se",
       "İstanbul@example.com",
       "plain@example.com",
+      "   ",
+      "",
+      ` ${" ".repeat(50)}x${" ".repeat(50)} `,
     ]) {
       const row = await db.get<{ normalized: string }>(
         sql`select lower(trim(${address})) as normalized`,
       );
       expect(normalizeAddress(address)).toBe(row?.normalized);
     }
+  });
+
+  it("stays fast on long runs of spaces", () => {
+    const started = performance.now();
+    expect(normalizeAddress(`${" ".repeat(100_000)}x${" ".repeat(100_000)}y`)).toBe(
+      `x${" ".repeat(100_000)}y`,
+    );
+    expect(performance.now() - started).toBeLessThan(200);
   });
 });
 
