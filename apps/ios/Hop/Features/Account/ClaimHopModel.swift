@@ -41,6 +41,8 @@ final class ClaimHopModel {
     enum Reason {
         static let invalid = String(localized: "2–30 characters: letters, numbers, dots and underscores.")
         static let reserved = String(localized: "That one is reserved.")
+        /// A word Hop doesn't allow: the server doesn't say which.
+        static let unavailable = String(localized: "That handle isn't available.")
         static let taken = String(localized: "That handle is taken.")
         static let offline = String(localized: "Couldn’t check that. Are you online?")
     }
@@ -101,6 +103,7 @@ final class ClaimHopModel {
         switch problem {
         case "reserved": Reason.reserved
         case "invalid": Reason.invalid
+        case "unavailable": Reason.unavailable
         default: Reason.taken
         }
     }

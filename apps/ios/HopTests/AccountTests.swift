@@ -66,9 +66,14 @@ struct ClaimHopModelTests {
 
     @Test func explainsTakenAndReservedHandles() async throws {
         server.reply = { request in
-            request.url?.path == "/api/handles/admin"
-                ? (200, #"{"handle":"admin","available":false,"problem":"reserved"}"#)
-                : (200, #"{"handle":"x","available":false,"problem":"taken"}"#)
+            switch request.url?.path {
+            case "/api/handles/admin":
+                (200, #"{"handle":"admin","available":false,"problem":"reserved"}"#)
+            case "/api/handles/big_ass":
+                (200, #"{"handle":"big_ass","available":false,"problem":"unavailable"}"#)
+            default:
+                (200, #"{"handle":"x","available":false,"problem":"taken"}"#)
+            }
         }
         let model = try makeModel()
         await settle(model)
@@ -76,6 +81,11 @@ struct ClaimHopModelTests {
         model.input = "admin"
         await settle(model)
         #expect(model.status == .unavailable(ClaimHopModel.Reason.reserved))
+        #expect(!model.canClaim)
+        // A word Hop doesn't allow: said without the reason.
+        model.input = "big_ass"
+        await settle(model)
+        #expect(model.status == .unavailable(ClaimHopModel.Reason.unavailable))
         #expect(!model.canClaim)
     }
 
