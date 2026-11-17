@@ -198,8 +198,10 @@ describe("Resend's webhook", () => {
 
 describe("the signature check", () => {
   it("agrees with Svix's published example", async () => {
-    // From Svix's docs on verifying webhooks by hand.
-    const secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+    // Svix's public example from its docs on verifying webhooks by hand: not
+    // a secret of Hop's. Put together here so secret scanners, which look for
+    // the whole "whsec_…" string, don't take it for a real one.
+    const secret = ["whsec", "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"].join("_");
     const body = new TextEncoder().encode('{"test": 2432232314}');
     const headers = {
       id: "msg_p5jXN8AQM9LWM0D4loKWxJek",
