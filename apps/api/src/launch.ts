@@ -94,7 +94,7 @@ export async function announceLaunch(
       if (!claimed) continue;
 
       try {
-        let result: SendResult = "sent";
+        let result: SendResult = { status: "sent", emailId: null };
         try {
           result = await sendEmail(env, {
             ...email,
@@ -114,7 +114,7 @@ export async function announceLaunch(
           .update(waitlist)
           .set({ notifiedAt: Date.now() })
           .where(eq(waitlist.email, address));
-        if (result === "sent") sent++;
+        if (result.status === "sent") sent++;
         else suppressed++;
       } catch (error) {
         failed++;

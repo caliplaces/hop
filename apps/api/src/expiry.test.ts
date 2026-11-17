@@ -233,7 +233,7 @@ beforeEach(async () => {
         text: body.text,
         key: headers.get("idempotency-key"),
       });
-      return Response.json({ id: "email_1" });
+      return Response.json({ id: `email_${emails.length}` });
     }),
   );
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -916,10 +916,10 @@ describe("overlapping runs", () => {
 });
 
 describe("an address Hop's email can't reach", () => {
-  /** Resend's webhook, as it tells Hop of an email to `to`. */
-  async function webhook(type: string, to = "alex@example.com", data: object = {}) {
+  /** Resend's webhook, as it tells Hop of the email `emailId` to `to`. */
+  async function webhook(type: string, emailId: string, to = "alex@example.com", data = {}) {
     env = { ...env, RESEND_WEBHOOK_SECRET: WEBHOOK_SECRET };
-    const body = JSON.stringify(emailEvent(type, { to: [to], ...data }));
+    const body = JSON.stringify(emailEvent(type, { email_id: emailId, to: [to], ...data }));
     const response = await call("/email/resend-webhook", {
       method: "POST",
       body,
@@ -927,7 +927,13 @@ describe("an address Hop's email can't reach", () => {
     });
     expect(response.status).toBe(200);
   }
-  const bounced = (to?: string) => webhook("email.bounced", to, { bounce: { type: "Permanent" } });
+  /** Resend's ID for the email that gave the athlete's notice. */
+  const noticeEmail = async (userId = "alex") =>
+    (await notices()).find((notice) => notice.userId === userId)?.emailId ?? "";
+  const bounced = async (userId = "alex", type = "Permanent") =>
+    webhook("email.bounced", await noticeEmail(userId), `${userId}@example.com`, {
+      bounce: { type },
+    });
 
   it("is never noticed: the clips stay, however it's written", async () => {
     await db.update(users).set({ email: " Alex@Example.com" }).where(eq(users.id, "alex"));
@@ -972,9 +978,13 @@ describe("an address Hop's email can't reach", () => {
     expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
   });
 
+  it("remembers which email gave a notice", async () => {
+    await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    expect(await noticeEmail()).toBe("email_1");
+  });
+
   it("takes back a notice whose email bounced for good after it was sent: the clips stay", async () => {
-    // However the account writes the address.
-    await db.update(users).set({ email: "Alex@Example.com" }).where(eq(users.id, "alex"));
     const due = await clip("alex", 25 * DAY);
     await runAt(NOW);
     expect(emails).toHaveLength(1);
@@ -986,26 +996,85 @@ describe("an address Hop's email can't reach", () => {
     expect(((await (await call("/me/plan")).json()) as PlanStatus).expiring).toBeNull();
     expect(await expireClips(db, GOES + DAY)).toBe(0);
 
-    // Nor is another one tried, or reminded of.
+    // Nor is another one tried, or reminded of: the address is dead.
     await runAt(NOW + 2 * DAY, GOES - DAY);
     expect(tried).toHaveLength(1);
     expect((await row(due))?.status).toBe("complete");
   });
 
+  it("takes back a notice whose email bounced for now, and gives a fresh one the next day", async () => {
+    const due = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    await bounced("alex", "Transient");
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+    expect(await expireClips(db, GOES)).toBe(0);
+    // The address may work later: it's still emailed.
+    await runAt(NOW + DAY + 5 * MIN);
+    expect(emails).toHaveLength(2);
+    expect((await row(due))?.expiryNoticeBatch).toBe(NOW + DAY + 5 * MIN);
+  });
+
+  it("takes back a notice whose email failed to send", async () => {
+    const due = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    await webhook("email.failed", await noticeEmail(), "alex@example.com", {
+      failed: { reason: "reached_daily_quota" },
+    });
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+    await runAt(NOW + DAY + 5 * MIN);
+    expect(emails).toHaveLength(2);
+  });
+
   it("takes it back too when Resend didn't send it", async () => {
     const due = await clip("alex", 25 * DAY);
     await runAt(NOW);
-    await webhook("email.suppressed", "alex@example.com", {
+    await webhook("email.suppressed", await noticeEmail(), "alex@example.com", {
       suppressed: { type: "OnAccountSuppressionList" },
     });
     expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
     expect(await expireClips(db, GOES + DAY)).toBe(0);
   });
 
+  it("takes back only the notice whose email bounced, not the athlete's others", async () => {
+    const first = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    const second = await clip("alex", 24 * DAY);
+    await runAt(NOW + DAY + 5 * MIN);
+    expect(emails).toHaveLength(2);
+    const [one, two] = (await notices()).sort((a, b) => a.batch - b.batch);
+    expect(one?.emailId).not.toBe(two?.emailId);
+
+    await webhook("email.bounced", one?.emailId ?? "", "alex@example.com", {
+      bounce: { type: "Transient" },
+    });
+    expect(await row(first)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+    expect((await row(second))?.expiryNoticeBatch).toBe(two?.batch);
+    expect((await row(second))?.expiryGoesAt).toBe(two?.goesAt);
+  });
+
+  it("finds the notice by its email, whatever the athlete's address is now", async () => {
+    const due = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    await db.update(users).set({ email: "alex.new@example.com" }).where(eq(users.id, "alex"));
+    await bounced();
+    expect(await row(due)).toMatchObject({ expiryNoticeBatch: null, expiryGoesAt: null });
+  });
+
+  it("keeps a notice whose own email arrived, whatever another email to them did", async () => {
+    const due = await clip("alex", 25 * DAY);
+    await runAt(NOW);
+    // The new-clips digest, say.
+    await webhook("email.bounced", "email_digest", "alex@example.com", {
+      bounce: { type: "Transient" },
+    });
+    expect((await row(due))?.expiryGoesAt).toBe(GOES);
+    expect(await expireClips(db, GOES)).toBe(1);
+  });
+
   it("keeps a notice that arrived, though they reported it as spam; nothing more is emailed", async () => {
     const due = await clip("alex", 25 * DAY);
     await runAt(NOW);
-    await webhook("email.complained");
+    await webhook("email.complained", await noticeEmail());
     expect((await notices())[0]).toMatchObject({ abandonedAt: null, givenAt: NOW });
 
     // The reminder reaches only the phone.
@@ -1021,7 +1090,7 @@ describe("an address Hop's email can't reach", () => {
     const alexs = await clip("alex", 25 * DAY);
     const beas = await clip("bea", 25 * DAY);
     await runAt(NOW);
-    await bounced("bea@example.com");
+    await bounced("bea");
     expect((await row(alexs))?.expiryGoesAt).toBe(GOES);
     expect((await row(beas))?.expiryGoesAt).toBeNull();
     expect(await expireClips(db, GOES)).toBe(1);

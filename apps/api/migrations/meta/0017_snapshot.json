@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "52975b53-1e30-4cc3-9fb1-4e83c93c5e3d",
+  "id": "abdffd42-82bb-4897-9a4e-5b0fa3a57d9d",
   "prevId": "eb93e61f-9f37-45a1-baa0-4980b34a3374",
   "tables": {
     "block_keys": {
@@ -327,6 +327,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "email_id": {
+          "name": "email_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "abandoned_at": {
           "name": "abandoned_at",
           "type": "integer",
@@ -358,6 +365,14 @@
           ],
           "isUnique": false,
           "where": "\"expiry_notices\".\"given_at\" is not null and \"expiry_notices\".\"reminded_at\" is null"
+        },
+        "expiry_notices_email_idx": {
+          "name": "expiry_notices_email_idx",
+          "columns": [
+            "email_id"
+          ],
+          "isUnique": false,
+          "where": "\"expiry_notices\".\"email_id\" is not null"
         }
       },
       "foreignKeys": {

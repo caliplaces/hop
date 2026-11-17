@@ -187,7 +187,7 @@ async function sendBatch(
     unsubscribeUrl: links.page,
   });
 
-  let result: SendResult = "sent";
+  let result: SendResult = { status: "sent", emailId: null };
   try {
     result = await sendEmail(env, {
       ...email,
@@ -207,7 +207,7 @@ async function sendBatch(
   }
   await confirm();
   // An address Hop no longer emails: announced all the same, like an opt-out.
-  return result === "sent" || pushed ? "sent" : "skipped";
+  return result.status === "sent" || pushed ? "sent" : "skipped";
 }
 
 /**

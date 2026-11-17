@@ -110,7 +110,10 @@ describe("welcome email", () => {
       from: "Hop <hello@onmyhop.com>",
       to: ["matej@example.com"],
       subject: "Your Hop is live: onmyhop.com/matej",
-      tags: [{ name: "category", value: "welcome" }],
+      tags: [
+        { name: "category", value: "welcome" },
+        { name: "env", value: "production" },
+      ],
     });
     expect(body.html).toContain("onmyhop.com/matej");
     expect(body.text).toContain("onmyhop.com/matej");

@@ -94,19 +94,20 @@ The same digest goes to the athlete's phones as a notification ("2 new clips fro
 
 ### Bounces and spam complaints
 
-Hop stops emailing an address that Resend says it can't, or mustn't, email again (`src/email/suppressions.ts`, `src/email/webhook.ts`):
+Resend's webhook tells Hop which emails never arrived, and which addresses not to email again (`src/email/webhook.ts`, `src/email/suppressions.ts`):
 
-- `POST /api/email/resend-webhook` receives Resend's events. Each must carry a valid Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`: an HMAC-SHA256 of `${id}.${timestamp}.${body}` with the endpoint's signing secret, at most five minutes old either way). Without `RESEND_WEBHOOK_SECRET` the endpoint isn't there (404).
-- A permanent bounce (`email.bounced` with `bounce.type` `Permanent`), a spam complaint (`email.complained`), or Resend refusing to send (`email.suppressed`, the address is on its account's suppression list) adds the address to `email_suppressions`, lowercased and trimmed. Temporary bounces and every other event are answered 200 and otherwise ignored.
-- The Resend account sends for other products too: only events for emails from `EMAIL_FROM`'s domain count.
+- `POST /api/email/resend-webhook` receives Resend's events. Each must carry a valid Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`: an HMAC-SHA256 of `${id}.${timestamp}.${body}` with the endpoint's signing secret, at most five minutes old either way). The HMAC is computed once and compared in constant time with at most the first five signatures in the header. Without `RESEND_WEBHOOK_SECRET` the endpoint isn't there (404).
+- Only this environment's emails count. Every email Hop sends is tagged `env` with its `ENVIRONMENT`, and an event must carry the same tag, from `EMAIL_FROM`'s domain. Staging and production share the Resend account and both hear of every email, and the account sends for other products too.
+- **An email that never arrived:** any bounce (`email.bounced`, permanent or temporary), a failure to send (`email.failed`), or Resend refusing to send (`email.suppressed`). Free-plan expiry only counts a notice that reached the athlete. Each notice keeps Resend's ID for the email that gave it (`expiry_notices.email_id`), so the event's `email_id` finds it, whatever the athlete's address is by then. That notice is let go and its clips go back unclaimed. They stay, and a fresh notice is claimed the next day.
+- **An address not to email again:** a permanent bounce (`bounce.type` `Permanent`), a spam complaint (`email.complained`), or `email.suppressed` (the address is on Resend's account-wide suppression list). It goes into `email_suppressions`, keyed by `normalizeAddress`: spaces trimmed and A–Z lowercased, exactly what SQLite's `lower(trim())` does, so SQL matching an account's address agrees with it. A spam complaint means the email did arrive: a notice it gave still counts.
 - `sendEmail` checks every email against the list, so nothing goes to a listed address: not the welcome, the new-clips digest, the launch email, clips expiring, or account deleted. The digest and the launch email treat such an address as handled, like an opt-out. Only the report emails to `REPORTS_EMAIL` go regardless: a lost report is worse than a bounce.
-- **Free-plan expiry** only counts a notice that reached the athlete. An athlete whose address is listed is never noticed, and their clips stay; a notice waiting to be sent is let go, unsent and unpushed. A permanent bounce, or Resend refusing to send, also takes back notices already given: Resend accepted them, but they never arrived. Their clips go back unclaimed and stay. A spam complaint means the notice did arrive, so it still counts; nothing more is emailed.
-- An athlete whose Caliplaces address changes is emailed again at the new one. To email a listed address again, delete its row (and remove it from Resend's suppression list in its dashboard).
+- An athlete whose address is listed is never sent a notice, so their free clips stay past 30 days, within the free plan's storage. A notice waiting to be sent is let go, unsent and unpushed.
+- An entry is kept a year (the hourly cleanup), and goes when its account is deleted: if the address was verified and no other live account has it. An athlete whose Caliplaces address changes is emailed again at the new one. To email a listed address sooner, delete its row (and remove it from Resend's suppression list in its dashboard).
 
 Setup, per environment, in Resend's dashboard (Webhooks › Add endpoint):
 
 1. Endpoint URL: `https://onmyhop.com/api/email/resend-webhook` for production, `https://staging.onmyhop.com/api/email/resend-webhook` for staging. Staging only lets the team's IPs in, so its firewall needs an exception for that one path, as for Stripe's webhook.
-2. Events: `email.bounced`, `email.complained`, `email.suppressed`.
+2. Events: `email.bounced`, `email.failed`, `email.complained`, `email.suppressed`.
 3. The endpoint's signing secret (`whsec_…`) is the environment's `RESEND_WEBHOOK_SECRET`:
 
 ```sh
@@ -114,7 +115,7 @@ wrangler secret put RESEND_WEBHOOK_SECRET --env production
 wrangler secret put RESEND_WEBHOOK_SECRET --env staging
 ```
 
-Both endpoints hear about every email the account sends, staging's and production's alike. That's fine: an address that bounced for good is dead for both.
+Emails sent before the `env` tag existed carry none, and their events are ignored.
 
 While `pnpm dev` runs, open [localhost:5173/email-lab.html](http://localhost:5173/email-lab.html) to see every email with sample data, in each colour, at phone and desktop width, and in dark mode. Without `RESEND_API_KEY` in `.dev.vars`, emails are printed to the wrangler console instead of sent.
 

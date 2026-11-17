@@ -37,7 +37,7 @@ export async function svixHeaders(
   };
 }
 
-/** An email event as Resend sends it. */
+/** An email event as Resend sends it, for an email production sent unless `data` says otherwise. */
 export function emailEvent(
   type: string,
   data: Record<string, unknown> = {},
@@ -52,7 +52,7 @@ export function emailEvent(
       from,
       to: ["alex@example.com"],
       subject: "1 clip leaves your inbox on Monday 23 November",
-      tags: { category: "clips-expiring" },
+      tags: { category: "clips-expiring", env: "production" },
       ...data,
     },
   };

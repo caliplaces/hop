@@ -123,8 +123,10 @@ export function Privacy() {
           settings.
         </p>
         <p>
-          If an email Hop sends bounces for good, or is reported as spam, Hop keeps the address on a
-          list and stops emailing it. Clips aren’t removed from an inbox Hop can’t email.
+          If an email Hop sends bounces for good, or is reported as spam, Hop puts the address on a
+          list and stops emailing it, for a year or until you delete your account. Clips are only
+          removed after a notice reached you: if it never arrives, they stay. A notice you received
+          still counts if you then report it as spam.
         </p>
       </Section>
 

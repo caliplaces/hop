@@ -6,7 +6,7 @@ import { getDb } from "../db";
 import { users } from "../db/schema";
 import { suppress } from "../email/suppressions";
 import { verifyUnsubscribeToken } from "../email/unsubscribe";
-import { domainOf, undeliverable, verifyResendWebhook } from "../email/webhook";
+import { domainOf, readResendEvent, verifyResendWebhook } from "../email/webhook";
 import type { AppEnv } from "../env";
 import { letGoUndelivered } from "../expiry";
 import { fail } from "../lib/http";
@@ -47,12 +47,12 @@ export const emailRoutes = new Hono<AppEnv>()
   })
 
   /**
-   * Resend's webhook, set in its dashboard for this environment: an email
-   * that bounced for good, was reported as spam, or that Resend wouldn't
-   * send. Hop stops emailing that address (email/suppressions.ts), and a
-   * notice of clips about to go that never arrived no longer counts
-   * (expiry.ts). Anything but a 2xx is retried, so events of no use here
-   * still get a 200.
+   * Resend's webhook, set in its dashboard for this environment
+   * (email/webhook.ts). A notice of clips about to go whose email never
+   * arrived no longer counts (expiry.ts), and an address that bounced for
+   * good, was reported as spam, or that Resend won't send to is no longer
+   * emailed (email/suppressions.ts). Anything but a 2xx is retried, so
+   * events of no use here still get a 200.
    */
   .post("/resend-webhook", limitWebhookBody, async (c) => {
     const secret = c.env.RESEND_WEBHOOK_SECRET;
@@ -74,15 +74,17 @@ export const emailRoutes = new Hono<AppEnv>()
     } catch {
       return fail(c, 400, "invalid_event");
     }
-    const found = undeliverable(event, domainOf(c.env.EMAIL_FROM));
-    if (found) {
-      const db = getDb(c.env.DB);
-      const now = Date.now();
-      await suppress(db, found.addresses, found.reason, now);
-      // A spam report means it arrived. Otherwise it never did.
-      if (found.reason !== "complained") await letGoUndelivered(db, found.addresses, now);
+    const news = readResendEvent(event, {
+      domain: domainOf(c.env.EMAIL_FROM),
+      environment: c.env.ENVIRONMENT,
+    });
+    const db = getDb(c.env.DB);
+    const now = Date.now();
+    if (news?.undelivered) await letGoUndelivered(db, news.undelivered, now);
+    if (news?.suppress) {
+      await suppress(db, news.suppress.addresses, news.suppress.reason, now);
       // Never log the address.
-      console.log("email: stopped emailing an address", found.reason);
+      console.log("email: stopped emailing an address", news.suppress.reason);
     }
     return c.json({ received: true });
   });

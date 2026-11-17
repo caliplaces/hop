@@ -25,7 +25,7 @@ import {
 } from "./db/schema";
 import { clipsExpiringEmail, clipsExpiringPush } from "./email/clips-expiring";
 import { type SendResult, sendEmail } from "./email/send";
-import { isSuppressed, normalizeAddress } from "./email/suppressions";
+import { isSuppressed } from "./email/suppressions";
 import type { Env } from "./env";
 import { goneStatus } from "./lib/files";
 import { pushToPhones } from "./lib/phones";
@@ -53,8 +53,9 @@ import { hasPlusSql } from "./lib/plans";
  * email/suppressions.ts). Until a notice is given its clips stay, however
  * old. One that can't get through is let go after GIVE_UP_AFTER_MS and
  * claimed afresh the next day, never assumed given. And one Resend accepted
- * but that never arrived (it bounced for good later, or Resend didn't send
- * it) is let go when its webhook says so, given or not (letGoUndelivered).
+ * but whose email never arrived (it bounced, even for now, or failed, or
+ * Resend didn't send it) is let go when its webhook says so, by the email's
+ * ID (letGoUndelivered), and claimed afresh the next day.
  *
  * Each athlete gets at most one notice a day, covering every clip due one,
  * and at most one reminder a day. Hop+ clears all of it, and for a while
@@ -128,8 +129,9 @@ const isComplete = sql`+${files.status} = 'complete'`;
 
 /**
  * SQL: this athlete may be noticed now. Not deleted, a verified address to
- * tell that Hop still emails, no Hop+ now or lately, and no notice claimed,
- * or given, in the last day.
+ * tell that Hop still emails (lower(trim()) is exactly normalizeAddress, in
+ * email/suppressions.ts), no Hop+ now or lately, and no notice claimed, or
+ * given, in the last day.
  */
 function claimable(userId: SQLWrapper, now: number): SQL {
   return sql`exists (
@@ -239,6 +241,7 @@ async function claimNotices(db: Db, now: number) {
             nextAttemptAt: sql<number>`${now}`.as("next_attempt_at"),
             pushedAt: sql<number | null>`null`.as("pushed_at"),
             givenAt: sql<number | null>`null`.as("given_at"),
+            emailId: sql<string | null>`null`.as("email_id"),
             abandonedAt: sql<number | null>`null`.as("abandoned_at"),
             remindedAt: sql<number | null>`null`.as("reminded_at"),
           })
@@ -345,16 +348,22 @@ async function sendNotice(env: Env, db: Db, listed: ExpiryNoticeRow, now: number
   const emailed = await email(env, user, news, `clips-expiring/notice/${user.id}/${notice.batch}`);
   const pushedAt = pushed ? { pushedAt: now } : {};
 
-  if (emailed === "suppressed") {
+  if (emailed.status === "suppressed") {
     // Hop stopped emailing the address since it was checked above.
     await letGo();
     return false;
   }
-  if (emailed === "sent") {
+  if (emailed.status === "sent") {
     await db.batch([
       db
         .update(expiryNotices)
-        .set({ givenAt: now, attempts: notice.attempts + 1, ...pushedAt })
+        // The email's ID: if Resend says it never arrived, the notice is let go.
+        .set({
+          givenAt: now,
+          emailId: emailed.emailId,
+          attempts: notice.attempts + 1,
+          ...pushedAt,
+        })
         .where(stillSending),
       // Clips another run let go meanwhile are no longer in it.
       db.update(files).set({ expiryGoesAt: notice.goesAt }).where(inNotice),
@@ -457,7 +466,8 @@ async function sendReminders(env: Env, db: Db, now: number, inBudget: () => bool
     const pushed = await push(env, db, userId, news, `expiring-${next.batch}`, now);
     const emailed =
       hasAddress(user) &&
-      (await email(env, user, news, `clips-expiring/reminder/${userId}/${next.batch}`)) === "sent";
+      (await email(env, user, news, `clips-expiring/reminder/${userId}/${next.batch}`)).status ===
+        "sent";
     if (pushed || emailed) sent++;
   }
   return sent;
@@ -469,16 +479,16 @@ function hasAddress(user: UserRow): user is UserRow & { email: string } {
 
 /**
  * Emails the athlete: "sent" once Resend has it (now, or earlier under this
- * key), "suppressed" for an address Hop no longer emails, "failed" to try
- * again later.
+ * key), with its ID; "suppressed" for an address Hop no longer emails;
+ * "failed" to try again later.
  */
 async function email(
   env: Env,
   user: UserRow,
   news: { clips: number; day: number; when: "notice" | "reminder" },
   idempotencyKey: string,
-): Promise<SendResult | "failed"> {
-  if (!hasAddress(user)) return "failed";
+): Promise<SendResult | { status: "failed" }> {
+  if (!hasAddress(user)) return { status: "failed" };
   try {
     const email = await clipsExpiringEmail({ appUrl: env.APP_URL, ...news });
     return await sendEmail(env, {
@@ -489,7 +499,7 @@ async function email(
     });
   } catch (error) {
     console.error("expiry: email failed", user.id, error);
-    return "failed";
+    return { status: "failed" };
   }
 }
 
@@ -510,45 +520,37 @@ function push(
 }
 
 /**
- * Hop's email never reached these addresses: one bounced for good, or Resend
- * didn't send it (see routes/email.ts). Every notice of the athletes with
- * them that hasn't been let go is let go now, given or not, and its clips
- * go back unclaimed: they stay until a notice reaches the athlete, which
- * can't happen at an address Hop no longer emails. Clips already removed
- * are gone.
+ * Resend says the email it gave `emailId` never arrived: it bounced (for
+ * good or not), failed, or wasn't sent (see routes/email.ts). The notice it
+ * gave, matched by that ID whatever the athlete's address is now, is let go
+ * and its clips go back unclaimed. They stay until another notice reaches
+ * the athlete: claimed afresh the next day, unless Hop no longer emails
+ * them. Clips already removed are gone.
  */
-export async function letGoUndelivered(db: Db, addresses: string[], now = Date.now()) {
-  if (addresses.length === 0) return;
-  const owners = db
-    .select({ id: users.id })
-    .from(users)
-    .where(
-      inArray(
-        sql`lower(trim(${users.email}))`,
-        addresses.map((address) => normalizeAddress(address)),
-      ),
-    );
+export async function letGoUndelivered(db: Db, emailId: string, now = Date.now()) {
+  const open = and(eq(expiryNotices.emailId, emailId), isNull(expiryNotices.abandonedAt));
   await db.batch([
-    // First the clips, while their notices still read as not let go.
+    // First the clips, while their notice still reads as not let go.
     db
       .update(files)
       .set({ expiryNoticeBatch: null, expiryGoesAt: null })
       .where(
         and(
-          inArray(files.ownerId, owners),
+          inArray(
+            files.ownerId,
+            db.select({ id: expiryNotices.userId }).from(expiryNotices).where(open),
+          ),
           isComplete,
           sql`exists (
             select 1 from ${expiryNotices} as notice
             where notice.user_id = ${files.ownerId}
               and notice.batch = ${files.expiryNoticeBatch}
+              and notice.email_id = ${emailId}
               and notice.abandoned_at is null
           )`,
         ),
       ),
-    db
-      .update(expiryNotices)
-      .set({ abandonedAt: now })
-      .where(and(inArray(expiryNotices.userId, owners), isNull(expiryNotices.abandonedAt))),
+    db.update(expiryNotices).set({ abandonedAt: now }).where(open),
   ]);
 }
 
