@@ -50,6 +50,9 @@ export const contributorNameSchema = z
       .refine((name) => /[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name)),
   );
 
+/** The longest note a sender can leave with their clips. */
+export const UPLOAD_NOTE_MAX = 280;
+
 export const createUploadSchema = z.object({
   name: z.string().trim().min(1).max(255),
   size: z
@@ -59,7 +62,11 @@ export const createUploadSchema = z.object({
     .max(MAX_FILE_BYTES, "Files can be up to 5 GB."),
   type: z.string().trim().max(127),
   contributorName: contributorNameSchema.optional(),
-  note: z.string().trim().max(280).optional(),
+  /**
+   * A line for the athlete about these clips ("Round 2, from the left"),
+   * cleaned like a name: it's shown to them. Empty once cleaned: no note.
+   */
+  note: z.string().max(1000).transform(cleanName).pipe(z.string().max(UPLOAD_NOTE_MAX)).optional(),
 });
 export type CreateUploadInput = z.infer<typeof createUploadSchema>;
 

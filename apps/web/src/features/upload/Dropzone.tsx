@@ -1,10 +1,13 @@
 import { isAcceptableDeclaredType } from "@hop/shared";
-import { Plus, Upload } from "lucide-react";
+import { ImagePlus, Plus } from "lucide-react";
 import { useState } from "react";
 import { cx } from "../../components/ui/cx";
 import { useFeedback } from "../../components/ui/feedback";
 
-/** The one big target: tap to pick from the camera roll, or drop files on desktop. */
+/**
+ * The one big target: tap to pick from the camera roll, or drop files on
+ * desktop. Glass, with the athlete's colour on its button and when dragging.
+ */
 export function Dropzone({
   compact,
   onFiles,
@@ -33,11 +36,9 @@ export function Dropzone({
   return (
     <label
       className={cx(
-        "group flex cursor-pointer flex-col items-center rounded-[2rem] border-2 border-dashed px-6 text-center transition has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-accent-soft",
-        compact ? "py-5" : "py-10",
-        dragging
-          ? "border-accent bg-accent-soft"
-          : "border-line-strong bg-surface hover:border-fg/30",
+        "glass group flex cursor-pointer items-center rounded-[2rem] transition has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-accent-soft",
+        compact ? "gap-4 px-4 py-3.5" : "flex-col px-6 py-9 text-center",
+        dragging && "ring-4 ring-accent",
       )}
       onDragOver={(e) => {
         e.preventDefault();
@@ -52,26 +53,32 @@ export function Dropzone({
     >
       <span
         className={cx(
-          "grid place-items-center rounded-full bg-accent text-on-accent shadow-soft transition group-active:scale-95",
-          compact ? "size-11" : "size-16",
+          "grid shrink-0 place-items-center rounded-full bg-accent text-on-accent shadow-soft transition group-hover:scale-105 group-active:scale-95",
+          compact ? "size-11" : "size-[4.5rem]",
         )}
       >
         {compact ? (
           <Plus className="size-5" strokeWidth={2.5} />
         ) : (
-          <Upload className="size-7" strokeWidth={2.2} />
+          <ImagePlus className="size-8" strokeWidth={2} />
         )}
       </span>
-      <span
-        className={cx("font-semibold tracking-tight", compact ? "mt-3 text-base" : "mt-5 text-lg")}
-      >
-        {compact ? "Add more" : "Choose videos & photos"}
-      </span>
-      {!compact && (
-        <span className="mt-1 text-sm text-muted">
-          <span className="hidden sm:inline">or drop them here · </span>up to 5 GB each
+      <span className={cx("flex flex-col", !compact && "items-center")}>
+        <span
+          className={cx("font-semibold tracking-tight", compact ? "text-base" : "mt-5 text-lg")}
+        >
+          {compact ? "Add more" : "Choose videos & photos"}
         </span>
-      )}
+        <span className={cx("text-sm text-muted", !compact && "mt-1")}>
+          {dragging ? (
+            "Drop them to send"
+          ) : (
+            <>
+              <span className="hidden sm:inline">or drop them here · </span>up to 5 GB each
+            </>
+          )}
+        </span>
+      </span>
       <input
         type="file"
         className="sr-only"

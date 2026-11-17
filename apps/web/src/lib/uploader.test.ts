@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Uploader } from "./uploader";
+import { Uploader, type UploadItem } from "./uploader";
 
 type Call = { url: string; method: string };
 
@@ -77,6 +77,49 @@ describe("Uploader cancellation", () => {
 
     expect(calls).toContainEqual({ url: "/api/uploads/fil_1", method: "DELETE" });
     expect(localStorage.getItem(`hop:upload:hop_1:clip.mp4:2048:${file.lastModified}`)).toBeNull();
+  });
+
+  it("sends each file with the note as it was when the file was added, retries too", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", (url: string, init: RequestInit = {}) => {
+      if (url.endsWith("/uploads") && init.method === "POST") {
+        bodies.push(JSON.parse(String(init.body)));
+      }
+      return new Promise(() => {});
+    });
+    let note: string | undefined;
+    const uploader = new Uploader(
+      "hop_1",
+      async () => "pass",
+      () => "Tester",
+      () => note,
+    );
+    let items: UploadItem[] = [];
+    uploader.subscribe((next) => {
+      items = next;
+    });
+    uploader.add([new File([new Uint8Array(2048)], "a.mp4", { type: "video/mp4" })]);
+    await flush();
+    note = "Round 2";
+    // Three at once: the third waits while two send, and keeps "Round 2"
+    // even though the note changes before it starts.
+    uploader.add(
+      ["b.mp4", "c.mp4", "d.mp4"].map(
+        (name) => new File([new Uint8Array(2048)], name, { type: "video/mp4" }),
+      ),
+    );
+    await flush();
+    note = "Round 3";
+    // Cancelling the first frees a place, and the third starts now.
+    uploader.cancel(items[0]?.id as string);
+    await flush();
+    await flush();
+    expect(bodies).toMatchObject([
+      { name: "a.mp4", contributorName: "Tester" },
+      { name: "b.mp4", contributorName: "Tester", note: "Round 2" },
+      { name: "c.mp4", contributorName: "Tester", note: "Round 2" },
+    ]);
+    expect(bodies[0]).not.toHaveProperty("note");
   });
 
   it("ignores picking the same file twice", () => {

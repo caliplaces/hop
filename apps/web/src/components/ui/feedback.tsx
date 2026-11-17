@@ -1,5 +1,6 @@
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 
@@ -17,6 +18,23 @@ type Feedback = {
 };
 
 const FeedbackContext = createContext<Feedback | null>(null);
+
+/**
+ * Where toasts show: inside the topmost open modal dialog, such as the clip
+ * viewer, if there is one. A modal sits above everything outside it, and
+ * makes it inert, whatever its z-index.
+ */
+export function toastHost(doc: Document = document): Element {
+  const isModal = (dialog: HTMLDialogElement) => {
+    try {
+      return dialog.matches(":modal");
+    } catch {
+      return true; // Too old to know: an open dialog is most likely one.
+    }
+  };
+  const modals = [...doc.querySelectorAll("dialog")].filter((d) => d.open && isModal(d));
+  return modals.at(-1) ?? doc.body;
+}
 
 /** In-app confirmations and toasts, replacing window.confirm/alert. */
 export function FeedbackProvider({ children }: { children: ReactNode }) {
@@ -66,24 +84,28 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
           </Button>
         </div>
       </Dialog>
-      <div
-        aria-live="polite"
-        className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--tabbar-h)+1.5rem)] z-(--z-toast) flex flex-col items-center gap-2 px-4 sm:bottom-8"
-      >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className="animate-fade-up flex items-center gap-2 rounded-full bg-fg py-2.5 pr-5 pl-3 text-sm font-medium text-canvas shadow-lift"
-          >
-            {t.tone === "success" ? (
-              <CircleCheck className="size-5 text-canvas" />
-            ) : (
-              <CircleAlert className="size-5 text-danger" />
-            )}
-            {t.message}
-          </div>
-        ))}
-      </div>
+      {createPortal(
+        <div
+          aria-live="polite"
+          className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--tabbar-h)+1.5rem)] z-(--z-toast) flex flex-col items-center gap-2 px-4 sm:bottom-8"
+        >
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className="animate-fade-up flex items-center gap-2 rounded-full bg-fg py-2.5 pr-5 pl-3 text-sm font-medium text-canvas shadow-lift"
+            >
+              {t.tone === "success" ? (
+                <CircleCheck className="size-5 text-canvas" />
+              ) : (
+                <CircleAlert className="size-5 text-danger" />
+              )}
+              {t.message}
+            </div>
+          ))}
+        </div>,
+        // Looked up as toasts come and go, so one shows over the modal open then.
+        toasts.length > 0 ? toastHost() : document.body,
+      )}
     </FeedbackContext.Provider>
   );
 }
