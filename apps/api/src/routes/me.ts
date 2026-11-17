@@ -35,6 +35,7 @@ import { sanitizeJpeg } from "../lib/jpeg";
 import { hasPlus } from "../lib/plans";
 import { currentUser, destroySession, requireUser } from "../lib/session";
 import { presignGet } from "../lib/storage";
+import { cancelForDeletion, lockCheckout, stripeEnabled, unlockCheckout } from "../lib/stripe";
 import { validate } from "../lib/validate";
 import { findUserByHandle, toMe } from "./auth";
 
@@ -164,7 +165,34 @@ export const meRoutes = new Hono<AppEnv>()
    */
   .delete("/me", requireUser, async (c) => {
     const user = currentUser(c);
-    const was = await deleteAccount(getDb(c.env.DB), user.id);
+    const db = getDb(c.env.DB);
+    // No checkout may open meanwhile, and the Stripe customer is read only
+    // once it can't: one opening just now may have made it.
+    const lockedAt = Date.now();
+    if (!(await lockCheckout(db, user.id, lockedAt))) {
+      return fail(c, 409, "checkout_opening", "Checkout is opening. Try again in a moment.");
+    }
+    const customer = (
+      await db.select({ id: users.stripeCustomerId }).from(users).where(eq(users.id, user.id)).get()
+    )?.id;
+    if (customer) {
+      // Hop+ from the website: nothing would stop Stripe billing a deleted
+      // account, so the account stays until it's cancelled.
+      try {
+        if (!stripeEnabled(c.env)) throw new Error("Stripe isn't set up");
+        await cancelForDeletion(c.env, customer);
+      } catch (error) {
+        console.error("stripe: cancelling for deletion failed", error);
+        await unlockCheckout(db, user.id, lockedAt);
+        return fail(
+          c,
+          503,
+          "billing_unavailable",
+          "Couldn't cancel your Hop+ just now, so your account is still here. Try again in a minute.",
+        );
+      }
+    }
+    const was = await deleteAccount(db, user.id);
     if (was?.avatarKey) await removeAvatar(c.env, was.avatarKey);
     if (was) {
       // After the response: a slow or failing email never holds it up.

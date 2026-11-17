@@ -44,7 +44,14 @@
     "APPLE_BUNDLE_ID": "com.onmyhop.app",
     "APPLE_APP_ID": "6834920854",
     "APNS_ENVIRONMENT": "sandbox",
-    "APNS_KEY_ID": "K4TQW3FWN6"
+    "APNS_KEY_ID": "K4TQW3FWN6",
+    // Hop+ on the website: the product in Stripe whose prices are sold, in
+    // test mode here and on staging, live mode in production. The API key
+    // and webhook signing secret are secrets (STRIPE_SECRET_KEY,
+    // STRIPE_WEBHOOK_SECRET); without them the website doesn't sell Hop+.
+    // The portal configuration is Hop's own (see the README).
+    "STRIPE_PRODUCT_ID": "prod_VdnJFIpMsbAZlR",
+    "STRIPE_PORTAL_CONFIGURATION": "bpc_1UcWDPGMF6pPdAKwEBeVEQ0D"
   },
   "d1_databases": [
     {
@@ -63,7 +70,9 @@
     { "name": "AUTH_LIMITER", "namespace_id": "1011", "simple": { "limit": 20, "period": 60 } },
     { "name": "WAITLIST_LIMITER", "namespace_id": "1021", "simple": { "limit": 10, "period": 60 } },
     { "name": "PROFILE_LIMITER", "namespace_id": "1031", "simple": { "limit": 20, "period": 60 } },
-    { "name": "REPORT_LIMITER", "namespace_id": "1041", "simple": { "limit": 10, "period": 60 } }
+    { "name": "REPORT_LIMITER", "namespace_id": "1041", "simple": { "limit": 10, "period": 60 } },
+    // Per account: Stripe's own rate limit is shared with the account's other products.
+    { "name": "BILLING_LIMITER", "namespace_id": "1051", "simple": { "limit": 5, "period": 60 } }
   ],
 
   "env": {
@@ -88,7 +97,9 @@
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
         "APNS_ENVIRONMENT": "sandbox",
-        "APNS_KEY_ID": "K4TQW3FWN6"
+        "APNS_KEY_ID": "K4TQW3FWN6",
+        "STRIPE_PRODUCT_ID": "prod_VdnJFIpMsbAZlR",
+        "STRIPE_PORTAL_CONFIGURATION": "bpc_1UcWDPGMF6pPdAKwEBeVEQ0D"
       },
       "d1_databases": [
         {
@@ -124,6 +135,11 @@
           "name": "REPORT_LIMITER",
           "namespace_id": "1042",
           "simple": { "limit": 10, "period": 60 }
+        },
+        {
+          "name": "BILLING_LIMITER",
+          "namespace_id": "1052",
+          "simple": { "limit": 5, "period": 60 }
         }
       ]
     },
@@ -148,7 +164,8 @@
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
         "APNS_ENVIRONMENT": "production",
-        "APNS_KEY_ID": "JNYA3Z4YF6"
+        "APNS_KEY_ID": "JNYA3Z4YF6",
+        "STRIPE_PRODUCT_ID": "prod_Vd4BKOyA6xDfYn"
       },
       "d1_databases": [
         {
@@ -184,6 +201,11 @@
           "name": "REPORT_LIMITER",
           "namespace_id": "1043",
           "simple": { "limit": 10, "period": 60 }
+        },
+        {
+          "name": "BILLING_LIMITER",
+          "namespace_id": "1053",
+          "simple": { "limit": 5, "period": 60 }
         }
       ]
     }
