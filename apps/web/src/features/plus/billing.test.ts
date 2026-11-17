@@ -1,7 +1,13 @@
 import type { PlanStatus } from "@hop/shared";
 import { describe, expect, it } from "vitest";
 import { newerPlan } from "../../lib/queries";
-import { billingGraceEnds, formatPrice, isStripePage, yearlySaving } from "./billing";
+import {
+  billingGraceEnds,
+  formatPrice,
+  isStripePage,
+  showsBillingLink,
+  yearlySaving,
+} from "./billing";
 
 const monthly = { id: "m", amount: 499, currency: "eur", interval: "month" as const };
 const yearly = { id: "y", amount: 4900, currency: "eur", interval: "year" as const };
@@ -38,6 +44,30 @@ describe("a billing grace period", () => {
     expect(billingGraceEnds({ ...subscription, graceExpiresAt: now - 1 }, now)).toBeNull();
     expect(billingGraceEnds({ ...subscription, graceExpiresAt: null }, now)).toBeNull();
     expect(billingGraceEnds(null, now)).toBeNull();
+  });
+});
+
+describe("the billing page link on the plan card", () => {
+  const subscription = (provider: "apple" | "stripe") =>
+    ({ provider }) as NonNullable<PlanStatus["subscription"]>;
+
+  it("stays for whoever has had Hop+ from the website", () => {
+    expect(showsBillingLink({ plan: "free", subscription: null, webBilling: true })).toBe(true);
+    // Hop+ from the App Store now, from the website before.
+    expect(
+      showsBillingLink({ plan: "plus", subscription: subscription("apple"), webBilling: true }),
+    ).toBe(true);
+  });
+
+  it("isn't doubled while Hop+ from the website links it already", () => {
+    expect(
+      showsBillingLink({ plan: "plus", subscription: subscription("stripe"), webBilling: true }),
+    ).toBe(false);
+  });
+
+  it("isn't there for anyone else, or from servers that don't say", () => {
+    expect(showsBillingLink({ plan: "free", subscription: null, webBilling: false })).toBe(false);
+    expect(showsBillingLink({ plan: "free", subscription: null })).toBe(false);
   });
 });
 

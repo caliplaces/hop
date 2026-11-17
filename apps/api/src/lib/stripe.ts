@@ -409,16 +409,20 @@ export async function refreshCustomer(
  * subscription switched to another product. Open checkouts go first, so
  * none can start another. Throws if Stripe can't be reached, so the account
  * isn't deleted while it would still be billed; a customer Stripe no longer
- * has has nothing left to bill.
+ * has has nothing left to bill. Returns how many it cancelled, so the
+ * athlete can be told.
  */
-export async function cancelForDeletion(env: Env, customer: string): Promise<void> {
+export async function cancelForDeletion(env: Env, customer: string): Promise<number> {
   try {
     await expireOpenCheckouts(env, customer);
-    for (const subscription of await liveSubscriptions(env, customer)) {
+    const live = await liveSubscriptions(env, customer);
+    for (const subscription of live) {
       await cancel(env, subscription.id);
     }
+    return live.length;
   } catch (error) {
     if (!isMissingCustomer(error)) throw error;
+    return 0;
   }
 }
 

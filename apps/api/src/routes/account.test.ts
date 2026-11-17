@@ -759,7 +759,11 @@ describe("the cleanup, after an account is deleted", () => {
 
 describe("the account deleted email", () => {
   it("says what went, what stays reserved, and what to do if it wasn't them", async () => {
-    const email = await accountDeletedEmail({ appUrl: "https://onmyhop.com", handle: "alex" });
+    const email = await accountDeletedEmail({
+      appUrl: "https://onmyhop.com",
+      handle: "alex",
+      cancelledWebHopPlus: false,
+    });
     expect(email.subject).toBe("Your Hop account is deleted");
     expect(email.text).toContain("Your Hop account, onmyhop.com/alex, is deleted.");
     // Clips are queued for removal, not gone yet: it doesn't claim otherwise.
@@ -767,12 +771,33 @@ describe("the account deleted email", () => {
     expect(email.text).toContain("Nobody can take onmyhop.com/alex again, you included");
     expect(email.text).toContain("Clips you sent other athletes stay with them, under @alex.");
     expect(email.text).toContain("Change your Caliplaces password");
-    expect(email.text).toContain("deleting your account doesn’t cancel it");
+    // Hop+ from the app is Apple's to cancel; nothing was cancelled on the website.
+    expect(email.text).toContain(
+      "If you had Hop+ from the iPhone app, deleting your account doesn’t cancel it.",
+    );
+    expect(email.text).not.toContain("from the website");
     expect(email.html).toContain("Your Hop account is deleted");
   });
 
+  it("says Hop+ from the website was cancelled with it, when it was", async () => {
+    const email = await accountDeletedEmail({
+      appUrl: "https://onmyhop.com",
+      handle: "alex",
+      cancelledWebHopPlus: true,
+    });
+    const said = "Your Hop+ from the website is cancelled with your account";
+    expect(email.text).toContain(said);
+    expect(email.html).toContain(said);
+    // Hop+ from the app is still Apple's to cancel, if there was one too.
+    expect(email.text).toContain("If you had Hop+ from the iPhone app");
+  });
+
   it("reads right without a handle", async () => {
-    const email = await accountDeletedEmail({ appUrl: "https://onmyhop.com", handle: null });
+    const email = await accountDeletedEmail({
+      appUrl: "https://onmyhop.com",
+      handle: null,
+      cancelledWebHopPlus: false,
+    });
     expect(email.text).toContain(
       "Your Hop account is deleted. Your name, email and photo are gone",
     );

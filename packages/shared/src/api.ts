@@ -299,6 +299,12 @@ export type PlanStatus = {
    * the app sets it on every purchase, and the API only credits matching ones.
    */
   appAccountToken: string;
+  /**
+   * Whether they've had Hop+ from the website, so its billing page (Stripe's
+   * customer portal) has their invoices and card, after Hop+ ends too.
+   * Servers from before the website sold Hop+ leave it out.
+   */
+  webBilling?: boolean;
   /** What each plan includes, so the app's comparison always matches the server. */
   plans: Record<"free" | "plus", { storageBytes: number; retentionDays: number | null }>;
   /**

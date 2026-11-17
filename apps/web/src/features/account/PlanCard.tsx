@@ -1,10 +1,10 @@
 import type { PlanStatus } from "@hop/shared";
 import { useQuery } from "@tanstack/react-query";
-import { CircleAlert, CreditCard } from "lucide-react";
+import { CircleAlert, CreditCard, ReceiptText } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { formatBytes } from "../../lib/format";
 import { queries } from "../../lib/queries";
-import { billingGraceEnds, formatDay, usePortal } from "../plus/billing";
+import { billingGraceEnds, formatDay, showsBillingLink, usePortal } from "../plus/billing";
 import { HopPlusOffer } from "../plus/HopPlusOffer";
 
 /** What happens next with Hop+, and where it's managed. */
@@ -50,9 +50,33 @@ function Subscription({ subscription }: { subscription: NonNullable<PlanStatus["
 }
 
 /**
+ * Stripe's billing page for whoever has had Hop+ from the website but
+ * doesn't now: past invoices, and the card, should a payment be overdue.
+ */
+function WebBilling() {
+  const portal = usePortal();
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <p className="text-sm text-muted">Invoices and payment details from Hop+ on the website.</p>
+      <Button
+        variant="soft"
+        size="sm"
+        className="mt-3"
+        disabled={portal.opening}
+        onClick={() => portal.mutate()}
+      >
+        <ReceiptText className="size-4" />
+        {portal.opening ? "Opening…" : "Billing and invoices"}
+      </Button>
+    </div>
+  );
+}
+
+/**
  * The athlete's plan, as the app's Account shows it: which one, how much of
  * its storage is used, and how long clips are kept. On the free plan, Hop+
- * for sale; with Hop+, when it renews and where to manage it.
+ * for sale; with Hop+, when it renews and where to manage it. Whoever has
+ * had Hop+ from the website keeps a way to its billing page.
  */
 export function PlanCard() {
   const plan = useQuery(queries.plan());
@@ -104,6 +128,7 @@ export function PlanCard() {
           <HopPlusOffer />
         </div>
       )}
+      {showsBillingLink(status) && <WebBilling />}
     </div>
   );
 }

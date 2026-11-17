@@ -417,12 +417,15 @@ describe("an address Hop no longer emails", () => {
       handle: "alex",
     };
     await sendWelcomeEmail(env, alex);
-    await sendAccountDeletedEmail(env, alex);
+    await sendAccountDeletedEmail(env, alex, { cancelledWebHopPlus: false });
     expect(fetch).not.toHaveBeenCalled();
     // The emails themselves are as before.
-    expect((await accountDeletedEmail({ appUrl: env.APP_URL, handle: "alex" })).subject).toBe(
-      "Your Hop account is deleted",
-    );
+    const deleted = await accountDeletedEmail({
+      appUrl: env.APP_URL,
+      handle: "alex",
+      cancelledWebHopPlus: false,
+    });
+    expect(deleted.subject).toBe("Your Hop account is deleted");
   });
 
   it("is still sent Hop's team's own emails", async () => {

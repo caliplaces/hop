@@ -884,6 +884,58 @@ describe("what a Stripe subscription gives", () => {
   });
 });
 
+describe("the website's billing page, in the plan", () => {
+  it("is there for whoever has had Hop+ from the website, after it ends too", async () => {
+    await linkAlex();
+    await syncSubscription(env, db, subscription(), Date.now());
+    expect(await plan()).toMatchObject({ plan: "plus", webBilling: true });
+
+    await syncSubscription(
+      env,
+      db,
+      subscription({ status: "canceled", ended_at: nowS() - 10 }),
+      Date.now(),
+    );
+    expect(await plan()).toMatchObject({ plan: "free", webBilling: true });
+  });
+
+  it("isn't there for a checkout left unpaid, or without a customer", async () => {
+    expect((await plan()).webBilling).toBe(false);
+    await linkAlex();
+    expect((await plan()).webBilling).toBe(false);
+    // Hop+ from the App Store is billed by Apple: nothing for Stripe's page.
+    const now = Date.now();
+    await db.insert(subscriptions).values({
+      originalTransactionId: "2000000000000001",
+      userId: "usr_a",
+      provider: "apple",
+      productId: "hop_plus",
+      environment: "Production",
+      expiresAt: now + 30 * DAY,
+      purchasedAt: now,
+      signedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(await plan()).toMatchObject({ plan: "plus", webBilling: false });
+  });
+
+  it("isn't there where Stripe isn't set up, as the portal can't open", async () => {
+    await linkAlex();
+    await syncSubscription(env, db, subscription(), Date.now());
+    env = { ...env, STRIPE_SECRET_KEY: undefined };
+    expect((await plan()).webBilling).toBe(false);
+  });
+
+  it("goes with a customer Stripe no longer has, as the portal has nothing then", async () => {
+    await linkAlex();
+    await syncSubscription(env, db, subscription(), Date.now());
+    await linkAlex("cus_gone");
+    const response = await call("/billing/web/sync", { method: "POST" });
+    expect(((await response.json()) as PlanStatus).webBilling).toBe(false);
+  });
+});
+
 describe("catching up with Stripe", () => {
   it("reads the athlete's subscriptions back from Checkout, before the webhook", async () => {
     await linkAlex();
@@ -939,6 +991,15 @@ describe("catching up with Stripe", () => {
 
 describe("deleting an account with Hop+ from the website", () => {
   const deleteMe = () => call("/me", { method: "DELETE" });
+  /** The account deleted email, as development logs it instead of sending it. */
+  const deletedEmail = () => {
+    const logged = vi
+      .mocked(console.log)
+      .mock.calls.map((args) => String(args[0]))
+      .filter((line) => line.startsWith("[email] to alex@example.com"));
+    expect(logged).toHaveLength(1);
+    return logged[0];
+  };
 
   beforeEach(async () => {
     await linkAlex();
@@ -963,6 +1024,27 @@ describe("deleting an account with Hop+ from the website", () => {
     expect(row?.deletedAt).toBeTypeOf("number");
     expect(row?.stripeCustomerId).toBeNull();
     expect(await db.select().from(subscriptions)).toEqual([]);
+  });
+
+  it("tells them by email that it's cancelled, and that Hop+ from the app isn't", async () => {
+    env = { ...env, ENVIRONMENT: "development" }; // Emails are logged, not sent.
+    expect((await deleteMe()).status).toBe(200);
+    await Promise.all(pending);
+    const email = deletedEmail();
+    expect(email).toContain("Your Hop+ from the website is cancelled with your account");
+    expect(email).toContain("If you had Hop+ from the iPhone app");
+  });
+
+  it("doesn't say Hop+ from the website was cancelled when none was left", async () => {
+    env = { ...env, ENVIRONMENT: "development" };
+    for (const [id, sub] of fake.subscriptions) {
+      fake.subscriptions.set(id, { ...sub, status: "canceled" });
+    }
+    expect((await deleteMe()).status).toBe(200);
+    await Promise.all(pending);
+    const email = deletedEmail();
+    expect(email).toContain("Your Hop account is deleted");
+    expect(email).not.toContain("from the website");
   });
 
   it("keeps the account while Stripe can't be reached, so it isn't billed after", async () => {

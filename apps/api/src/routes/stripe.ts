@@ -171,7 +171,7 @@ export const stripeRoutes = new Hono<AppEnv>()
         return stripeDown(c, error);
       }
     }
-    return c.json(await planStatus(db, user));
+    return c.json(await planStatus(c.env, db, user));
   })
 
   /**

@@ -188,12 +188,13 @@ export const meRoutes = new Hono<AppEnv>()
     const customer = (
       await db.select({ id: users.stripeCustomerId }).from(users).where(eq(users.id, user.id)).get()
     )?.id;
+    let cancelledWebHopPlus = false;
     if (customer) {
       // Hop+ from the website: nothing would stop Stripe billing a deleted
       // account, so the account stays until it's cancelled.
       try {
         if (!stripeEnabled(c.env)) throw new Error("Stripe isn't set up");
-        await cancelForDeletion(c.env, customer);
+        cancelledWebHopPlus = (await cancelForDeletion(c.env, customer)) > 0;
       } catch (error) {
         console.error("stripe: cancelling for deletion failed", error);
         await unlockCheckout(db, user.id, lockedAt);
@@ -214,7 +215,7 @@ export const meRoutes = new Hono<AppEnv>()
     if (was && !quiet) {
       // After the response: a slow or failing email never holds it up.
       c.executionCtx.waitUntil(
-        sendAccountDeletedEmail(c.env, was).catch((error) =>
+        sendAccountDeletedEmail(c.env, was, { cancelledWebHopPlus }).catch((error) =>
           console.error("Account deleted email failed", error),
         ),
       );
