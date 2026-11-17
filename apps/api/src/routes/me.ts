@@ -11,6 +11,7 @@ import {
   type HopSummary,
   type InboxFile,
   type InboxPage,
+  isOffensive,
   MAX_AVATAR_BYTES,
   normalizeHandle,
   slugify,
@@ -18,7 +19,7 @@ import {
   updateProfileSchema,
 } from "@hop/shared";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { type Db, getDb } from "../db";
 import { type FileRow, files, hops, users } from "../db/schema";
@@ -58,6 +59,10 @@ function toInboxFile(f: FileRow): InboxFile {
   };
 }
 
+/** An event's name or link with a word Hop doesn't allow; athletes aren't told which. */
+const nameUnavailable = (c: Context) =>
+  fail(c, 400, "name_unavailable", "That name isn't available. Pick another.");
+
 function isUniqueViolation(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -90,7 +95,14 @@ export const meRoutes = new Hono<AppEnv>()
     const input = c.req.valid("json");
     const handle = normalizeHandle(input.handle);
     const problem = checkHandle(handle);
-    if (problem) return fail(c, 400, `handle_${problem}`, "That handle can't be used.");
+    if (problem) {
+      return fail(
+        c,
+        400,
+        `handle_${problem}`,
+        problem === "unavailable" ? "That handle isn't available." : "That handle can't be used.",
+      );
+    }
 
     const db = getDb(c.env.DB);
     const hopId = newId("hop");
@@ -291,6 +303,8 @@ export const meRoutes = new Hono<AppEnv>()
     const slug = slugify(input.slug || input.title);
     if (!HOP_SLUG_PATTERN.test(slug))
       return fail(c, 400, "invalid_slug", "Pick a different link name.");
+    // Both are public: the link, and the name on the upload page.
+    if (isOffensive(slug) || isOffensive(input.title)) return nameUnavailable(c);
 
     const hop = {
       id: newId("hop"),
@@ -317,6 +331,7 @@ export const meRoutes = new Hono<AppEnv>()
     const changes = c.req.valid("json");
     if (Object.keys(changes).length === 0)
       return fail(c, 400, "invalid_request", "Nothing to update.");
+    if (changes.title !== undefined && isOffensive(changes.title)) return nameUnavailable(c);
     const updated = await getDb(c.env.DB)
       .update(hops)
       .set(changes)

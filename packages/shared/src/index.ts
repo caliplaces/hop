@@ -4,4 +4,5 @@ export * from "./handles";
 export * from "./launch";
 export * from "./limits";
 export * from "./names";
+export * from "./offensive";
 export * from "./waitlist";

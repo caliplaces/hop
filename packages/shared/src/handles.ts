@@ -1,3 +1,5 @@
+import { isOffensive } from "./offensive";
+
 /**
  * Handles live at the root of onmyhop.com, so anything the app itself routes
  * (or might route later) is reserved.
@@ -51,11 +53,16 @@ export function normalizeHandle(input: string): string {
   return input.trim().replace(/^@/, "").toLowerCase();
 }
 
-export type HandleProblem = "invalid" | "reserved";
+/**
+ * Why a handle can't be claimed. "unavailable" is a word Hop doesn't allow
+ * (see offensive.ts); athletes are only told it isn't available.
+ */
+export type HandleProblem = "invalid" | "reserved" | "unavailable";
 
 export function checkHandle(handle: string): HandleProblem | null {
   if (!HANDLE_PATTERN.test(handle) || handle.includes("..")) return "invalid";
   if (RESERVED_HANDLES.has(handle)) return "reserved";
+  if (isOffensive(handle)) return "unavailable";
   return null;
 }
 
