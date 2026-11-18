@@ -61,16 +61,15 @@ app turns into its own notifications (see "Android pushes" in
 build's settings, not from a `google-services.json`, and nothing else of
 Firebase is in the app: no Analytics, and no token until someone signs in.
 
-Each environment has its own Firebase project: debug builds use staging's,
-release builds production's. Their settings go in
+Debug and release builds share one Firebase project (the API's staging and
+production both push through it). Its settings go in
 `~/.gradle/gradle.properties`, never in the repository:
 
 ```properties
-hop.firebase.staging.appId=…
-hop.firebase.staging.projectId=…
-hop.firebase.staging.apiKey=…
-hop.firebase.staging.senderId=…
-# and the same for hop.firebase.production
+hop.firebase.appId=…
+hop.firebase.projectId=…
+hop.firebase.apiKey=…
+hop.firebase.senderId=…
 ```
 
 They're in the Firebase console, under Project settings › Your apps. A
@@ -97,10 +96,11 @@ and everything else works: Event mode counts while the app is open.
   messages, which Firebase would show without the app checking whom they're
   for. Nobody should send any from the Firebase console either. The app
   shows its notifications itself (notification delegation is off).
-- **The API key.** Each build carries its Firebase project's API key, as
+- **The API key.** Each build carries the Firebase project's API key, as
   every Firebase app does. In Google Cloud, restrict it to the Android app
-  `com.onmyhop.app` with its signing certificates, and to the Firebase
-  Installations and FCM Registration APIs.
+  `com.onmyhop.app` with the certificates it's signed with (Play's, and the
+  debug ones of whoever tests it), and to the Firebase Installations and FCM
+  Registration APIs.
 - **Channels.** New clips, Clips leaving soon, and Event mode, so each can be
   turned off on its own. On a lock screen that hides notifications' content,
   new clips show only "New clips".

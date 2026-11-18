@@ -12,19 +12,15 @@ plugins {
 val debugApiUrl = providers.gradleProperty("hop.apiUrl").orElse("https://staging.onmyhop.com")
 
 /**
- * Firebase, for push notifications: each environment's own project, from
- * `hop.firebase.<staging|production>.<appId|projectId|apiKey|senderId>` (in
- * ~/.gradle/gradle.properties, never in the repository). Debug builds use
- * staging's, release builds production's. Without them, a build has no push
- * notifications.
+ * Firebase, for push notifications: one project for debug and release builds
+ * alike, from `hop.firebase.<appId|projectId|apiKey|senderId>` (in
+ * ~/.gradle/gradle.properties, never in the repository). Without them, a
+ * build has no push notifications.
  */
-fun firebase(environment: String): Map<String, String> =
-    listOf("appId", "projectId", "apiKey", "senderId").associateWith { field ->
-        providers.gradleProperty("hop.firebase.$environment.$field").orElse("").get()
+fun com.android.build.api.dsl.VariantDimension.firebase() {
+    val settings = listOf("appId", "projectId", "apiKey", "senderId").associateWith { field ->
+        providers.gradleProperty("hop.firebase.$field").orElse("").get()
     }
-
-fun com.android.build.api.dsl.ApplicationBuildType.firebaseFrom(environment: String) {
-    val settings = firebase(environment)
     val complete = settings.values.all { it.isNotBlank() }
     for ((field, value) in settings) {
         val name = "FIREBASE_" + field.replace(Regex("([A-Z])"), "_$1").uppercase()
@@ -44,19 +40,18 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        firebase()
     }
 
     buildTypes {
         debug {
             buildConfigField("String", "API_URL", "\"${debugApiUrl.get()}\"")
-            firebaseFrom("staging")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "API_URL", "\"https://onmyhop.com\"")
-            firebaseFrom("production")
         }
     }
 
