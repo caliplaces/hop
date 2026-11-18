@@ -71,6 +71,7 @@ import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import com.onmyhop.app.R
 import com.onmyhop.app.core.Clip
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.launch
 
@@ -196,10 +197,17 @@ private fun ClipPage(
     /** Bumped by Try again: a fresh link, and a fresh download. */
     var attempt by remember(clip.id) { mutableIntStateOf(0) }
 
-    // A link for the photo on screen and its neighbours, and for the video on screen.
-    LaunchedEffect(clip.id, isCurrent, attempt) {
+    // A link for the photo on screen and its neighbours (fetched once, whichever page is
+    // current), and for the video on screen. Leaving a page cancels its fetch: not a failure.
+    LaunchedEffect(clip.id, attempt, clip.isVideo && isCurrent) {
         if (link != null || failed || (clip.isVideo && !isCurrent)) return@LaunchedEffect
-        link = runCatching { model.url(clip) }.getOrNull()
+        link = try {
+            model.url(clip)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
         failed = link == null
     }
 
@@ -260,7 +268,13 @@ private fun VideoPage(clip: Clip, link: String, player: ExoPlayer, showControls:
             if (retried) return@collect
             retried = true
             val position = player.currentPosition
-            val fresh = runCatching { model.url(clip) }.getOrNull() ?: return@collect
+            val fresh = try {
+                model.url(clip)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return@collect
+            }
             player.setMediaItem(MediaItem.fromUri(fresh), position)
             player.prepare()
         }

@@ -146,6 +146,8 @@ class InboxModel(private val session: Session) : ViewModel() {
                 loadedOnce = true,
             )
         } catch (error: CancellationException) {
+            // A newer refresh replaced this one: no longer loading, unless a newer load already is.
+            if (generation(hopId) == generation) clips[hopId] = clips(hopId).copy(isLoading = false)
             throw error
         } catch (_: Exception) {
             if (generation(hopId) != generation) return

@@ -143,6 +143,22 @@ class InboxModelTest {
         assertFalse(model.isRefreshing)
     }
 
+    /** Clip loads a newer refresh cancelled don't leave their event loading, even if that refresh fails. */
+    @Test
+    fun cancelledLoadsDontStayLoading() {
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 1)}]}"""
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":1,"limitBytes":10},"revision":1}"""
+        firstReplies["/api/me/files?hopId=h"] = """{"files":[${clip("c1", "h", 1)}],"nextCursor":null}""" to 500L
+        val model = model()
+        model.refresh()
+        waitFor { model.clips("h").isLoading }
+        // Offline now: the next refresh fails before it loads any clips.
+        replies.remove("/api/me/hops")
+        model.refresh()
+        waitFor { !model.isRefreshing && !model.clips("h").isLoading }
+        assertFalse(model.clips("h").isLoading)
+    }
+
     /** Offline before anything loaded: the inbox says so; with events shown, they stay. */
     @Test
     fun failsOnlyWhenThereIsNothingToShow() {
