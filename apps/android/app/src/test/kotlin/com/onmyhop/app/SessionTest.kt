@@ -206,7 +206,8 @@ class SessionTest {
         server.enqueue(json("""{"ok":true}"""))
         val session = session()
         var before: String? = null
-        val serverSide = session.signOut { before = it.token }
+        session.onSignOut = { before = it?.token }
+        val serverSide = session.signOut()
         // Signed out here at once; the server hears about it after.
         assertFalse(session.state.value.isSignedIn)
         serverSide.join()
@@ -215,6 +216,25 @@ class SessionTest {
         val logout = server.takeRequest()
         assertEquals("/api/auth/logout", logout.url.encodedPath)
         assertEquals("Bearer hs_abc", logout.headers["Authorization"])
+    }
+
+    /** Signed out by the server, or by deleting the account: the app is told, without a session to use. */
+    @Test
+    fun sessionsThatEndTellTheAppWithoutASession() = runTest {
+        store.token = "hs_abc"
+        server.enqueue(json("""{"me":null}"""))
+        val session = session()
+        val told = mutableListOf<String?>()
+        session.onSignOut = { told += it?.token }
+        session.refresh()
+        assertFalse(session.state.value.isSignedIn)
+
+        store.token = "hs_def"
+        server.enqueue(json("""{"ok":true}"""))
+        val again = session()
+        again.onSignOut = { told += it?.token }
+        again.deleteAccount()
+        assertEquals(listOf<String?>(null, null), told)
     }
 
     /** Deleting an account whose session is already gone (a retry, say) still forgets it. */

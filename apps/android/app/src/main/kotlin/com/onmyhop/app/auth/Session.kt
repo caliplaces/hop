@@ -124,7 +124,7 @@ class Session(
             // Signed out, or in as someone else, while this was on its way.
             if (token != asked) return
             if (me == null) {
-                forget()
+                ended()
             } else if (revision == seen) {
                 _state.value = _state.value.copy(me = me)
                 revision++
@@ -148,26 +148,40 @@ class Session(
                 // to a deletion that went through was lost: it can't be used either way.
                 if (error.status != 401) throw error
             }
-            if (token == asked) forget()
+            if (token == asked) ended()
         }.await()
     }
 
     /**
-     * Signs out at once, then tells the server to end the session. `before`
-     * runs with the session still valid on the server, such as telling it
-     * this phone no longer takes the athlete's notifications.
+     * Runs after every sign-out, such as to stop this phone getting the
+     * athlete's notifications. With the session while the server still
+     * knows it; null when it doesn't (it ended, or the account was deleted).
+     * Set once, by the app.
+     */
+    @Volatile
+    var onSignOut: suspend (ApiClient?) -> Unit = {}
+
+    /**
+     * Signs out at once, then tells the server to end the session, after
+     * [onSignOut] has had its turn with it.
      *
      * The app moves to the welcome screen straight away, which ends the
      * screen that asked, so the server's part runs in the session's own
      * scope: leaving can't cancel it and leave the token valid there.
      */
-    fun signOut(before: suspend (ApiClient) -> Unit = {}): Job {
+    fun signOut(): Job {
         val client = api
         forget()
         return scope.launch {
-            runCatching { before(client) }
+            runCatching { onSignOut(client) }
             runCatching { client.post("api/auth/logout") }
         }
+    }
+
+    /** Signed out by the server: forgotten here, and [onSignOut] runs without a session. */
+    private fun ended() {
+        forget()
+        scope.launch { runCatching { onSignOut(null) } }
     }
 
     private fun forget() {

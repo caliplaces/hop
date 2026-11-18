@@ -31,6 +31,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onmyhop.app.R
+import com.onmyhop.app.push.Push
+import com.onmyhop.app.push.rememberNotificationsPermission
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.core.ApiError
 import com.onmyhop.app.core.Me
@@ -53,6 +55,7 @@ import kotlinx.serialization.Serializable
 fun AccountScreen(
     session: Session,
     inbox: InboxModel,
+    push: Push,
     onBack: () -> Unit,
     openProfile: () -> Unit,
     openBlocked: () -> Unit,
@@ -64,24 +67,26 @@ fun AccountScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val offline = stringResource(R.string.offline)
-    var savingEmail by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    val notifications = rememberNotificationsPermission(push)
 
     // The plan moves while the app is away (storage, renewals).
     LaunchedEffect(Unit) { inbox.refreshPlan() }
 
-    fun setEmail(on: Boolean) {
+    /** One setting at a time: the switches wait while a change is on its way. */
+    fun save(change: NewClipsChange) {
         val token = session.token
-        savingEmail = true
+        saving = true
         scope.launch {
             try {
-                val reply: MeReply = session.client(token).patch("api/me", EmailChange(on))
+                val reply: MeReply = session.client(token).patch("api/me", change)
                 session.update(reply.me, token)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 snackbar.showSnackbar((error as? ApiError)?.message ?: offline)
             } finally {
-                savingEmail = false
+                saving = false
             }
         }
     }
@@ -124,13 +129,33 @@ fun AccountScreen(
             if (me != null) {
                 SettingsGroup(
                     title = stringResource(R.string.account_new_clips),
-                    rows = listOf(
-                        SettingsRow(
-                            onClick = { if (!savingEmail) setEmail(!me.emailNewClips) },
-                            supporting = { Text(stringResource(R.string.account_new_clips_email_detail, me.email ?: "")) },
-                            trailing = { Switch(checked = me.emailNewClips, onCheckedChange = null, enabled = !savingEmail) },
-                        ) { Text(stringResource(R.string.account_new_clips_email)) },
-                    ),
+                    rows = buildList {
+                        if (push.isAvailable) {
+                            add(
+                                SettingsRow(
+                                    onClick = { if (!saving) save(NewClipsChange(pushNewClips = !me.pushNewClips)) },
+                                    trailing = { Switch(checked = me.pushNewClips, onCheckedChange = null, enabled = !saving) },
+                                ) { Text(stringResource(R.string.account_new_clips_push)) },
+                            )
+                            // Wanted, but not allowed on this phone.
+                            if (me.pushNewClips && !notifications.allowed) {
+                                add(
+                                    SettingsRow(
+                                        onClick = notifications.ask,
+                                        leading = { Icon(painterResource(R.drawable.ic_notifications), null) },
+                                        supporting = { Text(stringResource(R.string.account_new_clips_push_off)) },
+                                    ) { Text(stringResource(R.string.account_new_clips_push_allow)) },
+                                )
+                            }
+                        }
+                        add(
+                            SettingsRow(
+                                onClick = { if (!saving) save(NewClipsChange(emailNewClips = !me.emailNewClips)) },
+                                supporting = { Text(stringResource(R.string.account_new_clips_email_detail, me.email ?: "")) },
+                                trailing = { Switch(checked = me.emailNewClips, onCheckedChange = null, enabled = !saving) },
+                            ) { Text(stringResource(R.string.account_new_clips_email)) },
+                        )
+                    },
                 )
             }
             SettingsGroup(
@@ -171,8 +196,9 @@ fun AccountScreen(
     }
 }
 
+/** Only the setting that changed; the other is left out. */
 @Serializable
-private class EmailChange(val emailNewClips: Boolean)
+private class NewClipsChange(val pushNewClips: Boolean? = null, val emailNewClips: Boolean? = null)
 
 @Serializable
 private class MeReply(val me: Me)

@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onmyhop.app.R
+import com.onmyhop.app.push.Push
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.core.Clip
 import com.onmyhop.app.core.Hop
@@ -61,6 +62,7 @@ import com.onmyhop.app.design.sharedContainer
 fun InboxTab(
     model: InboxModel,
     session: Session,
+    push: Push,
     accountButton: @Composable () -> Unit,
     openEvent: (String) -> Unit,
 ) {
@@ -110,6 +112,10 @@ fun InboxTab(
                         if (plan.isFree) {
                             plan.expiring?.let { item(key = "expiring") { ExpiryNudge(it) } }
                             if (plan.isNearlyFull) item(key = "storage") { StorageNudge(plan) }
+                        }
+                        // For whoever wants to hear of new clips, and on the free plan to hear before any leave.
+                        if (state.me?.pushNewClips == true || plan.isFree) {
+                            item(key = "notifications") { NotificationsNudge(push, plan.isFree) }
                         }
                     }
                     items(model.hops, key = { it.id }) { hop ->

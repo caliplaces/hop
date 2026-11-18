@@ -6,12 +6,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
+import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,9 +22,12 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onmyhop.app.R
 import com.onmyhop.app.core.PlanStatus
 import com.onmyhop.app.core.storageText
+import com.onmyhop.app.push.Push
+import com.onmyhop.app.push.rememberNotificationsPermission
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -49,6 +55,29 @@ fun ExpiryNudge(expiring: PlanStatus.Expiring) {
         )
     }
     Nudge(icon = R.drawable.ic_hourglass_bottom, title = title, detail = stringResource(R.string.expiry_detail), warning = true)
+}
+
+/**
+ * Asks for notifications from the inbox rather than at launch: while they're
+ * off here, until the card is put away. On the free plan they also warn
+ * before clips leave.
+ */
+@Composable
+fun NotificationsNudge(push: Push, isFree: Boolean) {
+    val permission = rememberNotificationsPermission(push)
+    val dismissed by push.askDismissed.collectAsStateWithLifecycle()
+    if (!push.isAvailable || permission.allowed || dismissed) return
+    Nudge(
+        icon = R.drawable.ic_notifications,
+        title = stringResource(R.string.push_ask_title),
+        detail = stringResource(if (isFree) R.string.push_ask_detail_free else R.string.push_ask_detail),
+        warning = false,
+    ) {
+        Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = permission.ask) { Text(stringResource(R.string.push_ask_turn_on)) }
+            TextButton(onClick = push::dismissAsk) { Text(stringResource(R.string.push_ask_not_now)) }
+        }
+    }
 }
 
 /** The free plan at 80% or more. */

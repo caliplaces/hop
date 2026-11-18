@@ -187,6 +187,9 @@
     <string name="save">Save</string>
     <string name="profile_edit_title">Edit profile</string>
     <string name="account_new_clips">New clips</string>
+    <string name="account_new_clips_push">Notifications</string>
+    <string name="account_new_clips_push_allow">Allow notifications</string>
+    <string name="account_new_clips_push_off">They\'re off for Hop on this phone.</string>
     <string name="account_new_clips_email">Email</string>
     <string name="account_new_clips_email_detail">A burst of clips comes as one email to %1$s, once uploads go quiet.</string>
     <string name="plan_free">Free</string>
@@ -219,4 +222,16 @@
     <string name="blocked_empty_message">Block someone from a clip they sent, and they’ll show up here.</string>
     <string name="blocked_footnote">Unblocking lets them send you clips again. Clips that left with the block don’t come back.</string>
     <string name="unblock">Unblock</string>
+
+    <!-- Push notifications -->
+    <string name="push_channel_clips">New clips</string>
+    <string name="push_channel_clips_description">When people send you clips</string>
+    <string name="push_channel_expiring">Clips leaving soon</string>
+    <string name="push_channel_expiring_description">Before free-plan clips leave your inbox</string>
+    <string name="push_clips_public">New clips</string>
+    <string name="push_ask_title">Hear when clips arrive</string>
+    <string name="push_ask_detail">Hop tells you when new clips land.</string>
+    <string name="push_ask_detail_free">Hop tells you when new clips land, and a week before any leave your inbox.</string>
+    <string name="push_ask_turn_on">Turn on</string>
+    <string name="push_ask_not_now">Not now</string>
 </resources>

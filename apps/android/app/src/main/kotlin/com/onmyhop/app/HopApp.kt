@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -76,6 +77,14 @@ fun HopApp(container: AppContainer) {
         }
     }
 
+    // Notifications allowed anywhere (Event mode's setup, Android's settings):
+    // this phone registers for them as the app comes back. Already
+    // registered this launch, it does nothing.
+    LifecycleResumeEffect(state.token) {
+        if (state.token != null) container.push.refresh()
+        onPauseOrDispose {}
+    }
+
     // Carries on with an event that was running when the app quit, or ends it:
     // it belongs to whoever is signed in, and only to them.
     LaunchedEffect(me?.id) { me?.let(container.eventMode::resume) }
@@ -116,7 +125,7 @@ fun HopApp(container: AppContainer) {
                             Stage.Welcome -> WelcomeScreen(container.signIn)
                             Stage.Claim -> current?.let { ClaimScreen(it, session) }
                             Stage.Profile -> current?.let { ProfileSetupScreen(it, session) }
-                            Stage.Home -> HomeScreen(session, container.transfers, container.eventMode, container.links)
+                            Stage.Home -> HomeScreen(session, container.transfers, container.eventMode, container.links, container.push)
                         }
                     }
                 },

@@ -20,10 +20,11 @@ So far it has:
 
 - the QR code from anywhere: a home screen widget, a Quick Settings tile and
   a "Show my QR code" app shortcut, each opening Event mode's stage while it
-  runs.
+  runs;
+- push notifications: new clips (grouped by event), free-plan clips about to
+  leave, and Event mode's count with the app closed.
 
-Notifications of new clips and Hop+ come next. Until push notifications arrive, Event mode counts while the
-app is open; the notification shows the last count it saw.
+Hop+ comes next.
 
 ## Running it
 
@@ -51,6 +52,58 @@ account. To use the API running on this computer instead, set `hop.apiUrl` in
 On a phone connected over USB, run `adb reverse tcp:8787 tcp:8787` and use
 `http://127.0.0.1:8787`. Debug builds allow plain http to those local
 addresses only; release builds always use https://onmyhop.com.
+
+## Push notifications
+
+Notifications come through Firebase Cloud Messaging, as data messages the
+app turns into its own notifications (see "Android pushes" in
+`apps/api/README.md`). Firebase starts from `HopApplication` with each
+build's settings, not from a `google-services.json`, and nothing else of
+Firebase is in the app: no Analytics, and no token until someone signs in.
+
+Each environment has its own Firebase project: debug builds use staging's,
+release builds production's. Their settings go in
+`~/.gradle/gradle.properties`, never in the repository:
+
+```properties
+hop.firebase.staging.appId=…
+hop.firebase.staging.projectId=…
+hop.firebase.staging.apiKey=…
+hop.firebase.staging.senderId=…
+# and the same for hop.firebase.production
+```
+
+They're in the Firebase console, under Project settings › Your apps. A
+build without them has no push notifications (and no messaging service),
+and everything else works: Event mode counts while the app is open.
+
+- **Asking.** Hop asks from a card in the inbox, or from the account's
+  "New clips" settings, never at launch. Once someone has said no for good,
+  the button opens Hop's notification settings instead.
+- **Registering.** While someone is signed in and notifications are
+  allowed, the app sends its FCM token to the API once each launch, and
+  again whenever FCM changes it. While Event mode runs, the API has it for
+  the event's count too.
+- **Signing out.** Hop's notifications leave the phone at once, and nothing
+  more shows while nobody is signed in. The app takes the token back from
+  the API, then deletes it at FCM, which then refuses pushes to it: if the
+  API never heard of the sign-out (offline, or the session had already
+  ended), it forgets the token at its next push. A sign-out the app was
+  closed in the middle of, or an FCM deletion that failed offline, is
+  finished at the next launch. A message also says whom it's for, as a hash
+  of the account and the token, and the app drops any that isn't for
+  whoever is signed in.
+- **Only data messages.** The API never sends FCM's own notification
+  messages, which Firebase would show without the app checking whom they're
+  for. Nobody should send any from the Firebase console either. The app
+  shows its notifications itself (notification delegation is off).
+- **The API key.** Each build carries its Firebase project's API key, as
+  every Firebase app does. In Google Cloud, restrict it to the Android app
+  `com.onmyhop.app` with its signing certificates, and to the Firebase
+  Installations and FCM Registration APIs.
+- **Channels.** New clips, Clips leaving soon, and Event mode, so each can be
+  turned off on its own. On a lock screen that hides notifications' content,
+  new clips show only "New clips".
 
 ## Signing in
 
@@ -103,6 +156,9 @@ builds whenever the app changes (`.github/workflows/android.yml`).
 | `feature/profile`                                    | "This is you": name and photo                       |
 | `feature/home`                                       | The signed-in tabs and navigation                   |
 | `feature/inbox`, `feature/myhop`, `feature/account`  | The tabs and the account screen                     |
+| `feature/event`                                      | Event mode: its stage, setup and notification       |
+| `push`                                               | Push notifications: FCM, showing them, asking       |
+| `widget`                                             | The home screen widget and the Quick Settings tile  |
 
 Icons are [Material Symbols](https://fonts.google.com/icons) (Rounded), added
 as vector drawables, so the app needs no icon library:

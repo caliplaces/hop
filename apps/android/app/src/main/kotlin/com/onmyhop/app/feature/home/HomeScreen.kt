@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onmyhop.app.feature.event.EventStageScreen
 import com.onmyhop.app.feature.event.EventMode
 import com.onmyhop.app.core.HopLinks
+import com.onmyhop.app.push.Push
 import com.onmyhop.app.core.HopLink
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -89,14 +90,16 @@ private data class ViewerKey(val hopId: String, val clipId: String) : NavKey
  * clips with Material's container transform.
  */
 @Composable
-fun HomeScreen(session: Session, transfers: ClipTransfers, eventMode: EventMode, links: HopLinks) {
+fun HomeScreen(session: Session, transfers: ClipTransfers, eventMode: EventMode, links: HopLinks, push: Push) {
     val backStack = rememberNavBackStack(TabsKey)
     val state by session.state.collectAsStateWithLifecycle()
     val event by eventMode.state.collectAsStateWithLifecycle()
     // One inbox for the tabs, the events and the viewer, as long as the app is signed in.
     val inbox = viewModel { InboxModel(session) }
-    // Again whenever the link moves to another event, and as clips land in Event mode.
-    LaunchedEffect(state.me?.activeHopId, event.clips) { inbox.refresh(state.me?.activeHopId) }
+    val arrivals by push.arrivals.collectAsStateWithLifecycle()
+    // Again whenever the link moves to another event, and as clips land: in Event mode, or in a notification.
+    LaunchedEffect(state.me?.activeHopId, event.clips, arrivals) { inbox.refresh(state.me?.activeHopId) }
+    var tab by rememberSaveable { mutableStateOf(Tab.Inbox) }
     val back: () -> Unit = { backStack.removeLastOrNull() }
     val onStage = backStack.lastOrNull() == EventStageKey
 
@@ -115,9 +118,17 @@ fun HomeScreen(session: Session, transfers: ClipTransfers, eventMode: EventMode,
         if (!event.hasSettled) return@LaunchedEffect
         links.incoming.collect { link ->
             val target = if (eventMode.run != null) EventStageKey else QrKey
+            // A notification of clips opens the inbox afresh, with the event on top.
+            fun inbox(then: NavKey?) {
+                backStack.retainAll { it == TabsKey }
+                tab = Tab.Inbox
+                then?.let(backStack::add)
+            }
             when (link) {
                 HopLink.EventStage -> if (eventMode.run != null) backStack.showOnTop(EventStageKey)
                 HopLink.QrCode -> backStack.showOnTop(target)
+                is HopLink.Clips -> inbox(link.hopId?.let(::EventKey))
+                HopLink.Expiring -> inbox(null)
             }
         }
     }
@@ -135,6 +146,9 @@ fun HomeScreen(session: Session, transfers: ClipTransfers, eventMode: EventMode,
                 entryProvider = entryProvider {
                     entry<TabsKey> {
                         Tabs(
+                            tab = tab,
+                            onTab = { tab = it },
+                            push = push,
                             session = session,
                             inbox = inbox,
                             openAccount = { backStack.add(AccountKey) },
@@ -150,6 +164,7 @@ fun HomeScreen(session: Session, transfers: ClipTransfers, eventMode: EventMode,
                         AccountScreen(
                             session = session,
                             inbox = inbox,
+                            push = push,
                             onBack = { backStack.remove(AccountKey) },
                             openProfile = { backStack.add(EditProfileKey) },
                             openBlocked = { backStack.add(BlockedKey) },
@@ -188,6 +203,9 @@ private enum class Tab(@param:StringRes val label: Int, @param:DrawableRes val i
 /** A bottom bar on phones and a rail on bigger screens, as Material's adaptive navigation picks. */
 @Composable
 private fun Tabs(
+    tab: Tab,
+    onTab: (Tab) -> Unit,
+    push: Push,
     session: Session,
     inbox: InboxModel,
     openAccount: () -> Unit,
@@ -196,7 +214,6 @@ private fun Tabs(
     eventMode: EventMode,
     openStage: () -> Unit,
 ) {
-    var tab by rememberSaveable { mutableStateOf(Tab.Inbox) }
     val accountButton: @Composable () -> Unit = { AccountButton(session, openAccount) }
     NavigationSuiteScaffold(
         navigationItems = {
@@ -204,7 +221,7 @@ private fun Tabs(
                 val selected = tab == item
                 NavigationSuiteItem(
                     selected = selected,
-                    onClick = { tab = item },
+                    onClick = { onTab(item) },
                     icon = { Icon(painterResource(if (selected) item.selectedIcon else item.icon), null) },
                     label = { Text(stringResource(item.label)) },
                 )
@@ -212,7 +229,7 @@ private fun Tabs(
         },
     ) {
         when (tab) {
-            Tab.Inbox -> InboxTab(inbox, session, accountButton, openEvent)
+            Tab.Inbox -> InboxTab(inbox, session, push, accountButton, openEvent)
             Tab.MyHop -> MyHopTab(session, inbox, accountButton, openQr, eventMode, openStage)
         }
     }
