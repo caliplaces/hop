@@ -33,6 +33,12 @@ class EventNotification(private val context: Context) : EventNotifier {
 
     override fun show(run: EventMode.Run, clips: Int, latest: String?) {
         if (!allowed()) return
+        // Event mode ends after 12 hours, even with the app closed and not counting.
+        val left = run.startedAt + EventMode.MAX_DURATION_MS - System.currentTimeMillis()
+        if (left <= 0) {
+            clear()
+            return
+        }
         val open = PendingIntent.getActivity(
             context,
             0,
@@ -61,6 +67,7 @@ class EventNotification(private val context: Context) : EventNotifier {
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open)
+            .setTimeoutAfter(left)
             // Android 16: a Live Update, with the count in the status bar.
             .setRequestPromotedOngoing(true)
             .setShortCriticalText(clips.toString())

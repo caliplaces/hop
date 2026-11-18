@@ -98,6 +98,8 @@ fun EventSetupSheet(
             try {
                 eventMode.start(target, me, session.api)
                 onStarted()
+                // The link moved: the profile (and the inbox's "Your link") follows.
+                session.refresh()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

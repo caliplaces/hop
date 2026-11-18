@@ -90,6 +90,19 @@ class EventMode(
     private var catchingUp = false
     private var arrivals = 0L
 
+    /** The newest arrival a screen has celebrated, so reopening the stage doesn't buzz for it again. */
+    private var celebrated = 0L
+
+    /**
+     * Claims [arrival] for celebrating: true the first time it's asked about,
+     * false after, whichever screen asks.
+     */
+    fun celebrate(arrival: Arrival): Boolean {
+        if (arrival.id <= celebrated) return false
+        celebrated = arrival.id
+        return true
+    }
+
     /**
      * Picks up an event that was running when the app last quit, if it
      * belongs to this athlete and hasn't run out. Otherwise clears it.

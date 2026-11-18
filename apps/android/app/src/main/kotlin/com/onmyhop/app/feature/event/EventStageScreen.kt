@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -82,6 +83,13 @@ fun EventStageScreen(session: Session, eventMode: EventMode, onMinimize: () -> U
     val me by session.state.collectAsStateWithLifecycle()
     val run = state.run
     val link = me.me?.link()
+    if (!state.hasSettled || (run != null && link == null)) {
+        // Restored before Event mode resumed (or the profile loaded): it's on its way.
+        Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            LoadingIndicator(color = Color.White)
+        }
+        return
+    }
     if (run == null || link == null) {
         // Ended (here, or the event went away): back to where it was opened from.
         LaunchedEffect(Unit) { onMinimize() }
@@ -94,11 +102,16 @@ fun EventStageScreen(session: Session, eventMode: EventMode, onMinimize: () -> U
     /** The arrival shown in the live pill's place, for a few seconds. */
     var shownArrival by remember { mutableStateOf<EventMode.Arrival?>(null) }
     val bounce = remember { Animatable(1f) }
+    /** The arrival the code ripples for: only one being celebrated now. */
+    var rippling by remember { mutableStateOf<Long?>(null) }
 
     StageLights()
 
     LaunchedEffect(state.arrival?.id) {
         val arrival = state.arrival ?: return@LaunchedEffect
+        // Once per arrival, however often the stage is opened.
+        if (!eventMode.celebrate(arrival)) return@LaunchedEffect
+        if (!still) rippling = arrival.id
         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
         shownArrival = arrival
         if (!still) {
@@ -134,7 +147,7 @@ fun EventStageScreen(session: Session, eventMode: EventMode, onMinimize: () -> U
             Spacer(Modifier.weight(1f))
             Text(run.title, color = Color.White, style = MaterialTheme.typography.headlineSmallEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             Text(link.spoken, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleSmall, maxLines = 1)
-            QrStage(link.toString(), color, bounce.value, arrival = state.arrival?.id.takeUnless { still }, modifier = Modifier.padding(top = 24.dp))
+            QrStage(link.toString(), color, bounce.value, arrival = rippling, modifier = Modifier.padding(top = 24.dp))
             Text(
                 stringResource(R.string.qr_scan),
                 color = Color.White,

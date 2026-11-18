@@ -221,3 +221,16 @@ class MemoryPreferences : SharedPreferences {
         }
     }
 }
+
+class CelebrationTest {
+    /** Each arrival is celebrated once, however many times the stage is opened. */
+    @Test
+    fun celebratesEachArrivalOnce() {
+        val mode = EventMode(MemoryPreferences(), RecordingNotifier())
+        val first = EventMode.Arrival(id = 1, count = 1, senders = listOf("Mia"))
+        assertTrue(mode.celebrate(first))
+        assertFalse(mode.celebrate(first))
+        assertTrue(mode.celebrate(first.copy(id = 2)))
+        assertFalse(mode.celebrate(first))
+    }
+}
