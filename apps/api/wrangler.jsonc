@@ -165,7 +165,8 @@
         "APPLE_APP_ID": "6834920854",
         "APNS_ENVIRONMENT": "production",
         "APNS_KEY_ID": "JNYA3Z4YF6",
-        "STRIPE_PRODUCT_ID": "prod_Vd4BKOyA6xDfYn"
+        "STRIPE_PRODUCT_ID": "prod_Vd4BKOyA6xDfYn",
+        "STRIPE_PORTAL_CONFIGURATION": "bpc_1Ud5zeGMF6pPdAKwIYxDQ7kl"
       },
       "d1_databases": [
         {
