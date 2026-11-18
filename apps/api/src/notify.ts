@@ -6,7 +6,7 @@ import { newClipsEmail, newClipsPush } from "./email/new-clips";
 import { ResendError, type SendResult, sendEmail } from "./email/send";
 import { listUnsubscribeHeaders, unsubscribeLinks } from "./email/unsubscribe";
 import type { Env } from "./env";
-import { pushToPhones } from "./lib/phones";
+import { canPush, pushToPhones } from "./lib/phones";
 
 /**
  * The new-clips digest. At an event clips arrive in bursts, so instead of one
@@ -228,7 +228,7 @@ async function pushBatch(
   athleteHops: { id: string; slug: string; title: string }[],
   now: number,
 ): Promise<boolean> {
-  if (!env.APNS_KEY) return false;
+  if (!canPush(env)) return false;
   const watching = await db
     .select({
       hopId: liveActivities.hopId,

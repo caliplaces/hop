@@ -1,6 +1,6 @@
 import { Contact, LegalPage, List, OPERATOR, Section } from "../components/LegalPage";
 
-const UPDATED = "16 November 2026";
+const UPDATED = "18 November 2026";
 
 /**
  * onmyhop.com/privacy: what Hop keeps about whom, why, for how long, and who
@@ -58,11 +58,12 @@ export function Privacy() {
             your receipts.
           </li>
           <li>
-            For Event mode: the push token Apple gives your Live Activity, until the event ends.
+            For Event mode: the push token Apple gives your Live Activity on an iPhone, or Google
+            gives the app on Android, until the event ends.
           </li>
           <li>
-            If you turn on notifications in the app: the push token Apple gives it on your phone,
-            until you sign out there, or after 90 days without opening the app.
+            If you turn on notifications in the app: the push token Apple or Google gives it on your
+            phone, until you sign out there, or after 90 days without opening the app.
           </li>
           <li>
             Your email and notification settings, the senders you’ve blocked and the reports you’ve
@@ -138,7 +139,8 @@ export function Privacy() {
             sure uploads come from people, not bots.
           </li>
           <li>Resend delivers Hop’s emails.</li>
-          <li>Apple handles App Store purchases and the app’s push notifications.</li>
+          <li>Apple handles App Store purchases and the iPhone app’s push notifications.</li>
+          <li>Google delivers the Android app’s push notifications, through Firebase.</li>
           <li>
             Stripe handles payments for Hop+ on the website. It keeps payment records for as long as
             the law requires, even after you delete your Hop account.

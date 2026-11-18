@@ -67,7 +67,8 @@ wrangler secret put R2_ACCOUNT_ID --env staging
 wrangler secret put R2_ACCESS_KEY_ID --env staging        # R2 API token, Object Read & Write, this bucket only
 wrangler secret put R2_SECRET_ACCESS_KEY --env staging
 wrangler secret put RESEND_API_KEY --env staging          # Resend API key, Sending access, onmyhop.com only
-wrangler secret put APNS_KEY --env staging < AuthKey.p8   # APNs key for this environment (see Live Activity pushes)
+wrangler secret put APNS_KEY --env staging < AuthKey.p8   # APNs key for this environment (see Event mode pushes)
+wrangler secret put FCM_SERVICE_ACCOUNT --env staging < service-account.json   # Firebase's, for Android (see Android pushes)
 ```
 
 You also need to:
@@ -145,14 +146,24 @@ wrangler d1 execute hop-production --remote --env production \
   --command "select email, created_at, notified_at from waitlist order by created_at"
 ```
 
-## Live Activity pushes
+## Event mode pushes
 
-The iPhone app's Event mode shows a Live Activity counting the clips that come in. The API keeps it counting with the phone locked, by pushing an update through Apple's push service (APNs) each time an upload completes (`src/live.ts`).
+The iPhone app's Event mode shows a Live Activity counting the clips that come in; the Android app shows an ongoing notification (a Live Update on Android 16). The API keeps either counting with the phone locked, by pushing an update each time an upload completes (`src/live.ts`): through Apple's push service (APNs) to the Live Activity, or through FCM to the Android app (see Android pushes).
 
-- The app registers the Live Activity's push token with `PUT /api/me/live-activities/:token`. It registers again when Apple rotates the token or the app relaunches, and removes the token with `DELETE` when Event mode ends. Registrations expire after 12 hours, like the Live Activity, and each athlete keeps at most five.
-- Each update carries the clips that finished uploading since Event mode started, and who sent the latest. The first clip, and then at most one every 5 minutes, also lights up the screen, silently. Tokens Apple no longer accepts are forgotten.
+- The iPhone app registers the Live Activity's push token with `PUT /api/me/live-activities/:token { hopId, since, environment }`. It registers again when Apple rotates the token or the app relaunches, and removes the token with `DELETE` when Event mode ends. The Android app registers its FCM token the same way, with `{ hopId, since, platform: "fcm" }`. Registrations expire after 12 hours, like the Live Activity, and each athlete keeps at most five.
+- Each update carries the clips that finished uploading since Event mode started, and who sent the latest. The first clip, and then at most one every 5 minutes, also lights up the screen, silently (on Android, the app decides how: the update carries `alert: "1"`). Tokens Apple or Google no longer accept are forgotten.
 - Each environment has its own APNs key, restricted to the `com.onmyhop.app` topic: a sandbox key for staging (debug builds) and a production key for production (TestFlight and App Store builds). The key is the `APNS_KEY` secret; its ID and environment are `APNS_KEY_ID` and `APNS_ENVIRONMENT` in `wrangler.jsonc`. Without the secret, nothing is pushed.
 - `wrangler dev` can't reach APNs, so try pushes on staging. Locally, `POST /api/dev/hops/:hopId/arrivals` lands a fake clip in an event, for trying Event mode without uploading anything.
+
+## Android pushes
+
+The Android app's notifications (new clips, clips about to expire) and Event mode's count go through Firebase Cloud Messaging's HTTP v1 API (`src/lib/fcm.ts`).
+
+- **Data messages only.** The app builds each notification itself, in its own channels, so the message carries what to show and what to open: `{ hop: "clips", hopId, title, body, group, user }` for new clips, `{ hop: "expiring", title, body, tag, user }` for clips about to expire, and `{ hop: "event", hopId, clips, latest, at, alert, user }` for Event mode. `user` is the account it's for: the app drops a message for anyone but who's signed in, in case a sign-out never reached the API. All are high priority, so they arrive at once, even in Doze; each ends up on the screen. Event mode's share a collapse key per event, so a phone that was offline gets only the newest count.
+- **Signing in.** The service account signs a short JWT (RS256) with its key and trades it at Google's token endpoint for an access token, which each Worker isolate reuses for 50 minutes. Phones pushed to at once share one request for it, a refused request isn't kept, and FCM's 401 drops it.
+- **Tokens.** FCM tokens are kept exactly as the app sends them (their case matters), in `devices` and `live_activities` with `platform = 'fcm'`. FCM has no sandbox, so their `environment` is always `production`. Only FCM's `UNREGISTERED` makes the API forget one; others, such as `SENDER_ID_MISMATCH`, are likelier this server's setup than the phone.
+- **Setup.** One Firebase project serves staging and production: add the Android app `com.onmyhop.app` to it, and in Google Cloud create a service account with the **Firebase Cloud Messaging API Admin** role, then a JSON key for it. That key file is the `FCM_SERVICE_ACCOUNT` secret, per environment. Without it nothing is pushed to Android phones, and Android Event mode counts only while the app is open. The app's own Firebase settings (`google-services.json`) aren't secret but stay out of the repository: see `apps/android/README.md`.
+- Unlike APNs, FCM works from `wrangler dev`, with the key file in `.dev.vars` (see `.dev.vars.example`). Otherwise, try pushes on staging.
 
 ## Profiles
 
@@ -281,7 +292,7 @@ Free-plan clips are kept for 30 days (`PLANS.free.retentionDays`), then removed 
 - **Cost.** The claim reads every athlete once a run. Every query on clips goes through `files_unnoticed_idx`, `files_notice_idx` or `files_goes_idx`, which `expiry.test.ts` checks with `EXPLAIN QUERY PLAN`, with and without production-like statistics.
 - **Housekeeping.** The cleanup forgets notices whose clips are all gone, once two days old.
 
-The app registers its push token with `PUT /api/me/devices/:token { environment }` (rate limited, at most five phones per athlete, newest kept) and removes it on sign-out (`DELETE /api/me/devices/:token`). Each install has one token, so signing in to another account moves it. The app refreshes its token every launch, and one not refreshed in 90 days is forgotten. Notifications use the same APNs key as Live Activities, as `alert` pushes to the app's own topic. Only Apple's 410 makes the API forget a token: a 400 such as `DeviceTokenNotForTopic` is likelier this server's setup than the phone.
+The iPhone app registers its push token with `PUT /api/me/devices/:token { environment }`, the Android app its FCM token with `{ platform: "fcm" }` (rate limited, at most five phones per athlete, newest kept). Each removes it on sign-out (`DELETE /api/me/devices/:token`). Each install has one token, so signing in to another account moves it, but never from one platform to the other. The apps refresh their token every launch, and one not refreshed in 90 days is forgotten. iPhone notifications use the same APNs key as Live Activities, as `alert` pushes to the app's own topic. Only Apple's 410 makes the API forget a token: a 400 such as `DeviceTokenNotForTopic` is likelier this server's setup than the phone. Android notifications go through FCM (see Android pushes).
 
 ## Stats page
 

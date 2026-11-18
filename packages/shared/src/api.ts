@@ -253,15 +253,27 @@ export type InboxFile = {
 export type InboxPage = { files: InboxFile[]; nextCursor: string | null };
 
 /**
- * Registers a Live Activity's push token (the URL's last segment) so the API
- * can update its count as clips land. `environment` is the APNs environment the
- * token belongs to: "sandbox" for debug builds, "production" otherwise.
+ * Registers Event mode's push token (the URL's last segment, URL-encoded) so
+ * the API can update its count as clips land. On the iPhone that's the Live
+ * Activity's, and `environment` is the APNs environment the token belongs to:
+ * "sandbox" for debug builds, "production" otherwise. On Android it's the
+ * app's FCM token.
  */
-export const liveActivitySchema = z.object({
-  hopId: z.string().min(1).max(64),
-  since: z.number().int().nonnegative(),
-  environment: z.enum(["sandbox", "production"]),
-});
+export const liveActivitySchema = z.union([
+  // Android: Event mode's notification is the app's own, updated through its FCM token.
+  z.object({
+    hopId: z.string().min(1).max(64),
+    since: z.number().int().nonnegative(),
+    platform: z.literal("fcm"),
+  }),
+  // iPhone: a Live Activity's APNs token. Older apps don't say the platform.
+  z.object({
+    hopId: z.string().min(1).max(64),
+    since: z.number().int().nonnegative(),
+    platform: z.literal("apns").default("apns"),
+    environment: z.enum(["sandbox", "production"]),
+  }),
+]);
 
 /** A signed App Store transaction (StoreKit 2's `jwsRepresentation`). */
 export const appleTransactionSchema = z.object({
@@ -338,13 +350,20 @@ export const webCheckoutSchema = z.object({ priceId: z.string().min(1).max(255) 
 export type BillingRedirect = { url: string };
 
 /**
- * Registers the app's push token (the URL's last segment) for notifications,
- * such as clips about to expire. `environment` is the APNs environment the
- * token belongs to, as for Live Activities.
+ * Registers the app's push token (the URL's last segment, URL-encoded) for
+ * notifications, such as clips about to expire: the iPhone app's APNs token,
+ * with the APNs environment it belongs to as for Live Activities, or the
+ * Android app's FCM token.
  */
-export const deviceSchema = z.object({
-  environment: z.enum(["sandbox", "production"]),
-});
+export const deviceSchema = z.union([
+  // The Android app's FCM token.
+  z.object({ platform: z.literal("fcm") }),
+  // The iPhone app's APNs token. Older apps don't say the platform.
+  z.object({
+    platform: z.literal("apns").default("apns"),
+    environment: z.enum(["sandbox", "production"]),
+  }),
+]);
 
 /** Making a hop live: when it happened, by the server's clock. */
 export type HopActivation = { ok: true; activatedAt: number };
