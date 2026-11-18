@@ -82,3 +82,43 @@ rendered from the website's 3D mascot:
 ```sh
 pnpm --filter @hop/web mascot:assets ios
 ```
+
+## TestFlight and the App Store
+
+Release builds talk to onmyhop.com, so build them from `main` once a release is
+deployed. Archive with a fresh build number (`<yyyymmdd>.<n>`), then upload:
+
+```sh
+xcodebuild archive -project Hop.xcodeproj -scheme Hop -configuration Release \
+  -destination 'generic/platform=iOS' -archivePath build/Hop.xcarchive \
+  -allowProvisioningUpdates CURRENT_PROJECT_VERSION=20261118.1
+
+xcodebuild -exportArchive -archivePath build/Hop.xcarchive \
+  -exportOptionsPlist Config/ExportOptions.plist -exportPath build/export \
+  -allowProvisioningUpdates \
+  -authenticationKeyPath <AuthKey_….p8> -authenticationKeyID <key ID> \
+  -authenticationKeyIssuerID <issuer ID>
+```
+
+`Config/ExportOptions.plist` uploads to App Store Connect, signed automatically
+for Caliplaces' team. Builds it uploads can go to external testers and the App
+Store, not only internal testers.
+
+The key is a Caliplaces team key from App Store Connect (Users and Access ›
+Integrations, Admin, which signing needs). Without it, Xcode uploads with
+whichever signed-in account it picks for the team, which may have no access to
+Hop. The push notification keys (`AuthKey_` files too) can't upload.
+
+What App Store Connect reads from the build, checked by `AppStoreTests`:
+
+- `ITSAppUsesNonExemptEncryption` is `NO` in `Config/Hop.plist`: Hop's only
+  encryption is Apple's (HTTPS, the Keychain), so builds don't wait on the
+  export compliance question.
+- `Hop/PrivacyInfo.xcprivacy` and `HopWidgets/PrivacyInfo.xcprivacy` are the
+  privacy manifests. Hop doesn't track anyone, and the only API Apple asks a
+  reason for is UserDefaults: the app's own settings (`CA92.1`) and the app
+  group it shares with the widgets (`1C8F.1`). A new use of such an API (file
+  dates, disk space, system boot time) needs its reason added there. What Hop
+  collects is declared under App Privacy in App Store Connect.
+- `MARKETING_VERSION` in `Config/Shared.xcconfig` is the App Store version, and
+  must match the version being submitted in App Store Connect.

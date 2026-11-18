@@ -8,7 +8,7 @@ SWIFT_APPROACHABLE_CONCURRENCY = YES
 ENABLE_USER_SCRIPT_SANDBOXING = YES
 
 // The app and its extensions must carry the same version.
-MARKETING_VERSION = 0.1.0
+MARKETING_VERSION = 1.0.0
 CURRENT_PROJECT_VERSION = 1
 
 // Caliplaces' Apple Developer team. To sign with your own team instead, put
