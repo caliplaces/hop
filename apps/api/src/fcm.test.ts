@@ -378,6 +378,14 @@ describe("Android phones", () => {
     expect(await db.select().from(devices)).toHaveLength(1);
     await remove(PHONE);
     expect(await db.select().from(devices)).toEqual([]);
+    // Nor the other way round, though an iPhone's would go in any case.
+    const lower = PHONE.toLowerCase();
+    await phone(lower, "fcm", "production");
+    await remove(PHONE);
+    expect(await db.select().from(devices)).toHaveLength(1);
+    await phone(IPHONE, "apns");
+    await remove(IPHONE.toUpperCase());
+    expect(await db.select({ token: devices.token }).from(devices)).toEqual([{ token: lower }]);
   });
 
   it("refuse what isn't an FCM token", async () => {
@@ -471,6 +479,24 @@ describe("Android phones", () => {
     expect(apns).toEqual([IPHONE]);
   });
 
+  it("don't hear again about clips Event mode counted, past an iPhone's eight hours", async () => {
+    await db.update(users).set({ emailNewClips: false }).where(eq(users.id, "usr_a"));
+    await phone(PHONE, "fcm", "production");
+    await clip(T0 - 12 * MIN);
+    await db.insert(liveActivities).values({
+      token: PHONE,
+      platform: "fcm",
+      userId: "usr_a",
+      hopId: "hop_jam",
+      since: T0 - 9 * 60 * MIN,
+      createdAt: T0 - 9 * 60 * MIN,
+      expiresAt: T0 + 3 * 60 * MIN,
+      pushedAt: T0 - 11 * MIN,
+    });
+    await announceNewClips(env, T0);
+    expect(messages).toEqual([]);
+  });
+
   it("hear about new clips from a server that only has FCM", async () => {
     await db.update(users).set({ emailNewClips: false }).where(eq(users.id, "usr_a"));
     await phone(PHONE, "fcm", "production");
@@ -498,6 +524,10 @@ describe("Event mode on Android", () => {
     expect(await db.select().from(liveActivities)).toHaveLength(1);
     await call(`/me/live-activities/${encodeURIComponent(PHONE)}`, { method: "DELETE" });
     expect(await db.select().from(liveActivities)).toEqual([]);
+    // Nor the other way round.
+    await register(PHONE.toLowerCase(), { hopId: "hop_jam", since: T0, platform: "fcm" });
+    await call(`/me/live-activities/${encodeURIComponent(PHONE)}`, { method: "DELETE" });
+    expect(await db.select().from(liveActivities)).toHaveLength(1);
   });
 
   it("refuses bad tokens, and a Live Activity's token as Android's", async () => {
@@ -533,6 +563,33 @@ describe("Event mode on Android", () => {
     expect(await db.select().from(liveActivities)).toMatchObject([
       { token: PHONE, userId: "usr_b", hopId: "hop_theirs", since: T0 + MIN },
     ]);
+  });
+
+  it("keeps what was pushed for the same event, and starts afresh for another", async () => {
+    const earlier = { createdAt: 1, alertedAt: 2, pushedAt: 3 };
+    const state = async () => {
+      const row = await db.select().from(liveActivities).get();
+      return { createdAt: row?.createdAt, alertedAt: row?.alertedAt, pushedAt: row?.pushedAt };
+    };
+    await watch();
+    await db.update(liveActivities).set(earlier);
+    // The app relaunched during the event.
+    await watch();
+    expect(await state()).toEqual(earlier);
+
+    // Another event.
+    await db
+      .insert(hops)
+      .values({ id: "hop_next", ownerId: "usr_a", slug: "next", title: "Next", createdAt: T0 });
+    await register(PHONE, { hopId: "hop_next", since: T0 + MIN, platform: "fcm" });
+    expect(await state()).toMatchObject({ alertedAt: null, pushedAt: null });
+    expect((await state()).createdAt).toBeGreaterThan(1);
+
+    // Another account on the phone.
+    await db.update(liveActivities).set(earlier);
+    await register(PHONE, { hopId: "hop_theirs", since: T0 + MIN, platform: "fcm" }, await blake());
+    expect(await state()).toMatchObject({ alertedAt: null, pushedAt: null });
+    expect((await state()).createdAt).toBeGreaterThan(1);
   });
 
   it("can't be registered by the hundred", async () => {

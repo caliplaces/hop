@@ -1,5 +1,5 @@
 import { deviceSchema } from "@hop/shared";
-import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
+import { and, desc, eq, ne, notInArray, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { getDb } from "../db";
 import { devices, liveActivities } from "../db/schema";
@@ -101,8 +101,11 @@ export const deviceRoutes = new Hono<AppEnv>()
       .delete(devices)
       .where(
         and(
-          // An APNs token in any case, or an FCM token exactly.
-          inArray(devices.token, [...new Set([raw, raw.toLowerCase()])]),
+          // An FCM token exactly, or an APNs token in any case.
+          or(
+            eq(devices.token, raw),
+            and(eq(devices.platform, "apns"), eq(devices.token, raw.toLowerCase())),
+          ),
           eq(devices.userId, user.id),
         ),
       );

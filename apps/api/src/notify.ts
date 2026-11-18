@@ -43,7 +43,10 @@ const RUN_BUDGET_MS = 3 * 60 * 1000;
  * out) can't keep fresh batches, and their pushes, waiting.
  */
 const RETRY_BUDGET_MS = RUN_BUDGET_MS / 2;
-/** iOS ends a Live Activity after eight hours: older registrations count nothing anyone sees. */
+/**
+ * iOS ends a Live Activity after eight hours: older registrations count
+ * nothing anyone sees. (Android's Event mode, 12 hours, ends with its registration.)
+ */
 const LIVE_ACTIVITY_LIFETIME_MS = 8 * 60 * 60 * 1000;
 
 // Every query below repeats these terms so it can use files_unannounced_idx,
@@ -240,7 +243,11 @@ async function pushBatch(
       and(
         eq(liveActivities.userId, ownerId),
         gt(liveActivities.expiresAt, now),
-        gt(liveActivities.createdAt, now - LIVE_ACTIVITY_LIFETIME_MS),
+        // Android's Event mode runs as long as its registration lasts.
+        or(
+          eq(liveActivities.platform, "fcm"),
+          gt(liveActivities.createdAt, now - LIVE_ACTIVITY_LIFETIME_MS),
+        ),
       ),
     );
   // Only what an update that reached the phone counted: one Apple refused

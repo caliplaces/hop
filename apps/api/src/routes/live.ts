@@ -1,5 +1,5 @@
 import { liveActivitySchema } from "@hop/shared";
-import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, notInArray, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getDb } from "../db";
 import { hops, liveActivities } from "../db/schema";
@@ -51,6 +51,10 @@ export const liveActivityRoutes = new Hono<AppEnv>()
     if (!hop) return fail(c, 404, "not_found");
 
     const now = Date.now();
+    // Registering again for the same event (a relaunch) keeps what's been
+    // pushed and alerted. Another event, or another account on an Android
+    // phone, starts afresh.
+    const sameEvent = sql`${liveActivities.userId} = ${user.id} and ${liveActivities.hopId} = ${hop.id}`;
     const registered = await db
       .insert(liveActivities)
       .values({
@@ -69,6 +73,9 @@ export const liveActivityRoutes = new Hono<AppEnv>()
           hopId: hop.id,
           since: input.since,
           expiresAt: now + LIVE_ACTIVITY_TTL_MS,
+          createdAt: sql`case when ${sameEvent} then ${liveActivities.createdAt} else ${now} end`,
+          alertedAt: sql`case when ${sameEvent} then ${liveActivities.alertedAt} else null end`,
+          pushedAt: sql`case when ${sameEvent} then ${liveActivities.pushedAt} else null end`,
         },
         // A token is only ever its own platform's. A Live Activity's is only
         // ever its own athlete's. Android's is the app install's, so it moves
@@ -103,8 +110,11 @@ export const liveActivityRoutes = new Hono<AppEnv>()
       .delete(liveActivities)
       .where(
         and(
-          // An APNs token in any case, or an FCM token exactly.
-          inArray(liveActivities.token, [...new Set([raw, raw.toLowerCase()])]),
+          // An FCM token exactly, or an APNs token in any case.
+          or(
+            eq(liveActivities.token, raw),
+            and(eq(liveActivities.platform, "apns"), eq(liveActivities.token, raw.toLowerCase())),
+          ),
           eq(liveActivities.userId, user.id),
         ),
       );
