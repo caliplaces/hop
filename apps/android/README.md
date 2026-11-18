@@ -55,15 +55,18 @@ device transfers are off for the whole app.
 
 The API says where the redirect goes, and the app accepts only Hop's own:
 
-- the custom scheme `com.onmyhop.app:/auth/callback`, which staging still uses;
-- the https callback on the API's own host, which production uses.
+- the https callback on the API's own host, which production uses. Chrome
+  hands it only to the app the site lists in its Digital Asset Links
+  (`/.well-known/assetlinks.json`), which the API will serve before the Play
+  Store release;
+- in debug builds only, the custom scheme `com.onmyhop.app:/auth/callback`,
+  which staging still uses. Any app can claim a scheme and pose as Hop with
+  it, so release builds refuse it, and only the debug manifest registers it.
 
-The custom scheme reaches the app through the Auth Tab's result, or, in
-browsers without Auth Tabs, through `SignInCallbackActivity`. That activity only
-hands the URL to a sign-in already under way, and only if it's that flow's
-callback. For the https callback, Chrome checks that the site lists the app in
-its Digital Asset Links (`/.well-known/assetlinks.json`), which the API will
-serve before the Play Store release.
+The redirect comes back through the Auth Tab's result or, in browsers without
+Auth Tabs, through `SignInCallbackActivity`. Either way, it only finishes a
+sign-in already under way, and only if it's exactly that flow's callback with
+that flow's `state`.
 
 ## Tests
 
