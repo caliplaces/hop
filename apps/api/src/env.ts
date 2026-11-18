@@ -80,6 +80,16 @@ export type Env = {
    * elsewhere, where sandbox purchases always count.
    */
   APPLE_SANDBOX_USERS?: string;
+  /** The Android app's package name, for its Digital Asset Links. */
+  ANDROID_PACKAGE?: string;
+  /**
+   * The SHA-256 fingerprints (AA:BB:…, comma separated) of the certificates
+   * the Android app is signed with: Google Play's app signing key, and the
+   * upload key for builds installed by hand. Without them there are no
+   * Digital Asset Links, and the https sign-in callback opens in the
+   * browser, not the app.
+   */
+  ANDROID_CERT_FINGERPRINTS?: string;
   /**
    * Firebase Cloud Messaging, for the Android app's notifications and Event
    * mode's count (lib/fcm.ts): the Firebase project's service account key

@@ -119,5 +119,50 @@ export function appSiteAssociation(request: Request, env: Env): Response {
   );
 }
 
+/**
+ * Digital Asset Links: they tell Android this site belongs to the Hop app,
+ * so the app's https sign-in callback opens in the app, and only the app
+ * (an App Link, which Android checks against this file).
+ */
+export const ASSET_LINKS_PATH = "/.well-known/assetlinks.json";
+
+const CERT_FINGERPRINT = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
+
+export function assetLinks(request: Request, env: Env): Response {
+  const headers = { "x-content-type-options": "nosniff" };
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response(null, { status: 405, headers: { ...headers, allow: "GET, HEAD" } });
+  }
+  const fingerprints: string[] = [];
+  for (const entry of (env.ANDROID_CERT_FINGERPRINTS ?? "").split(",")) {
+    const fingerprint = entry.trim().toUpperCase();
+    if (!fingerprint) continue;
+    if (CERT_FINGERPRINT.test(fingerprint)) {
+      fingerprints.push(fingerprint);
+    } else {
+      console.error(
+        "assetlinks: ANDROID_CERT_FINGERPRINTS has an entry that isn't a SHA-256 fingerprint",
+      );
+    }
+  }
+  // Without the app's identity there's nothing true to say.
+  if (!env.ANDROID_PACKAGE || fingerprints.length === 0) {
+    return new Response(null, { status: 404, headers });
+  }
+  return Response.json(
+    [
+      {
+        relation: ["delegate_permission/common.handle_all_urls"],
+        target: {
+          namespace: "android_app",
+          package_name: env.ANDROID_PACKAGE,
+          sha256_cert_fingerprints: fingerprints,
+        },
+      },
+    ],
+    { headers: { ...headers, "cache-control": "public, max-age=3600" } },
+  );
+}
+
 /** Caliplaces only allows these scopes for third-party apps. */
 export const OIDC_SCOPES = "openid profile email";

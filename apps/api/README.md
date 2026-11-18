@@ -26,7 +26,7 @@ The iPhone app signs in through its own developer app, `OIDC_APP_CLIENT_ID` in `
 
 `OIDC_APP_REDIRECT` in `wrangler.jsonc` picks the callback per environment. Any other value, or none, turns app sign-in off rather than falling back to the scheme:
 
-- `"https"`: `<APP_URL>/api/auth/app/callback`. Only Hop can catch it, because the app's `webcredentials` associated domains name this site, and the site lists the app in `/.well-known/apple-app-site-association`, which the Worker serves. If the page ever loads in a browser, it only says to go back to the app.
+- `"https"`: `<APP_URL>/api/auth/app/callback`. Only Hop can catch it. On iPhone, the app's `webcredentials` associated domains name this site, and the site lists the app in `/.well-known/apple-app-site-association`. On Android, the app claims that path as an App Link, and the site lists the app in `/.well-known/assetlinks.json` (Digital Asset Links): its package (`ANDROID_PACKAGE`) and the SHA-256 of each certificate it's signed with (`ANDROID_CERT_FINGERPRINTS`: Google Play's app signing key, and the upload key for builds installed by hand). The Worker serves both files. If the page ever loads in a browser, it only says to go back to the app.
 - `"scheme"`: the custom scheme `com.onmyhop.app:/auth/callback`, which another app could also claim. It's kept only while moving to https, and local development uses it.
 
 A flow remembers its redirect URI, so changing the setting doesn't break a sign-in already under way, and only this environment's own redirects are accepted.
