@@ -31,11 +31,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,7 +67,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.compose.material3.Player as PlayerView
 import androidx.media3.ui.compose.material3.PlayerDefaults
-import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import com.onmyhop.app.R
 import com.onmyhop.app.core.Clip
@@ -191,10 +193,12 @@ private fun ClipPage(
 ) {
     var link by remember(clip.id) { mutableStateOf<String?>(null) }
     var failed by remember(clip.id) { mutableStateOf(false) }
+    /** Bumped by Try again: a fresh link, and a fresh download. */
+    var attempt by remember(clip.id) { mutableIntStateOf(0) }
 
     // A link for the photo on screen and its neighbours, and for the video on screen.
-    LaunchedEffect(clip.id, isCurrent) {
-        if (link != null || (clip.isVideo && !isCurrent)) return@LaunchedEffect
+    LaunchedEffect(clip.id, isCurrent, attempt) {
+        if (link != null || failed || (clip.isVideo && !isCurrent)) return@LaunchedEffect
         link = runCatching { model.url(clip) }.getOrNull()
         failed = link == null
     }
@@ -207,12 +211,22 @@ private fun ClipPage(
     ) {
         ClipThumbnail(clip, Modifier.fillMaxSize().blur(40.dp).graphicsLayer { alpha = 0.45f })
         when {
-            failed -> Text(stringResource(R.string.clip_failed), color = Color.White)
+            failed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(stringResource(R.string.clip_failed), color = Color.White)
+                OutlinedButton(
+                    onClick = {
+                        link = null
+                        failed = false
+                        attempt++
+                    },
+                    modifier = Modifier.padding(top = 12.dp),
+                ) { Text(stringResource(R.string.try_again), color = Color.White) }
+            }
             clip.isVideo && isCurrent && link != null -> VideoPage(clip, link!!, player, showControls, model)
             clip.isVideo -> ClipThumbnail(clip, Modifier.fillMaxSize().graphicsLayer { alpha = 0.9f })
             link != null -> {
                 val context = LocalContext.current
-                AsyncImage(
+                SubcomposeAsyncImage(
                     // Keyed by the clip, not the link, which changes each time it's fetched.
                     model = remember(clip.id, link) {
                         ImageRequest.Builder(context).data(link).memoryCacheKey(clip.id).diskCacheKey(clip.id).build()
@@ -220,6 +234,9 @@ private fun ClipPage(
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
+                    loading = { Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(56.dp), color = Color.White) } },
+                    // The link may have run out before the photo arrived: Try again fetches a new one.
+                    onError = { failed = true },
                 )
             }
             else -> LoadingIndicator(Modifier.size(56.dp), color = Color.White)

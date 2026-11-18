@@ -15,6 +15,9 @@ import com.onmyhop.app.core.Hop
 import com.onmyhop.app.core.HopsReply
 import com.onmyhop.app.core.PlanStatus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -64,6 +67,9 @@ class InboxModel(private val session: Session) : ViewModel() {
     /** The event the athlete's link uploads to, which comes first. */
     private var activeHopId: String? = null
 
+    /** The refresh under way. A newer one replaces it, so an older reply can't land last. */
+    private var refreshing: Job? = null
+
     val totalClips: Int get() = hops.sumOf { it.fileCount }
 
     fun hop(id: String): Hop? = hops.firstOrNull { it.id == id }
@@ -75,7 +81,8 @@ class InboxModel(private val session: Session) : ViewModel() {
         if (pulled) isRefreshing = true
         if (hops.isEmpty()) phase = Phase.Loading
         val token = session.token
-        viewModelScope.launch {
+        refreshing?.cancel()
+        refreshing = viewModelScope.launch {
             try {
                 coroutineScope {
                     val planLoad = async { loadPlan() }
@@ -97,7 +104,8 @@ class InboxModel(private val session: Session) : ViewModel() {
             } catch (error: Exception) {
                 if (hops.isEmpty()) phase = Phase.Failed((error as? ApiError)?.serverMessage)
             } finally {
-                isRefreshing = false
+                // A refresh that a newer one replaced leaves the spinner to it.
+                if (currentCoroutineContext().isActive) isRefreshing = false
             }
         }
     }
@@ -116,9 +124,11 @@ class InboxModel(private val session: Session) : ViewModel() {
         if (index >= 0 && index >= items.size - 3) loadMore(hopId)
     }
 
+    private fun generation(hopId: String): Int = generations[hopId] ?: 0
+
     private suspend fun load(hopId: String, cursor: String?, replacing: Boolean) {
-        if (replacing) generations[hopId] = (generations[hopId] ?: 0) + 1
-        val generation = generations[hopId] ?: 0
+        if (replacing) generations[hopId] = generation(hopId) + 1
+        val generation = generation(hopId)
         clips[hopId] = clips(hopId).copy(isLoading = true)
         val query = buildMap {
             put("hopId", hopId)
@@ -126,7 +136,7 @@ class InboxModel(private val session: Session) : ViewModel() {
         }
         try {
             val page = session.api.get<ClipPage>("api/me/files", query)
-            if (generations[hopId] != generation) return
+            if (generation(hopId) != generation) return
             val known = if (replacing) emptyList() else clips(hopId).items
             val knownIds = known.mapTo(HashSet()) { it.id }
             // A page can overlap the last if clips arrived meanwhile.
@@ -138,7 +148,7 @@ class InboxModel(private val session: Session) : ViewModel() {
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
-            if (generations[hopId] != generation) return
+            if (generation(hopId) != generation) return
             clips[hopId] = clips(hopId).copy(isLoading = false, failed = true)
         }
     }

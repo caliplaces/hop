@@ -37,10 +37,11 @@ import kotlin.math.roundToInt
 fun ExpiryNudge(expiring: PlanStatus.Expiring) {
     val day = remember(expiring.on) { runCatching { LocalDate.parse(expiring.on) }.getOrNull() }
     val today = LocalDate.now(ZoneId.systemDefault())
-    val title = when (day) {
-        null -> pluralStringResource(R.plurals.expiry_soon, expiring.clips, expiring.clips)
-        today -> pluralStringResource(R.plurals.expiry_today, expiring.clips, expiring.clips)
-        today.plusDays(1) -> pluralStringResource(R.plurals.expiry_tomorrow, expiring.clips, expiring.clips)
+    val title = when {
+        day == null -> pluralStringResource(R.plurals.expiry_soon, expiring.clips, expiring.clips)
+        // Clips stay until the day has ended everywhere, so it can already be past here.
+        !day.isAfter(today) -> pluralStringResource(R.plurals.expiry_today, expiring.clips, expiring.clips)
+        day == today.plusDays(1) -> pluralStringResource(R.plurals.expiry_tomorrow, expiring.clips, expiring.clips)
         else -> pluralStringResource(
             R.plurals.expiry_on,
             expiring.clips,

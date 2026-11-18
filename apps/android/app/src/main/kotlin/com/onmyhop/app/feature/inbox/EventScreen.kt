@@ -127,7 +127,8 @@ fun EventScreen(
                 item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
                     Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                         when {
-                            list.isLoading || !list.loadedOnce -> LoadingIndicator(Modifier.size(48.dp))
+                            list.isLoading -> LoadingIndicator(Modifier.size(48.dp))
+                            // Before the spinner for a first page: that page may be what failed.
                             list.failed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
                                     stringResource(R.string.offline),
@@ -138,6 +139,7 @@ fun EventScreen(
                                     Text(stringResource(R.string.try_again))
                                 }
                             }
+                            !list.loadedOnce -> LoadingIndicator(Modifier.size(48.dp))
                         }
                     }
                 }

@@ -28,12 +28,19 @@ class InboxModelTest {
     /** Replies by path, so requests made side by side get the right one. */
     private val replies = mutableMapOf<String, String>()
 
+    /** Replies by path for the first request only, and how long to hold them back. */
+    private val firstReplies = mutableMapOf<String, Pair<String, Long>>()
+
     @Before
     fun start() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val key = request.url.encodedPath + (request.url.encodedQuery?.let { "?$it" } ?: "")
+                firstReplies.remove(key)?.let { (body, delay) ->
+                    Thread.sleep(delay)
+                    return MockResponse.Builder().setHeader("Content-Type", "application/json").body(body).build()
+                }
                 val body = replies[key] ?: replies[request.url.encodedPath] ?: return MockResponse.Builder().code(404).body("""{"error":"not_found"}""").build()
                 return MockResponse.Builder().setHeader("Content-Type", "application/json").body(body).build()
             }
@@ -102,6 +109,38 @@ class InboxModelTest {
         assertTrue(model.plan!!.isNearlyFull)
         assertEquals(2, model.plan!!.expiring?.clips)
         assertEquals(0, server.requestCount - 2)
+    }
+
+    /** An event the refresh skipped (empty when listed) still loads when it's opened. */
+    @Test
+    fun opensAnEventTheRefreshSkipped() {
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 0)}]}"""
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":1,"limitBytes":10},"revision":1}"""
+        // A clip arrived after the list was loaded.
+        replies["/api/me/files?hopId=h"] = """{"files":[${clip("c1", "h", 1)}],"nextCursor":null}"""
+        val model = model()
+        model.refresh()
+        waitFor { model.phase == InboxModel.Phase.Loaded }
+        model.loadMore("h")
+        waitFor { model.clips("h").loadedOnce }
+        assertEquals(listOf("c1"), model.clips("h").items.map { it.id })
+        assertFalse(model.clips("h").isLoading)
+    }
+
+    /** A refresh that started earlier but answers last doesn't replace the newer one's events. */
+    @Test
+    fun aNewerRefreshWins() {
+        firstReplies["/api/me/hops"] = """{"hops":[${hop("old", 1, 0)}]}""" to 400L
+        replies["/api/me/hops"] = """{"hops":[${hop("old", 1, 0)},${hop("live", 2, 0)}]}"""
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":1,"limitBytes":10},"revision":1}"""
+        val model = model()
+        model.refresh(activeHopId = null)
+        Thread.sleep(50)
+        model.refresh(activeHopId = "live")
+        waitFor { model.phase == InboxModel.Phase.Loaded }
+        Thread.sleep(600)
+        assertEquals(listOf("live", "old"), model.hops.map { it.id })
+        assertFalse(model.isRefreshing)
     }
 
     /** Offline before anything loaded: the inbox says so; with events shown, they stay. */
