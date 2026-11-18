@@ -4,6 +4,12 @@ package com.onmyhop.app.feature.inbox
 
 import android.app.Activity
 import android.text.format.DateUtils
+import android.content.ClipData
+import android.content.Intent
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.onmyhop.app.core.ApiError
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.fadeIn
@@ -83,7 +89,13 @@ import kotlinx.coroutines.launch
  * on an expired one.
  */
 @Composable
-fun ViewerScreen(hopId: String, startAt: String, model: InboxModel, onBack: () -> Unit) {
+fun ViewerScreen(
+    hopId: String,
+    startAt: String,
+    model: InboxModel,
+    transfers: ClipTransfers,
+    onBack: () -> Unit,
+) {
     val clips = model.clips(hopId).items
     if (clips.isEmpty()) {
         LaunchedEffect(Unit) { onBack() }
@@ -100,8 +112,37 @@ fun ViewerScreen(hopId: String, startAt: String, model: InboxModel, onBack: () -
     // The next page loads before the last clip is reached.
     LaunchedEffect(current?.id) { current?.let { model.loadMoreNear(hopId, it.id) } }
 
-    // Swipe down to close: the clip follows the finger, then lets go.
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val transfer by transfers.current.collectAsStateWithLifecycle()
+    var deleting by remember { mutableStateOf<Clip?>(null) }
+    var blocking by remember { mutableStateOf<Clip?>(null) }
+    var reporting by remember { mutableStateOf<Clip?>(null) }
+    var sendingReport by remember { mutableStateOf(false) }
+    val savedText = stringResource(R.string.clip_saved)
+    val offline = stringResource(R.string.offline)
+    val reportedText = stringResource(R.string.report_sent)
+    fun explain(error: Exception) = (error as? ApiError)?.message ?: offline
+
+    // A finished share opens the share sheet; a save or a failure says so.
+    LaunchedEffect(transfer) {
+        val done = transfer ?: return@LaunchedEffect
+        when (val phase = done.phase) {
+            is ClipTransfers.Phase.Done -> {
+                transfers.dismiss(done.clipId)
+                phase.shared?.let { uri -> shareFile(context, uri, clips.firstOrNull { it.id == done.clipId }?.mime) }
+                if (done.kind == ClipTransfers.Kind.Save) snackbar.showSnackbar(savedText)
+            }
+            is ClipTransfers.Phase.Failed -> {
+                transfers.dismiss(done.clipId)
+                snackbar.showSnackbar(phase.message ?: offline)
+            }
+            is ClipTransfers.Phase.Downloading -> {}
+        }
+    }
+
+    // Swipe down to close: the clip follows the finger, then lets go.
     val drag = remember { Animatable(0f) }
     val closeAt = with(LocalDensity.current) { 140.dp.toPx() }
 
@@ -142,7 +183,108 @@ fun ViewerScreen(hopId: String, startAt: String, model: InboxModel, onBack: () -
         AnimatedVisibility(chrome && current != null, enter = fadeIn(), exit = fadeOut()) {
             current?.let { TopBar(it, pager.settledPage + 1, clips.size, onBack) }
         }
+
+        AnimatedVisibility(
+            chrome && current != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            current?.let { clip ->
+                ClipToolbar(
+                    clip = clip,
+                    transfer = transfer,
+                    onSave = { transfers.save(clip) { model.url(clip, download = true) } },
+                    onShare = { transfers.share(clip) { model.url(clip, download = true) } },
+                    onReport = { reporting = clip },
+                    onBlock = { blocking = clip },
+                    onDelete = { deleting = clip },
+                )
+            }
+        }
+
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 96.dp))
     }
+
+    deleting?.let { clip ->
+        ConfirmDeleteDialog(
+            onDismiss = { deleting = null },
+            onConfirm = {
+                deleting = null
+                scope.launch {
+                    try {
+                        model.delete(clip)
+                        // The next clip slides in; with none left, back to the grid.
+                        if (model.clips(hopId).items.isEmpty()) onBack()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        snackbar.showSnackbar(explain(error))
+                    }
+                }
+            },
+        )
+    }
+
+    // A block takes the sender's clips out of the inbox, this one included: close, and catch up.
+    suspend fun block(clip: Clip) {
+        model.block(clip)
+        onBack()
+        model.refresh()
+    }
+
+    blocking?.let { clip ->
+        ConfirmBlockDialog(
+            sender = clip.contributorName ?: stringResource(R.string.someone),
+            onDismiss = { blocking = null },
+            onConfirm = {
+                blocking = null
+                scope.launch {
+                    try {
+                        block(clip)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        snackbar.showSnackbar(explain(error))
+                    }
+                }
+            },
+        )
+    }
+
+    reporting?.let { clip ->
+        ReportSheet(
+            clip = clip,
+            sending = sendingReport,
+            onDismiss = { if (!sendingReport) reporting = null },
+            onSend = { reason, note, alsoBlock ->
+                sendingReport = true
+                scope.launch {
+                    try {
+                        model.report(clip, reason, note)
+                        reporting = null
+                        if (alsoBlock) block(clip) else snackbar.showSnackbar(reportedText)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        snackbar.showSnackbar(explain(error))
+                    } finally {
+                        sendingReport = false
+                    }
+                }
+            },
+        )
+    }
+}
+
+/** Hands a downloaded clip to the share sheet, readable by whichever app is picked. */
+private fun shareFile(context: android.content.Context, uri: android.net.Uri, mime: String?) {
+    val send = Intent(Intent.ACTION_SEND)
+        .setType(mime ?: "*/*")
+        .putExtra(Intent.EXTRA_STREAM, uri)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    send.clipData = ClipData.newRawUri(null, uri)
+    context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
 }
 
 /** Who sent the clip on screen and when, over a fade, with the way back. */
@@ -286,7 +428,8 @@ private fun VideoPage(clip: Clip, link: String, player: ExoPlayer, showControls:
         showControls = showControls,
         topControls = null,
         bottomControls = { p, visible ->
-            PlayerDefaults.BottomControls(p, visible, Modifier.navigationBarsPadding().padding(bottom = 8.dp))
+            // Above the clip toolbar.
+            PlayerDefaults.BottomControls(p, visible, Modifier.navigationBarsPadding().padding(bottom = 88.dp))
         },
     )
 }

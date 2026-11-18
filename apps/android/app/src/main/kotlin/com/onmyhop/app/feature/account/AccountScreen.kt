@@ -36,7 +36,7 @@ import com.onmyhop.app.design.SettingsRow
 
 /** The athlete's account: who they are, Hop's legal pages, and signing out. */
 @Composable
-fun AccountScreen(session: Session, onBack: () -> Unit) {
+fun AccountScreen(session: Session, onBack: () -> Unit, openBlocked: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val me = state.me
     val context = LocalContext.current
@@ -73,6 +73,15 @@ fun AccountScreen(session: Session, onBack: () -> Unit) {
                     ),
                 )
             }
+            SettingsGroup(
+                listOf(
+                    SettingsRow(
+                        onClick = openBlocked,
+                        leading = { Icon(painterResource(R.drawable.ic_block), null) },
+                        trailing = { Icon(painterResource(R.drawable.ic_chevron_right), null) },
+                    ) { Text(stringResource(R.string.blocked_title)) },
+                ),
+            )
             SettingsGroup(
                 listOf(
                     SettingsRow(

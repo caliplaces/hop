@@ -9,6 +9,10 @@
     <string name="share">Share</string>
     <string name="open">Open</string>
     <string name="share_link">Share my link</string>
+    <string name="more">More</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="block">Block</string>
     <string name="bobble_description">Bobble, Hop’s mascot</string>
 
     <!-- Welcome and signing in -->
@@ -64,6 +68,26 @@
     <string name="clip_photo_from">Photo from %1$s</string>
     <string name="clip_signed_in">Signed in</string>
     <string name="clip_failed">Couldn’t load this clip</string>
+    <string name="clip_save">Save to this phone</string>
+    <string name="clip_saved">Saved to your gallery, in Hop</string>
+    <string name="clip_report">Report clip…</string>
+    <string name="clip_block">Block %1$s</string>
+    <string name="clip_block_title">Block %1$s?</string>
+    <string name="block_explanation">Their clips leave your inbox, and they can’t send you more. You can unblock them in Account.</string>
+    <string name="clip_delete">Delete clip</string>
+    <string name="clip_delete_title">Delete this clip?</string>
+    <string name="clip_delete_message">It’s gone for good, from your inbox and from Hop.</string>
+    <string name="report_title">Report clip</string>
+    <string name="report_question">What’s wrong with it?</string>
+    <string name="report_sexual">Sexual content</string>
+    <string name="report_violence">Violence or threats</string>
+    <string name="report_harassment">Harassment or hate</string>
+    <string name="report_spam">Spam or scam</string>
+    <string name="report_other">Something else</string>
+    <string name="report_note">Anything else? (optional)</string>
+    <string name="report_footnote">Hop’s team gets your report with this clip, and looks into it.</string>
+    <string name="report_send">Send report</string>
+    <string name="report_sent">Thanks. Hop’s team will look into it.</string>
     <plurals name="expiry_today">
         <item quantity="one">%d clip leaves today</item>
         <item quantity="other">%d clips leave today</item>
@@ -99,4 +123,9 @@
     <string name="account_privacy">Privacy</string>
     <string name="account_terms">Terms</string>
     <string name="sign_out">Sign out</string>
+    <string name="blocked_title">Blocked senders</string>
+    <string name="blocked_empty">Nobody’s blocked</string>
+    <string name="blocked_empty_message">Block someone from a clip they sent, and they’ll show up here.</string>
+    <string name="blocked_footnote">Unblocking lets them send you clips again. Clips that left with the block don’t come back.</string>
+    <string name="unblock">Unblock</string>
 </resources>

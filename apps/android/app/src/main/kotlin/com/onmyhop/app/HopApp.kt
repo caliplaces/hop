@@ -79,6 +79,8 @@ fun HopApp(container: AppContainer) {
     val context = LocalContext.current
     LaunchedEffect(state.isSignedIn) {
         if (!state.isSignedIn) {
+            // A save or share under way belonged to whoever was signed in.
+            container.transfers.cancel()
             val images = SingletonImageLoader.get(context)
             images.memoryCache?.clear()
             withContext(Dispatchers.IO) { images.diskCache?.clear() }
@@ -109,7 +111,7 @@ fun HopApp(container: AppContainer) {
                             Stage.Welcome -> WelcomeScreen(container.signIn)
                             Stage.Claim -> current?.let { ClaimScreen(it, session) }
                             Stage.Profile -> current?.let { ProfileSetupScreen(it, session) }
-                            Stage.Home -> HomeScreen(session)
+                            Stage.Home -> HomeScreen(session, container.transfers)
                         }
                     }
                 },

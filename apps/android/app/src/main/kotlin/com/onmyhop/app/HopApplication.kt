@@ -11,6 +11,7 @@ import com.onmyhop.app.auth.KeystoreTokenStore
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.auth.SignIn
 import com.onmyhop.app.core.HopServer
+import com.onmyhop.app.feature.inbox.ClipTransfers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
 import okhttp3.OkHttpClient
@@ -34,6 +35,9 @@ class AppContainer(context: Context) {
     )
 
     val signIn = SignIn(session, scope)
+
+    /** Saving clips to the gallery and downloading them to share, outliving any one screen. */
+    val transfers = ClipTransfers(context, http, scope)
 
     /**
      * Images from Hop's API. Requests to the API's own host carry the
@@ -61,6 +65,8 @@ class HopApplication : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        // Saves cut short and files shared last time, from before the app was closed.
+        container.transfers.removeLeftovers()
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =
