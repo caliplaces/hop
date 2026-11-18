@@ -1,10 +1,10 @@
 package com.onmyhop.app.feature.myhop
 
-import androidx.core.net.toUri
 import android.content.ClipData
 import android.content.Intent
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,13 +22,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonShapes
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButtonShapes
 import androidx.compose.material3.TopAppBar
@@ -41,6 +44,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -49,35 +55,43 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onmyhop.app.R
 import com.onmyhop.app.auth.Session
-import com.onmyhop.app.core.Me
-import com.onmyhop.app.core.spoken
-import com.onmyhop.app.design.Avatar
 import com.onmyhop.app.design.ReadableWidth
+import com.onmyhop.app.feature.inbox.InboxModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl
 
-/** The athlete's link: their card, and ways to pass it on. */
+/**
+ * The athlete's link: their Hop pass with the QR code (tap it for the code
+ * full screen), and ways to pass the link on, the pass's story image among them.
+ */
 @Composable
-fun MyHopTab(session: Session, accountButton: @Composable () -> Unit) {
+fun MyHopTab(session: Session, inbox: InboxModel, accountButton: @Composable () -> Unit, openQr: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val me = state.me
     val link = me?.link()
+    // Clips and events, once the inbox has loaded them.
+    val stats = if (inbox.phase == InboxModel.Phase.Loaded) PassStats(inbox.hops) else null
+    val story = rememberGraphicsLayer()
+    val snackbar = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(stringResource(R.string.tab_my_hop)) }, actions = { accountButton() })
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             if (me == null || link == null) {
                 LoadingIndicator(Modifier.padding(top = 120.dp).size(64.dp))
             } else {
+                StoryCapture(me, link, stats, story)
                 Column(
                     Modifier
                         .widthIn(max = ReadableWidth)
@@ -85,8 +99,9 @@ fun MyHopTab(session: Session, accountButton: @Composable () -> Unit) {
                         .padding(horizontal = 20.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    PassCard(me, link)
-                    Spacer(Modifier.height(16.dp))
+                    val showLabel = stringResource(R.string.qr_show)
+                    TurningPass(me, link, stats, Modifier.clickable(onClickLabel = showLabel, onClick = openQr))
+                    Spacer(Modifier.height(20.dp))
                     Text(
                         stringResource(R.string.my_hop_message),
                         style = MaterialTheme.typography.bodyMedium,
@@ -94,49 +109,27 @@ fun MyHopTab(session: Session, accountButton: @Composable () -> Unit) {
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(24.dp))
-                    LinkActions(link)
+                    LinkActions(link, story, snackbar)
+                    Spacer(Modifier.height(12.dp))
+                    FilledTonalButton(
+                        onClick = openQr,
+                        modifier = Modifier.fillMaxWidth().height(ButtonDefaults.MediumContainerHeight),
+                    ) { ActionLabel(R.string.qr_show, R.drawable.ic_qr_code_2) }
                 }
             }
         }
     }
 }
 
-/** The athlete's card, in their colour: who they are and where to send clips. */
+/** Copy, Share (the link, or the pass as a story image) and Open, as one connected button group. */
 @Composable
-private fun PassCard(me: Me, link: HttpUrl) {
-    val color = me.paletteColor
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = color.color, contentColor = color.onColor),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Avatar(me, 88.dp)
-            Spacer(Modifier.height(16.dp))
-            Text(
-                me.name ?: "@${me.handle}",
-                style = MaterialTheme.typography.headlineSmallEmphasized,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                link.spoken,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-    }
-}
-
-/** Copy, Share and Open, as one connected button group. */
-@Composable
-private fun LinkActions(link: HttpUrl) {
+private fun LinkActions(link: HttpUrl, story: GraphicsLayer, snackbar: SnackbarHostState) {
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var copied by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
     LaunchedEffect(copied) {
         if (copied) {
             delay(2_000)
@@ -144,6 +137,23 @@ private fun LinkActions(link: HttpUrl) {
         }
     }
     val shareTitle = stringResource(R.string.share_link)
+    val passTitle = stringResource(R.string.share_pass_image)
+    val failed = stringResource(R.string.share_pass_failed)
+    val tryAgain = stringResource(R.string.try_again)
+
+    /** Shares the pass's story, saying so (with Try again) if it can't. */
+    fun sharePass() {
+        scope.launch {
+            try {
+                // The story, as drawn moments ago, at 1080 × 1920.
+                PassImages.share(context, story.toImageBitmap().asAndroidBitmap(), passTitle)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                if (snackbar.showSnackbar(failed, actionLabel = tryAgain) == SnackbarResult.ActionPerformed) sharePass()
+            }
+        }
+    }
     val height = ButtonDefaults.MediumContainerHeight
 
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
@@ -159,20 +169,35 @@ private fun LinkActions(link: HttpUrl) {
             modifier = Modifier.weight(1f).height(height),
         ) {
             AnimatedContent(copied, label = "copied") { done ->
-                ActionLabel(
-                    if (done) R.string.copied else R.string.copy,
-                    if (done) R.drawable.ic_check else R.drawable.ic_content_copy,
+                ActionLabel(if (done) R.string.copied else R.string.copy, if (done) R.drawable.ic_check else R.drawable.ic_content_copy)
+            }
+        }
+        Box(Modifier.weight(1f)) {
+            FilledTonalButton(
+                onClick = { menu = true },
+                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes().asButtonShapes(),
+                modifier = Modifier.fillMaxWidth().height(height),
+            ) { ActionLabel(R.string.share, R.drawable.ic_share) }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text(shareTitle) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_link), null) },
+                    onClick = {
+                        menu = false
+                        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link.toString())
+                        context.startActivity(Intent.createChooser(send, shareTitle))
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(passTitle) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_image), null) },
+                    onClick = {
+                        menu = false
+                        sharePass()
+                    },
                 )
             }
         }
-        FilledTonalButton(
-            onClick = {
-                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link.toString())
-                context.startActivity(Intent.createChooser(send, shareTitle))
-            },
-            shapes = ButtonGroupDefaults.connectedMiddleButtonShapes().asButtonShapes(),
-            modifier = Modifier.weight(1f).height(height),
-        ) { ActionLabel(R.string.share, R.drawable.ic_share) }
         FilledTonalButton(
             onClick = { CustomTabsIntent.Builder().build().launchUrl(context, link.toString().toUri()) },
             shapes = ButtonGroupDefaults.connectedTrailingButtonShapes().asButtonShapes(),
@@ -182,7 +207,7 @@ private fun LinkActions(link: HttpUrl) {
 }
 
 @Composable
-private fun ActionLabel(text: Int, icon: Int) {
+internal fun ActionLabel(text: Int, icon: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(painterResource(icon), null, Modifier.size(ButtonDefaults.IconSize))
         Spacer(Modifier.width(ButtonDefaults.IconSpacing))

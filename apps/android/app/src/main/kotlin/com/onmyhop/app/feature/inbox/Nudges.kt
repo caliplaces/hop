@@ -1,6 +1,5 @@
 package com.onmyhop.app.feature.inbox
 
-import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,13 +15,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.onmyhop.app.R
 import com.onmyhop.app.core.PlanStatus
+import com.onmyhop.app.core.storageText
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -55,7 +54,6 @@ fun ExpiryNudge(expiring: PlanStatus.Expiring) {
 /** The free plan at 80% or more. */
 @Composable
 fun StorageNudge(plan: PlanStatus) {
-    val context = LocalContext.current
     val title = if (plan.isFull) {
         stringResource(R.string.storage_full)
     } else {
@@ -63,8 +61,8 @@ fun StorageNudge(plan: PlanStatus) {
     }
     val detail = stringResource(
         if (plan.isFull) R.string.storage_full_detail else R.string.storage_nearly_full_detail,
-        Formatter.formatShortFileSize(context, plan.storage.usedBytes),
-        Formatter.formatShortFileSize(context, plan.storage.limitBytes),
+        storageText(plan.storage.usedBytes),
+        storageText(plan.storage.limitBytes),
     )
     Nudge(icon = R.drawable.ic_cloud, title = title, detail = detail, warning = plan.isFull) {
         LinearWavyProgressIndicator(

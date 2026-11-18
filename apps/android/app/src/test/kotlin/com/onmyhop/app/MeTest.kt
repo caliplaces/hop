@@ -55,3 +55,16 @@ class MeTest {
         assertEquals("H", Me(id = "u", color = "sky", handle = "hop").initial)
     }
 }
+
+class StorageTextTest {
+    /** Plans are counted in 1024s, so the free plan reads 15 GB, as on the website and iPhone. */
+    @Test
+    fun countsLikeThePlans() {
+        val gib = 1024L * 1024 * 1024
+        assertEquals("15 GB", com.onmyhop.app.core.storageText(15 * gib, java.util.Locale.US))
+        assertEquals("200 GB", com.onmyhop.app.core.storageText(200 * gib, java.util.Locale.US))
+        assertEquals("1.5 GB", com.onmyhop.app.core.storageText(gib * 3 / 2, java.util.Locale.US))
+        assertEquals("0 B", com.onmyhop.app.core.storageText(0, java.util.Locale.US))
+        assertEquals("1,5 GB", com.onmyhop.app.core.storageText(gib * 3 / 2, java.util.Locale.GERMANY))
+    }
+}

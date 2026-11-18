@@ -164,6 +164,11 @@ class InboxModel(private val session: Session) : ViewModel() {
         }
     }
 
+    /** Reloads the plan alone, as when the account opens. */
+    fun refreshPlan() {
+        viewModelScope.launch { loadPlan() }
+    }
+
     /** Plan requests in the order they were made, and the newest one shown. */
     private var planAsked = 0
     private var planShown = 0

@@ -37,12 +37,15 @@ import com.onmyhop.app.design.Avatar
 import com.onmyhop.app.design.LocalSharedTransitionScope
 import com.onmyhop.app.feature.account.AccountScreen
 import com.onmyhop.app.feature.account.BlockedSendersScreen
+import com.onmyhop.app.feature.account.DeleteAccountScreen
+import com.onmyhop.app.feature.account.EditProfileScreen
 import com.onmyhop.app.feature.inbox.ClipTransfers
 import com.onmyhop.app.feature.inbox.EventScreen
 import com.onmyhop.app.feature.inbox.InboxModel
 import com.onmyhop.app.feature.inbox.InboxTab
 import com.onmyhop.app.feature.inbox.ViewerScreen
 import com.onmyhop.app.feature.myhop.MyHopTab
+import com.onmyhop.app.feature.myhop.QrScreen
 import kotlinx.serialization.Serializable
 
 /** Places in the signed-in app, kept on a back stack that survives process death. */
@@ -54,6 +57,15 @@ private data object AccountKey : NavKey
 
 @Serializable
 private data object BlockedKey : NavKey
+
+@Serializable
+private data object QrKey : NavKey
+
+@Serializable
+private data object EditProfileKey : NavKey
+
+@Serializable
+private data object DeleteAccountKey : NavKey
 
 @Serializable
 private data class EventKey(val hopId: String) : NavKey
@@ -93,9 +105,25 @@ fun HomeScreen(session: Session, transfers: ClipTransfers) {
                             inbox = inbox,
                             openAccount = { backStack.add(AccountKey) },
                             openEvent = { backStack.add(EventKey(it)) },
+                            openQr = { backStack.add(QrKey) },
                         )
                     }
-                    entry<AccountKey> { AccountScreen(session, onBack = back, openBlocked = { backStack.add(BlockedKey) }) }
+                    entry<QrKey> { QrScreen(session, onClose = { backStack.remove(QrKey) }) }
+                    entry<AccountKey> {
+                        AccountScreen(
+                            session = session,
+                            inbox = inbox,
+                            onBack = { backStack.remove(AccountKey) },
+                            openProfile = { backStack.add(EditProfileKey) },
+                            openBlocked = { backStack.add(BlockedKey) },
+                            openDelete = { backStack.add(DeleteAccountKey) },
+                        )
+                    }
+                    entry<EditProfileKey> {
+                        // Without a profile there's nothing to edit; it comes with the session.
+                        state.me?.let { EditProfileScreen(it, session, onDone = { backStack.remove(EditProfileKey) }) }
+                    }
+                    entry<DeleteAccountKey> { DeleteAccountScreen(session, inbox.plan, onBack = { backStack.remove(DeleteAccountKey) }) }
                     entry<BlockedKey> { BlockedSendersScreen(session, onBack = back) }
                     // Screens leave by taking only themselves off the stack, so a
                     // second request to leave can't take the screen below too.
@@ -122,7 +150,13 @@ private enum class Tab(@param:StringRes val label: Int, @param:DrawableRes val i
 
 /** A bottom bar on phones and a rail on bigger screens, as Material's adaptive navigation picks. */
 @Composable
-private fun Tabs(session: Session, inbox: InboxModel, openAccount: () -> Unit, openEvent: (String) -> Unit) {
+private fun Tabs(
+    session: Session,
+    inbox: InboxModel,
+    openAccount: () -> Unit,
+    openEvent: (String) -> Unit,
+    openQr: () -> Unit,
+) {
     var tab by rememberSaveable { mutableStateOf(Tab.Inbox) }
     val accountButton: @Composable () -> Unit = { AccountButton(session, openAccount) }
     NavigationSuiteScaffold(
@@ -140,7 +174,7 @@ private fun Tabs(session: Session, inbox: InboxModel, openAccount: () -> Unit, o
     ) {
         when (tab) {
             Tab.Inbox -> InboxTab(inbox, session, accountButton, openEvent)
-            Tab.MyHop -> MyHopTab(session, accountButton)
+            Tab.MyHop -> MyHopTab(session, inbox, accountButton, openQr)
         }
     }
 }
