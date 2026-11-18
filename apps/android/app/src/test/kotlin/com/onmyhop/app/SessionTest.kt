@@ -1,5 +1,7 @@
 package com.onmyhop.app
 
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import com.onmyhop.app.auth.Session
@@ -164,6 +166,27 @@ class SessionTest {
         session.refresh()
         assertTrue(session.state.value.isSignedIn)
         assertEquals("hs_abc", store.token)
+    }
+
+    /**
+     * A reload that read the profile before a newer one arrived (the reply to
+     * claiming a handle, say) mustn't put the older one back.
+     */
+    @Test
+    fun aSlowReloadDoesntUndoANewerProfile() = runTest {
+        store.token = "hs_abc"
+        server.enqueue(
+            MockResponse.Builder().setHeader("Content-Type", "application/json")
+                .body("""{"me":{"id":"u1","color":"sky","emailNewClips":true,"handle":null}}""")
+                .headersDelay(300, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val session = session()
+        val reload = launch(Dispatchers.Default) { session.refresh() }
+        server.takeRequest()
+        session.update(Me(id = "u1", color = "sky", handle = "maya"), fromToken = "hs_abc")
+        reload.join()
+        assertEquals("maya", session.me?.handle)
     }
 
     /** A reply for a session that has since changed is dropped. */

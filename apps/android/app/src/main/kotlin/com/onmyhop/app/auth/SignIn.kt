@@ -53,8 +53,12 @@ class SignIn(private val session: Session, private val scope: CoroutineScope) {
      * its own state, finishes it; anything else is ignored, so a stray link
      * can't cut a sign-in short.
      */
-    fun redirected(uri: Uri) =
+    fun redirected(uri: Uri) {
+        // Anything can send one (the callback activity is exported), and an
+        // opaque URI has no query to read: it's no callback of ours.
+        if (!uri.isHierarchical) return
         redirected(uri.scheme, uri.host, uri.path, uri.getQueryParameter("state"), uri.toString())
+    }
 
     internal fun redirected(scheme: String?, host: String?, path: String?, state: String?, url: String) {
         val started = pending ?: return

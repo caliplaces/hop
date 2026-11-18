@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -92,27 +91,44 @@ class Session(
      * session that has since signed out, or been replaced, is dropped.
      */
     fun update(me: Me, fromToken: String?) {
-        _state.update { current ->
-            if (fromToken == null || fromToken != current.token) current else current.copy(me = me)
+        synchronized(lock) {
+            val current = _state.value
+            if (fromToken == null || fromToken != current.token) return
+            _state.value = current.copy(me = me)
+            revision++
         }
     }
 
+    /** Bumped by every profile taken in, so a reload that read an older one can tell. */
+    private var revision = 0L
+    private val lock = Any()
+
     /**
      * Reloads the profile. Signs out here if the server no longer knows the
-     * session; keeps it when offline.
+     * session; keeps it when offline. A reply is dropped if a newer profile
+     * (the reply to claiming a handle, say) arrived while it was on its way:
+     * it may have read the profile from before that change.
      */
     suspend fun refresh() {
         val asked = token ?: return
+        val seen = synchronized(lock) { revision }
         val reply = try {
             api.get<MeReply>("api/me")
         } catch (_: Exception) {
             // Offline, or the server is having a moment: tried again next launch.
             return
         }
-        // Signed out, or in as someone else, while this was on its way.
-        if (token != asked) return
         val me = reply.me
-        if (me != null) update(me, asked) else forget()
+        synchronized(lock) {
+            // Signed out, or in as someone else, while this was on its way.
+            if (token != asked) return
+            if (me == null) {
+                forget()
+            } else if (revision == seen) {
+                _state.value = _state.value.copy(me = me)
+                revision++
+            }
+        }
     }
 
     /**
@@ -150,8 +166,11 @@ class Session(
     }
 
     private fun forget() {
-        store.delete()
-        _state.value = State(token = null, me = null)
+        synchronized(lock) {
+            store.delete()
+            _state.value = State(token = null, me = null)
+            revision++
+        }
     }
 
     @Serializable
