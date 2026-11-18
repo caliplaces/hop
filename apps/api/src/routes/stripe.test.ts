@@ -592,7 +592,10 @@ describe("Stripe's webhook", () => {
   });
 
   it("gives Hop+ once a checkout completes, read from Stripe", async () => {
-    fake.subscriptions.set("sub_alex", subscription());
+    // One subscription for both sides: its period ends from the current
+    // second, so building it twice can straddle a tick.
+    const bought = subscription();
+    fake.subscriptions.set("sub_alex", bought);
     const response = await webhook("checkout.session.completed", {
       id: "cs_1",
       object: "checkout.session",
@@ -610,7 +613,7 @@ describe("Stripe's webhook", () => {
       graceExpiresAt: null,
     });
     expect(status.subscription?.expiresAt).toBe(
-      (subscription().items.data[0]?.current_period_end ?? 0) * 1000,
+      (bought.items.data[0]?.current_period_end ?? 0) * 1000,
     );
     expect(status.storage.limitBytes).toBe(PLANS.plus.storageBytes);
   });
