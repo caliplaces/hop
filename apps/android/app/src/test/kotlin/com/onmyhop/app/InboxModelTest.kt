@@ -21,6 +21,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class InboxModelTest {
@@ -32,12 +35,16 @@ class InboxModelTest {
     /** Replies by path for the first request only, and how long to hold them back. */
     private val firstReplies = mutableMapOf<String, Pair<String, Long>>()
 
+    /** Replies by path held back until the test lets them go. */
+    private val holds = ConcurrentHashMap<String, CountDownLatch>()
+
     @Before
     fun start() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val key = request.url.encodedPath + (request.url.encodedQuery?.let { "?$it" } ?: "")
+                holds[key]?.await(5, TimeUnit.SECONDS)
                 firstReplies.remove(key)?.let { (body, delay) ->
                     Thread.sleep(delay)
                     return MockResponse.Builder().setHeader("Content-Type", "application/json").body(body).build()
@@ -173,11 +180,15 @@ class InboxModelTest {
         val model = model()
         model.refresh()
         waitFor { model.clips("h").loadedOnce }
+        // The reload after the block (whose reply here still counts three) waits until the totals are checked.
+        val reload = CountDownLatch(1)
+        holds["/api/me/hops"] = reload
         val blocked = kotlinx.coroutines.runBlocking { model.block(model.clips("h").items[1]) }
         assertEquals(setOf("c2", "c1"), blocked)
         assertEquals(listOf("c3"), model.clips("h").items.map { it.id })
         assertEquals(1, model.hop("h")?.fileCount)
         assertEquals(1000L, model.hop("h")?.totalBytes)
+        reload.countDown()
 
         // A reload that still lists them (it raced the block) leaves them out.
         model.refresh()
@@ -198,9 +209,13 @@ class InboxModelTest {
         waitFor { model.clips("h").loadedOnce }
         // Storage went down with it.
         replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":0,"limitBytes":10},"revision":1}"""
+        // A reload, if the first refresh is still under way, waits until the totals are checked.
+        val reload = CountDownLatch(1)
+        holds["/api/me/hops"] = reload
         kotlinx.coroutines.runBlocking { model.delete(model.clips("h").items[0]) }
         assertEquals(listOf("c1"), model.clips("h").items.map { it.id })
         assertEquals(1, model.hop("h")?.fileCount)
+        reload.countDown()
         waitFor { model.plan?.storage?.usedBytes == 0L }
     }
 
