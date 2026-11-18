@@ -50,7 +50,27 @@ data class PlanStatus(
     val expiring: Expiring? = null,
     /** Goes up whenever the subscriptions change: a lower one than shown is stale. */
     val revision: Long = 0,
+    /** With Hop+: where it was bought, when the period ends, and whether it renews. */
+    val subscription: Subscription? = null,
+    /** What each plan includes, so the comparison always matches the server. */
+    val plans: Plans? = null,
 ) {
+    @Serializable
+    data class Subscription(
+        /** "apple" (bought in the iPhone app) or "stripe" (on the website); older servers leave it out. */
+        val provider: String = "apple",
+        val expiresAt: Long,
+        /** Set while a failed renewal is retried: Hop+ carries on until this. */
+        val graceExpiresAt: Long? = null,
+        val autoRenew: Boolean,
+    )
+
+    @Serializable
+    data class Plans(val free: Plan, val plus: Plan)
+
+    @Serializable
+    data class Plan(val storageBytes: Long, val retentionDays: Int? = null)
+
     @Serializable
     data class Storage(val usedBytes: Long, val limitBytes: Long)
 

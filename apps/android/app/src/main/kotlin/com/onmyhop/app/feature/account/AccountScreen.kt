@@ -10,15 +10,19 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,18 +32,59 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onmyhop.app.R
 import com.onmyhop.app.auth.Session
+import com.onmyhop.app.core.ApiError
+import com.onmyhop.app.core.Me
 import com.onmyhop.app.core.spoken
 import com.onmyhop.app.design.Avatar
 import com.onmyhop.app.design.HopLegal
 import com.onmyhop.app.design.SettingsGroup
 import com.onmyhop.app.design.SettingsRow
+import com.onmyhop.app.design.settingsRowColors
+import com.onmyhop.app.feature.inbox.InboxModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 
-/** The athlete's account: who they are, Hop's legal pages, and signing out. */
+/**
+ * The athlete's account: their profile, plan and storage, new-clip emails,
+ * blocked senders, Hop's legal pages, signing out and deleting the account.
+ */
 @Composable
-fun AccountScreen(session: Session, onBack: () -> Unit, openBlocked: () -> Unit) {
+fun AccountScreen(
+    session: Session,
+    inbox: InboxModel,
+    onBack: () -> Unit,
+    openProfile: () -> Unit,
+    openBlocked: () -> Unit,
+    openDelete: () -> Unit,
+) {
     val state by session.state.collectAsStateWithLifecycle()
     val me = state.me
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    val offline = stringResource(R.string.offline)
+    var savingEmail by remember { mutableStateOf(false) }
+
+    // The plan moves while the app is away (storage, renewals).
+    LaunchedEffect(Unit) { inbox.refreshPlan() }
+
+    fun setEmail(on: Boolean) {
+        val token = session.token
+        savingEmail = true
+        scope.launch {
+            try {
+                val reply: MeReply = session.client(token).patch("api/me", EmailChange(on))
+                session.update(reply.me, token)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                snackbar.showSnackbar((error as? ApiError)?.message ?: offline)
+            } finally {
+                savingEmail = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -52,6 +97,7 @@ fun AccountScreen(session: Session, onBack: () -> Unit, openBlocked: () -> Unit)
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
@@ -61,15 +107,29 @@ fun AccountScreen(session: Session, onBack: () -> Unit, openBlocked: () -> Unit)
                 SettingsGroup(
                     listOf(
                         SettingsRow(
-                            onClick = null,
+                            onClick = openProfile,
                             leading = { Avatar(me, 56.dp) },
                             supporting = me.link()?.let { link -> { Text(link.spoken) } },
+                            trailing = { Icon(painterResource(R.drawable.ic_edit), stringResource(R.string.profile_edit_title)) },
                         ) {
                             Text(
                                 me.name ?: me.email ?: stringResource(R.string.account_signed_in),
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         },
+                    ),
+                )
+            }
+            inbox.plan?.let { PlanCard(it) }
+            if (me != null) {
+                SettingsGroup(
+                    title = stringResource(R.string.account_new_clips),
+                    rows = listOf(
+                        SettingsRow(
+                            onClick = { if (!savingEmail) setEmail(!me.emailNewClips) },
+                            supporting = { Text(stringResource(R.string.account_new_clips_email_detail, me.email ?: "")) },
+                            trailing = { Switch(checked = me.emailNewClips, onCheckedChange = null, enabled = !savingEmail) },
+                        ) { Text(stringResource(R.string.account_new_clips_email)) },
                     ),
                 )
             }
@@ -99,18 +159,23 @@ fun AccountScreen(session: Session, onBack: () -> Unit, openBlocked: () -> Unit)
                     SettingsRow(
                         onClick = { session.signOut() },
                         leading = { Icon(painterResource(R.drawable.ic_logout), null) },
-                        colors = {
-                            ListItemDefaults.segmentedColors(
-                                contentColor = MaterialTheme.colorScheme.error,
-                                leadingContentColor = MaterialTheme.colorScheme.error,
-                            )
-                        },
+                        colors = { settingsRowColors(MaterialTheme.colorScheme.error) },
                     ) { Text(stringResource(R.string.sign_out)) },
+                    SettingsRow(
+                        onClick = openDelete,
+                        colors = { settingsRowColors(MaterialTheme.colorScheme.error) },
+                    ) { Text(stringResource(R.string.delete_account)) },
                 ),
             )
         }
     }
 }
+
+@Serializable
+private class EmailChange(val emailNewClips: Boolean)
+
+@Serializable
+private class MeReply(val me: Me)
 
 /** An overflow menu with Sign out, for screens before the app proper (claiming a handle). */
 @Composable

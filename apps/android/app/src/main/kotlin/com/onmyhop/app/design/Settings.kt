@@ -11,7 +11,20 @@ import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+
+/**
+ * A settings row's colours: a block of surface container on the page, as
+ * Android's own settings group them; [content] for a row such as Sign out.
+ */
+@Composable
+fun settingsRowColors(content: Color? = null): ListItemColors =
+    ListItemDefaults.segmentedColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = content ?: MaterialTheme.colorScheme.onSurface,
+        leadingContentColor = content ?: MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 
 /** One row of a settings group. */
 class SettingsRow(
@@ -41,7 +54,7 @@ fun SettingsGroup(rows: List<SettingsRow>, modifier: Modifier = Modifier, title:
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             rows.forEachIndexed { index, row ->
                 val shapes = ListItemDefaults.segmentedShapes(index = index, count = rows.size)
-                val colors = row.colors?.invoke() ?: ListItemDefaults.segmentedColors()
+                val colors = row.colors?.invoke() ?: settingsRowColors()
                 val onClick = row.onClick
                 if (onClick != null) {
                     SegmentedListItem(

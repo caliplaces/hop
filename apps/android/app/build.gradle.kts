@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui.compose.material3)
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

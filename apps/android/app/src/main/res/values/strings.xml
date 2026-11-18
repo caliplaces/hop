@@ -115,6 +115,21 @@
         <item quantity="one">%d clip</item>
         <item quantity="other">%d clips</item>
     </plurals>
+    <plurals name="event_count">
+        <item quantity="one">%d event</item>
+        <item quantity="other">%d events</item>
+    </plurals>
+    <string name="pass_description">Your Hop pass</string>
+    <string name="pass_athlete">ATHLETE PASS</string>
+    <string name="pass_tagline">Upload it on my Hop</string>
+    <string name="pass_story_invitation">Filmed me? Send me your clips</string>
+    <string name="share_pass_image">Share pass image</string>
+    <string name="qr_show">Show QR code</string>
+    <string name="qr_scan">Scan to send me your clips</string>
+    <string name="qr_save">Save QR code</string>
+    <string name="qr_saved">QR code saved to your gallery, in Hop</string>
+    <string name="qr_save_failed">Couldn’t save the QR code</string>
+    <string name="close">Close</string>
     <string name="my_hop_message">Anyone can scan this or open the link to send you their clips. No app or account needed.</string>
 
     <!-- Account -->
@@ -123,6 +138,36 @@
     <string name="account_privacy">Privacy</string>
     <string name="account_terms">Terms</string>
     <string name="sign_out">Sign out</string>
+    <string name="save">Save</string>
+    <string name="profile_edit_title">Edit profile</string>
+    <string name="account_new_clips">New clips</string>
+    <string name="account_new_clips_email">Email</string>
+    <string name="account_new_clips_email_detail">A burst of clips comes as one email to %1$s, once uploads go quiet.</string>
+    <string name="plan_free">Free</string>
+    <string name="plan_storage">%1$s of %2$s</string>
+    <plurals name="plan_kept_days">
+        <item quantity="one">Clips are kept %d day</item>
+        <item quantity="other">Clips are kept %d days</item>
+    </plurals>
+    <string name="plan_kept_for_good">Clips are kept for good</string>
+    <string name="plan_renews">Renews on %1$s</string>
+    <string name="plan_ends">Ends on %1$s</string>
+    <string name="plan_grace">Your payment didn’t go through. Hop+ continues until %1$s while it’s tried again.</string>
+    <string name="plan_managed_app_store">Bought on iPhone: manage it in your Apple Account’s subscriptions.</string>
+    <string name="plan_managed_website">Bought on the Hop website, where you can manage it.</string>
+    <string name="delete_account">Delete account</string>
+    <string name="delete_title">Delete your Hop account?</string>
+    <string name="delete_cant_undo">This can’t be undone.</string>
+    <string name="delete_what_happens">What happens</string>
+    <string name="delete_clips">Every clip and event in your inbox is deleted.</string>
+    <string name="delete_profile">Your name and photo are removed.</string>
+    <string name="delete_link">%1$s stops working, and nobody else can take it.</string>
+    <string name="delete_signed_out">You’re signed out on every device.</string>
+    <string name="delete_billing_renews">Deleting your account doesn’t cancel Hop+. Apple keeps billing you until you cancel it.</string>
+    <string name="delete_billing_ends">Your Hop+ is cancelled with your account, and the rest of this period isn’t refunded.</string>
+    <string name="delete_billing_unknown">If you have Hop+ from the iPhone app, deleting your account doesn’t cancel it. Apple keeps billing you until you cancel it.</string>
+    <string name="delete_footnote">Save any clips you want to keep first. Your Caliplaces account isn’t affected.</string>
+    <string name="delete_confirm_message">Your clips, events and profile are deleted for good.</string>
     <string name="blocked_title">Blocked senders</string>
     <string name="blocked_empty">Nobody’s blocked</string>
     <string name="blocked_empty_message">Block someone from a clip they sent, and they’ll show up here.</string>

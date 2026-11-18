@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -54,9 +55,10 @@ fun BigButton(
     enabled: Boolean = true,
     working: Boolean = false,
     athlete: PaletteColor? = null,
+    colors: ButtonColors? = null,
 ) {
     val height = ButtonDefaults.MediumContainerHeight
-    val colors = if (athlete != null) {
+    val colors = colors ?: if (athlete != null) {
         ButtonDefaults.buttonColors(containerColor = athlete.color, contentColor = athlete.onColor)
     } else {
         ButtonDefaults.buttonColors()
@@ -77,7 +79,7 @@ fun BigButton(
             if (busy) {
                 LoadingIndicator(
                     modifier = Modifier.size(ButtonDefaults.iconSizeFor(height) * 1.4f),
-                    color = athlete?.onColor ?: MaterialTheme.colorScheme.onPrimary,
+                    color = colors.contentColor,
                 )
             } else {
                 Text(text, style = ButtonDefaults.textStyleFor(height))
