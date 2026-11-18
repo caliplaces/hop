@@ -165,6 +165,53 @@ class EventModeTest {
         assertFalse(eventMode().also { it.resume(me) }.run != null)
     }
 
+    /** A push moves the notification's count ahead, for the event running here only, and never back. */
+    @Test
+    fun pushesUpdateTheNotification() = runBlocking {
+        replies["POST /api/me/hops/h1/activate"] = """{"ok":true,"activatedAt":555}"""
+        val mode = eventMode()
+        mode.start(EventMode.Target.Existing(com.onmyhop.app.core.Hop("h1", "x", "X", "open", 1, 0, 0)), me, api())
+        mode.pushed("u1", "h1", clips = 2, latest = "Mia", at = 10)
+        assertEquals(Triple("h1", 2, "Mia"), notifier.shown.last())
+        val shown = notifier.shown.size
+        mode.pushed("u1", "h1", clips = 1, latest = null, at = 9) // older
+        mode.pushed("u1", "h2", clips = 5, latest = null, at = 11) // another event
+        mode.pushed("u2", "h1", clips = 5, latest = null, at = 12) // another athlete
+        assertEquals(shown, notifier.shown.size)
+
+        // The app's own count is ahead: the notification stays with it.
+        replies["GET /api/me/hops/h1/arrivals"] = """{"count":4,"latest":[${clip("c4", "Leo")}]}"""
+        mode.poll(api())
+        mode.pushed("u1", "h1", clips = 3, latest = "Mia", at = 13)
+        assertEquals(Triple("h1", 4, "Leo"), notifier.shown.last())
+        // The app's count stays its own, so it still celebrates what it finds.
+        mode.pushed("u1", "h1", clips = 6, latest = "Ana", at = 14)
+        assertEquals(Triple("h1", 6, "Ana"), notifier.shown.last())
+        assertEquals(4, mode.state.value.clips)
+    }
+
+    /** With the app closed, a push still updates the notification, and the app opens on that count. */
+    @Test
+    fun pushesWhileTheAppIsClosed() = runBlocking {
+        replies["POST /api/me/hops/h1/activate"] = """{"ok":true,"activatedAt":555}"""
+        eventMode().start(EventMode.Target.Existing(com.onmyhop.app.core.Hop("h1", "x", "X", "open", 1, 0, 0)), me, api())
+        val closed = eventMode()
+        closed.pushed("u1", "h1", clips = 3, latest = "Mia", at = 10)
+        assertEquals(Triple("h1", 3, "Mia"), notifier.shown.last())
+        assertNull(closed.run)
+
+        val opened = eventMode()
+        opened.resume(me)
+        assertEquals(3, opened.state.value.clips)
+        assertEquals(Triple("h1", 3, "Mia"), notifier.shown.last())
+
+        // A new event starts from nothing.
+        replies["POST /api/me/hops/h2/activate"] = """{"ok":true,"activatedAt":777}"""
+        opened.start(EventMode.Target.Existing(com.onmyhop.app.core.Hop("h2", "y", "Y", "open", 1, 0, 0)), me, api())
+        opened.pushed("u1", "h2", clips = 1, latest = null, at = 5)
+        assertEquals(Triple("h2", 1, null), notifier.shown.last())
+    }
+
     /** An event deleted elsewhere ends Event mode; being offline doesn't. */
     @Test
     fun endsWhenTheEventIsGone() = runBlocking {
@@ -187,14 +234,14 @@ class RecordingNotifier : EventNotifier {
     }
 }
 
-/** SharedPreferences in memory, for the strings Event mode keeps. */
+/** SharedPreferences in memory, for what Event mode and push notifications keep. */
 class MemoryPreferences : SharedPreferences {
     private val values = mutableMapOf<String, Any?>()
     override fun getAll(): Map<String, *> = values
     override fun getString(key: String, defValue: String?) = values[key] as String? ?: defValue
     override fun getStringSet(key: String, defValues: Set<String>?) = defValues
-    override fun getInt(key: String, defValue: Int) = defValue
-    override fun getLong(key: String, defValue: Long) = defValue
+    override fun getInt(key: String, defValue: Int) = values[key] as Int? ?: defValue
+    override fun getLong(key: String, defValue: Long) = values[key] as Long? ?: defValue
     override fun getFloat(key: String, defValue: Float) = defValue
     override fun getBoolean(key: String, defValue: Boolean) = values[key] as Boolean? ?: defValue
     override fun contains(key: String) = key in values

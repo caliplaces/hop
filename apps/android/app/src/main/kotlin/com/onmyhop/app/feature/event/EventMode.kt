@@ -26,7 +26,8 @@ import kotlinx.serialization.Serializable
  *
  * It lives as long as the app, outside any screen, so the running event
  * survives switching tabs and relaunching. It counts while the app is open;
- * the notification shows the last count it saw.
+ * otherwise the API pushes the count to the notification (in builds with
+ * push notifications; without them it shows the last count the app saw).
  */
 class EventMode(
     private val preferences: SharedPreferences,
@@ -114,13 +115,16 @@ class EventMode(
             _state.update { it.copy(hasSettled = true) }
             return
         }
-        val saved = preferences.getString(KEY, null)?.let { runCatching { HopJson.decodeFromString<Run>(it) }.getOrNull() }
+        val saved = saved()
         if (saved != null && saved.userId == me.id && now() - saved.startedAt < MAX_DURATION_MS) {
             generation++
             catchingUp = true
             announced.clear()
-            _state.value = State(run = saved, hasSettled = true)
-            notifier.show(saved, clips = 0, latest = null)
+            // The last count a push brought while the app was closed, until it checks.
+            val clips = preferences.getInt(PUSHED_CLIPS, 0)
+            val latest = preferences.getString(PUSHED_LATEST, null)
+            _state.value = State(run = saved, clips = clips, latest = latest, hasSettled = true)
+            notifier.show(saved, clips, latest)
             return
         }
         clear()
@@ -140,7 +144,10 @@ class EventMode(
         val started = Run(userId = me.id, hopId = hop.id, title = hop.title, startedAt = now(), since = activation.activatedAt)
         announced.clear()
         catchingUp = false
-        preferences.edit(commit = true) { putString(KEY, HopJson.encodeToString(Run.serializer(), started)) }
+        preferences.edit(commit = true) {
+            putString(KEY, HopJson.encodeToString(Run.serializer(), started))
+            removePushed()
+        }
         _state.value = State(run = started, hasSettled = true)
         notifier.show(started, clips = 0, latest = null)
     }
@@ -157,6 +164,27 @@ class EventMode(
         generation++
         clear()
         _state.value = State()
+    }
+
+    /**
+     * Event mode's count from a push, which comes whether or not the app is
+     * open: for the event running here, from its own athlete, and newer than
+     * the last. It goes to the notification. While the app is open its own
+     * checks keep the count, celebrating what lands; a push only moves the
+     * notification ahead of them, never back.
+     */
+    fun pushed(userId: String, hopId: String, clips: Int, latest: String?, at: Long) {
+        val current = run ?: saved()
+        if (current == null || current.userId != userId || current.hopId != hopId) return
+        if (now() - current.startedAt >= MAX_DURATION_MS) return
+        if (at <= preferences.getLong(PUSHED_AT, 0L)) return
+        preferences.edit(commit = true) {
+            putLong(PUSHED_AT, at)
+            putInt(PUSHED_CLIPS, clips)
+            if (latest != null) putString(PUSHED_LATEST, latest) else remove(PUSHED_LATEST)
+        }
+        if (run != null && clips <= _state.value.clips) return
+        notifier.show(current, clips, latest)
     }
 
     /** Checks for new clips once. */
@@ -222,8 +250,20 @@ class EventMode(
         }
     }
 
+    private fun saved(): Run? =
+        preferences.getString(KEY, null)?.let { runCatching { HopJson.decodeFromString<Run>(it) }.getOrNull() }
+
+    private fun SharedPreferences.Editor.removePushed() {
+        remove(PUSHED_AT)
+        remove(PUSHED_CLIPS)
+        remove(PUSHED_LATEST)
+    }
+
     private fun clear() {
-        preferences.edit(commit = true) { remove(KEY) }
+        preferences.edit(commit = true) {
+            remove(KEY)
+            removePushed()
+        }
         announced.clear()
         catchingUp = false
         notifier.clear()
@@ -245,6 +285,11 @@ class EventMode(
         /** Events stop on their own after this long. */
         const val MAX_DURATION_MS = 12L * 60 * 60 * 1000
         private const val KEY = "event.run"
+
+        /** The newest count a push brought for the running event: when (server clock), how many, and from whom. */
+        private const val PUSHED_AT = "event.pushed.at"
+        private const val PUSHED_CLIPS = "event.pushed.clips"
+        private const val PUSHED_LATEST = "event.pushed.latest"
     }
 }
 

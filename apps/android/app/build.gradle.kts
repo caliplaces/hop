@@ -11,6 +11,29 @@ plugins {
  */
 val debugApiUrl = providers.gradleProperty("hop.apiUrl").orElse("https://staging.onmyhop.com")
 
+/**
+ * Firebase, for push notifications: each environment's own project, from
+ * `hop.firebase.<staging|production>.<appId|projectId|apiKey|senderId>` (in
+ * ~/.gradle/gradle.properties, never in the repository). Debug builds use
+ * staging's, release builds production's. Without them, a build has no push
+ * notifications.
+ */
+fun firebase(environment: String): Map<String, String> =
+    listOf("appId", "projectId", "apiKey", "senderId").associateWith { field ->
+        providers.gradleProperty("hop.firebase.$environment.$field").orElse("").get()
+    }
+
+fun com.android.build.api.dsl.ApplicationBuildType.firebaseFrom(environment: String) {
+    val settings = firebase(environment)
+    val complete = settings.values.all { it.isNotBlank() }
+    for ((field, value) in settings) {
+        val name = "FIREBASE_" + field.replace(Regex("([A-Z])"), "_$1").uppercase()
+        buildConfigField("String", name, "\"${if (complete) value else ""}\"")
+    }
+    // The messaging service is there only when there's Firebase to receive from.
+    resValue("bool", "push_enabled", complete.toString())
+}
+
 android {
     namespace = "com.onmyhop.app"
     compileSdk = 37
@@ -26,18 +49,21 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "API_URL", "\"${debugApiUrl.get()}\"")
+            firebaseFrom("staging")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "API_URL", "\"https://onmyhop.com\"")
+            firebaseFrom("production")
         }
     }
 
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 
     compileOptions {
@@ -92,6 +118,8 @@ dependencies {
     implementation(libs.media3.ui.compose.material3)
     implementation(libs.zxing.core)
     implementation(libs.glance.appwidget)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

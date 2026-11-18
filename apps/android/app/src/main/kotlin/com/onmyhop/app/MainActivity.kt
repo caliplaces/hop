@@ -67,6 +67,10 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             ACTION_EVENT_STAGE -> container.links.open(HopLink.EventStage)
             ACTION_QR_CODE -> container.links.open(HopLink.QrCode)
+            // Anything can start this activity: only an ID's shape is taken
+            // from outside, and only the signed-in athlete's events open.
+            ACTION_CLIPS -> container.links.open(HopLink.Clips(intent.getStringExtra(EXTRA_HOP_ID)?.takeIf(HOP_ID::matches)))
+            ACTION_EXPIRING -> container.links.open(HopLink.Expiring)
         }
     }
 
@@ -91,5 +95,14 @@ class MainActivity : ComponentActivity() {
 
         /** Opens the QR code full screen: Event mode's, if it's running. */
         const val ACTION_QR_CODE = "com.onmyhop.app.action.QR_CODE"
+
+        /** Opens new clips: the event in [EXTRA_HOP_ID], or the inbox. */
+        const val ACTION_CLIPS = "com.onmyhop.app.action.CLIPS"
+
+        /** Opens the inbox, which says which free-plan clips are about to leave. */
+        const val ACTION_EXPIRING = "com.onmyhop.app.action.EXPIRING"
+
+        const val EXTRA_HOP_ID = "com.onmyhop.app.extra.HOP_ID"
+        private val HOP_ID = Regex("[A-Za-z0-9_-]{1,64}")
     }
 }

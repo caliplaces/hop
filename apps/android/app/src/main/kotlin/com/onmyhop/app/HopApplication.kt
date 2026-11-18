@@ -16,6 +16,9 @@ import com.onmyhop.app.core.HopServer
 import com.onmyhop.app.feature.event.EventMode
 import com.onmyhop.app.feature.event.EventNotification
 import com.onmyhop.app.feature.inbox.ClipTransfers
+import com.onmyhop.app.push.Push
+import com.onmyhop.app.push.PushNotifications
+import com.onmyhop.app.push.PushTokens
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -53,7 +56,19 @@ class AppContainer(context: Context) {
     /** Event mode, which outlives any one screen. */
     val eventMode = EventMode(context.getSharedPreferences("hop.event", Context.MODE_PRIVATE), EventNotification(context))
 
+    /** Push notifications, in builds with Firebase: registered while someone is signed in. */
+    val push = Push(
+        session = session,
+        tokens = PushTokens.start(context),
+        preferences = context.getSharedPreferences("hop.push", Context.MODE_PRIVATE),
+        eventMode = eventMode,
+        notifier = PushNotifications(context),
+        allowed = { PushNotifications.allowed(context) },
+        scope = scope,
+    )
+
     init {
+        push.start()
         // The widget and the tile show this athlete's QR code, and nobody's once they
         // sign out: kept in sync here, as long as the app runs, not by a screen that
         // stops watching in the background (an account deleted after leaving, say).

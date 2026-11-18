@@ -116,7 +116,7 @@ fun HopApp(container: AppContainer) {
                             Stage.Welcome -> WelcomeScreen(container.signIn)
                             Stage.Claim -> current?.let { ClaimScreen(it, session) }
                             Stage.Profile -> current?.let { ProfileSetupScreen(it, session) }
-                            Stage.Home -> HomeScreen(session, container.transfers, container.eventMode, container.links)
+                            Stage.Home -> HomeScreen(session, container.transfers, container.eventMode, container.links, container.push)
                         }
                     }
                 },
