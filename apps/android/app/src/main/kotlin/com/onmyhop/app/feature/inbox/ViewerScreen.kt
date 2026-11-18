@@ -96,9 +96,18 @@ fun ViewerScreen(
     transfers: ClipTransfers,
     onBack: () -> Unit,
 ) {
+    // Leaving happens once, however many ways ask for it (a delete that
+    // empties the event, and the empty list it leaves behind, say).
+    var left by remember { mutableStateOf(false) }
+    val leave = {
+        if (!left) {
+            left = true
+            onBack()
+        }
+    }
     val clips = model.clips(hopId).items
     if (clips.isEmpty()) {
-        LaunchedEffect(Unit) { onBack() }
+        LaunchedEffect(Unit) { leave() }
         return
     }
     val initial = remember { clips.indexOfFirst { it.id == startAt }.coerceAtLeast(0) }
@@ -155,7 +164,7 @@ fun ViewerScreen(
                 orientation = Orientation.Vertical,
                 state = rememberDraggableState { delta -> scope.launch { drag.snapTo((drag.value + delta).coerceAtLeast(0f)) } },
                 onDragStopped = {
-                    if (drag.value > closeAt) onBack() else scope.launch { drag.animateTo(0f) }
+                    if (drag.value > closeAt) leave() else scope.launch { drag.animateTo(0f) }
                 },
             ),
     ) {
@@ -182,7 +191,7 @@ fun ViewerScreen(
         }
 
         AnimatedVisibility(chrome && current != null, enter = fadeIn(), exit = fadeOut()) {
-            current?.let { TopBar(it, pager.settledPage + 1, clips.size, onBack) }
+            current?.let { TopBar(it, pager.settledPage + 1, clips.size, leave) }
         }
 
         AnimatedVisibility(
@@ -214,9 +223,8 @@ fun ViewerScreen(
                 deleting = null
                 scope.launch {
                     try {
+                        // The next clip slides in; with none left, the empty list leaves.
                         model.delete(clip)
-                        // The next clip slides in; with none left, back to the grid.
-                        if (model.clips(hopId).items.isEmpty()) onBack()
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
@@ -227,11 +235,10 @@ fun ViewerScreen(
         )
     }
 
-    // A block takes the sender's clips out of the inbox, this one included: close, and catch up.
+    // A block takes the sender's clips out of the inbox, this one included: close.
     suspend fun block(clip: Clip) {
         model.block(clip)
-        onBack()
-        model.refresh()
+        leave()
     }
 
     blocking?.let { clip ->

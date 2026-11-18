@@ -185,28 +185,38 @@ class InboxModel(private val session: Session) : ViewModel() {
     }
 
     /** Deletes a clip for good, and takes it out of its event's list and totals. */
-    suspend fun delete(clip: Clip) {
+    suspend fun delete(clip: Clip) = owned {
         session.api.delete("api/me/files/${clip.id}")
         drop(mapOf(clip.id to clip))
-        // Storage and clips about to leave move with it.
-        viewModelScope.launch { loadPlan() }
+        // A refresh under way may have read the totals from before: it starts
+        // over. Otherwise the plan alone (storage, clips about to leave) moves.
+        if (refreshing?.isActive == true) refresh() else loadPlan()
     }
 
     /** Reports a clip to Hop's team. */
-    suspend fun report(clip: Clip, reason: ReportReason, note: String?) {
+    suspend fun report(clip: Clip, reason: ReportReason, note: String?) = owned {
         session.api.post<ReportRequest, Ok>("api/me/files/${clip.id}/report", ReportRequest(reason.id, note?.trim()?.ifEmpty { null }))
     }
 
     /**
      * Blocks whoever sent a clip: their clips leave the inbox (dropped here at
-     * once), and they can't send more. Returns the ids of the clips that went.
+     * once, then a fresh reload), and they can't send more. Returns the ids
+     * of the clips that went.
      */
-    suspend fun block(clip: Clip): Set<String> {
+    suspend fun block(clip: Clip): Set<String> = owned {
         val reply = session.api.post<Empty, BlockReply>("api/me/files/${clip.id}/block", Empty)
         val known = clips.values.flatMap { it.items }.associateBy { it.id }
         drop(reply.removedIds.associateWith { known[it] } + (clip.id to clip))
-        return reply.removedIds.toSet() + clip.id
+        refresh()
+        reply.removedIds.toSet() + clip.id
     }
+
+    /**
+     * Runs a change in the inbox's own scope: once it's asked for, leaving the
+     * screen that asked (which cancels the wait) can't stop the request or
+     * the lists catching up with it.
+     */
+    private suspend fun <T> owned(change: suspend () -> T): T = viewModelScope.async { change() }.await()
 
     /**
      * Takes clips that are gone out of every event's list and totals, without

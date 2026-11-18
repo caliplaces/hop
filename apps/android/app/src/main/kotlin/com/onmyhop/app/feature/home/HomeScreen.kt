@@ -97,16 +97,18 @@ fun HomeScreen(session: Session, transfers: ClipTransfers) {
                     }
                     entry<AccountKey> { AccountScreen(session, onBack = back, openBlocked = { backStack.add(BlockedKey) }) }
                     entry<BlockedKey> { BlockedSendersScreen(session, onBack = back) }
+                    // Screens leave by taking only themselves off the stack, so a
+                    // second request to leave can't take the screen below too.
                     entry<EventKey> { key ->
                         EventScreen(
                             hopId = key.hopId,
                             model = inbox,
                             session = session,
-                            onBack = back,
+                            onBack = { backStack.remove(key) },
                             openClip = { backStack.add(ViewerKey(key.hopId, it)) },
                         )
                     }
-                    entry<ViewerKey> { key -> ViewerScreen(key.hopId, key.clipId, inbox, transfers, onBack = back) }
+                    entry<ViewerKey> { key -> ViewerScreen(key.hopId, key.clipId, inbox, transfers, onBack = { backStack.remove(key) }) }
                 },
             )
         }

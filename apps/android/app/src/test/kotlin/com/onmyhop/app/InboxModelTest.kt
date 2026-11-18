@@ -5,6 +5,7 @@ import com.onmyhop.app.feature.inbox.InboxModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -217,13 +218,38 @@ class InboxModelTest {
         // The first reading after a delete answers slowly, with the older figure.
         firstReplies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":5,"limitBytes":10},"revision":1}""" to 400L
         replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":0,"limitBytes":10},"revision":1}"""
+        // Two deletes, the second confirmed while the first is still finishing.
         kotlinx.coroutines.runBlocking {
+            val first = kotlinx.coroutines.CoroutineScope(Dispatchers.Default).launch { model.delete(model.clips("h").items[0]) }
+            Thread.sleep(100)
             model.delete(model.clips("h").items[0])
-            Thread.sleep(50)
-            model.delete(model.clips("h").items[0])
+            first.join()
         }
-        Thread.sleep(700)
+        Thread.sleep(300)
         assertEquals(0L, model.plan?.storage?.usedBytes)
+    }
+
+    /** A delete during a refresh that read the totals from before it: the refresh starts over. */
+    @Test
+    fun aDeleteDuringARefreshKeepsTotalsRight() {
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 2)}]}"""
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":1,"limitBytes":10},"revision":1}"""
+        replies["/api/me/files?hopId=h"] = """{"files":[${clip("c2", "h", 2)},${clip("c1", "h", 1)}],"nextCursor":null}"""
+        replies["/api/me/files/c2"] = """{"ok":true}"""
+        val model = model()
+        model.refresh()
+        waitFor { model.clips("h").loadedOnce }
+        // A slow refresh that read the event before the delete…
+        firstReplies["/api/me/hops"] = """{"hops":[${hop("h", 1, 2)}]}""" to 400L
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 1)}]}"""
+        replies["/api/me/files?hopId=h"] = """{"files":[${clip("c1", "h", 1)}],"nextCursor":null}"""
+        model.refresh(pulled = true)
+        Thread.sleep(50)
+        kotlinx.coroutines.runBlocking { model.delete(model.clips("h").items[0]) }
+        Thread.sleep(700)
+        waitFor { !model.isRefreshing }
+        assertEquals(1, model.hop("h")?.fileCount)
+        assertEquals(listOf("c1"), model.clips("h").items.map { it.id })
     }
 
     /** Offline before anything loaded: the inbox says so; with events shown, they stay. */
