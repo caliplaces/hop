@@ -5,7 +5,10 @@ import com.onmyhop.app.core.ApiError
 import com.onmyhop.app.core.Empty
 import com.onmyhop.app.core.HopServer
 import com.onmyhop.app.core.Me
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -27,6 +30,8 @@ class Session(
     private val store: TokenStore,
     val baseUrl: HttpUrl,
     private val http: OkHttpClient,
+    /** Outlives every screen, for telling the server about a sign-out after the screen is gone. */
+    private val scope: CoroutineScope,
     private val allowsCustomScheme: Boolean = HopServer.ALLOWS_CUSTOM_SCHEME,
 ) {
     data class State(val token: String?, val me: Me?) {
@@ -130,12 +135,18 @@ class Session(
      * Signs out at once, then tells the server to end the session. `before`
      * runs with the session still valid on the server, such as telling it
      * this phone no longer takes the athlete's notifications.
+     *
+     * The app moves to the welcome screen straight away, which ends the
+     * screen that asked, so the server's part runs in the session's own
+     * scope: leaving can't cancel it and leave the token valid there.
      */
-    suspend fun signOut(before: suspend (ApiClient) -> Unit = {}) {
+    fun signOut(before: suspend (ApiClient) -> Unit = {}): Job {
         val client = api
         forget()
-        runCatching { before(client) }
-        runCatching { client.post("api/auth/logout") }
+        return scope.launch {
+            runCatching { before(client) }
+            runCatching { client.post("api/auth/logout") }
+        }
     }
 
     private fun forget() {

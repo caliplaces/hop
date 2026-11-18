@@ -38,15 +38,29 @@
 
         <!--
             Passes Caliplaces' redirect back to the sign-in under way, in
-            browsers without Auth Tabs. Release builds sign in only through
-            the https callback, which needs no entry here. Debug builds, which
-            talk to staging, add the custom scheme (src/debug).
+            browsers without Auth Tabs (with one, the result comes back to
+            MainActivity). Production redirects to its https callback, which
+            opens here once onmyhop.com's Digital Asset Links list the app;
+            until then Android leaves the link to the browser. Debug builds,
+            which talk to staging, add the custom scheme (src/debug). Anything
+            can open this activity, so it only hands a URL to a sign-in
+            already under way, which checks it's exactly that flow's callback,
+            with that flow's state.
         -->
         <activity
             android:name=".auth.SignInCallbackActivity"
             android:excludeFromRecents="true"
-            android:exported="false"
+            android:exported="true"
             android:noHistory="true"
-            android:theme="@style/Theme.Hop.Invisible" />
+            android:theme="@style/Theme.Hop.Invisible">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="onmyhop.com" />
+                <data android:path="/api/auth/app/callback" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

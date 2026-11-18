@@ -19,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,7 +33,6 @@ import com.onmyhop.app.design.Avatar
 import com.onmyhop.app.design.HopLegal
 import com.onmyhop.app.design.SettingsGroup
 import com.onmyhop.app.design.SettingsRow
-import kotlinx.coroutines.launch
 
 /** The athlete's account: who they are, Hop's legal pages, and signing out. */
 @Composable
@@ -42,7 +40,6 @@ fun AccountScreen(session: Session, onBack: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val me = state.me
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -91,7 +88,7 @@ fun AccountScreen(session: Session, onBack: () -> Unit) {
             SettingsGroup(
                 listOf(
                     SettingsRow(
-                        onClick = { scope.launch { session.signOut() } },
+                        onClick = { session.signOut() },
                         leading = { Icon(painterResource(R.drawable.ic_logout), null) },
                         colors = {
                             ListItemDefaults.segmentedColors(
@@ -110,7 +107,6 @@ fun AccountScreen(session: Session, onBack: () -> Unit) {
 @Composable
 fun SignOutMenu(session: Session) {
     var open by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     IconButton(onClick = { open = true }) {
         Icon(painterResource(R.drawable.ic_account_circle), stringResource(R.string.account_title))
     }
@@ -120,7 +116,7 @@ fun SignOutMenu(session: Session) {
             leadingIcon = { Icon(painterResource(R.drawable.ic_logout), null) },
             onClick = {
                 open = false
-                scope.launch { session.signOut() }
+                session.signOut()
             },
         )
     }

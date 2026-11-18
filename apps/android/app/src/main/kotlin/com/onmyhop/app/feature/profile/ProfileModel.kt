@@ -91,8 +91,9 @@ class ProfileModel(me: Me, private val session: Session) : ViewModel() {
             PhotoChange.Unchanged -> me.avatarUrl != null
         }
 
-    /** Prepares a picked photo; a newer pick replaces one still being prepared. */
+    /** Prepares a picked photo; a newer pick replaces one still being prepared. Not while saving. */
     fun choosePhoto(resolver: ContentResolver, uri: Uri) {
+        if (isSaving) return
         picking?.cancel()
         isPreparingPhoto = true
         problem = null
@@ -108,6 +109,7 @@ class ProfileModel(me: Me, private val session: Session) : ViewModel() {
     }
 
     fun removePhoto() {
+        if (isSaving) return
         picking?.cancel()
         isPreparingPhoto = false
         photo = if (me.avatarUrl == null) PhotoChange.Unchanged else PhotoChange.Removed
@@ -126,12 +128,13 @@ class ProfileModel(me: Me, private val session: Session) : ViewModel() {
                 is PhotoChange.New -> {
                     val reply: Reply = api.putBytes("api/me/avatar", change.jpeg, "image/jpeg")
                     accept(reply.me)
-                    photo = PhotoChange.Unchanged
+                    // Only the change that was saved: never a newer one.
+                    if (photo === change) photo = PhotoChange.Unchanged
                 }
                 PhotoChange.Removed -> {
                     val reply: Reply = api.deleteFor("api/me/avatar")
                     accept(reply.me)
-                    photo = PhotoChange.Unchanged
+                    if (photo === change) photo = PhotoChange.Unchanged
                 }
                 PhotoChange.Unchanged -> {}
             }

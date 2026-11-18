@@ -30,6 +30,7 @@ class AppContainer(context: Context) {
         store = KeystoreTokenStore(context, account = HopServer.storageKey(HopServer.baseUrl)),
         baseUrl = HopServer.baseUrl,
         http = http,
+        scope = scope,
     )
 
     val signIn = SignIn(session, scope)

@@ -33,7 +33,7 @@ class SignInTest {
 
     private suspend fun TestScope.started(): Pair<SignIn, Session> {
         server.enqueue(json("""{"authorizeUrl":"https://accounts.example/a?state=st4te","flow":"f","callback":{"scheme":"com.onmyhop.app"}}"""))
-        val session = Session(store, server.url("/"), OkHttpClient(), allowsCustomScheme = true)
+        val session = Session(store, server.url("/"), OkHttpClient(), backgroundScope, allowsCustomScheme = true)
         val signIn = SignIn(session, TestScope(UnconfinedTestDispatcher(testScheduler)))
         signIn.start()
         // The start request runs on OkHttp's thread; wait for the page to open.

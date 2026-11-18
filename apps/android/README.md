@@ -63,8 +63,10 @@ The API says where the redirect goes, and the app accepts only Hop's own:
   which staging still uses. Any app can claim a scheme and pose as Hop with
   it, so release builds refuse it, and only the debug manifest registers it.
 
-The redirect comes back through the Auth Tab's result or, in browsers without
-Auth Tabs, through `SignInCallbackActivity`. Either way, it only finishes a
+The redirect comes back through the Auth Tab's result. In browsers without
+Auth Tabs, it comes through `SignInCallbackActivity`, which catches the https
+callback as a verified app link (once the site's Digital Asset Links list the
+app) and, in debug builds, the custom scheme. Either way, it only finishes a
 sign-in already under way, and only if it's exactly that flow's callback with
 that flow's `state`.
 

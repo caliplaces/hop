@@ -1,5 +1,7 @@
 package com.onmyhop.app
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.auth.SignInCallback
 import com.onmyhop.app.auth.TokenStore
@@ -30,7 +32,7 @@ class SessionTest {
     fun stop() = server.close()
 
     private fun session(allowsCustomScheme: Boolean = true) =
-        Session(store, server.url("/"), OkHttpClient(), allowsCustomScheme)
+        Session(store, server.url("/"), OkHttpClient(), CoroutineScope(Dispatchers.Unconfined), allowsCustomScheme)
 
     private fun json(body: String, code: Int = 200) =
         MockResponse.Builder().code(code).setHeader("Content-Type", "application/json").body(body).build()
@@ -181,8 +183,10 @@ class SessionTest {
         server.enqueue(json("""{"ok":true}"""))
         val session = session()
         var before: String? = null
-        session.signOut { before = it.token }
+        val serverSide = session.signOut { before = it.token }
+        // Signed out here at once; the server hears about it after.
         assertFalse(session.state.value.isSignedIn)
+        serverSide.join()
         assertNull(store.token)
         assertEquals("hs_abc", before)
         val logout = server.takeRequest()

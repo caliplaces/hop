@@ -1,5 +1,6 @@
 package com.onmyhop.app
 
+import kotlinx.coroutines.CoroutineScope
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.core.Me
 import com.onmyhop.app.feature.claim.ClaimModel
@@ -42,7 +43,7 @@ class ClaimModelTest {
         val http = OkHttpClient.Builder()
             .addInterceptor { chain -> if (offline) throw IOException("offline") else chain.proceed(chain.request()) }
             .build()
-        val session = Session(store, server.url("/"), http, allowsCustomScheme = true)
+        val session = Session(store, server.url("/"), http, CoroutineScope(Dispatchers.Unconfined), allowsCustomScheme = true)
         return ClaimModel(Me(id = "u", color = "sky", name = "Maya"), session, debounceMs = 0)
     }
 

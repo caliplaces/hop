@@ -74,6 +74,7 @@ fun ProfileCard(model: ProfileModel, modifier: Modifier = Modifier) {
                 Box(Modifier.align(Alignment.BottomEnd).offset(x = 4.dp, y = 4.dp)) {
                     FilledTonalIconButton(
                         onClick = { if (model.hasPhoto) menu = true else pick() },
+                        enabled = !model.isSaving,
                     ) {
                         Icon(
                             painterResource(if (model.hasPhoto) R.drawable.ic_edit else R.drawable.ic_add_a_photo),
@@ -107,6 +108,8 @@ fun ProfileCard(model: ProfileModel, modifier: Modifier = Modifier) {
                 value = model.name,
                 onValueChange = { model.name = it },
                 modifier = Modifier.fillMaxWidth(),
+                // What's being saved stays as it was until the save is done.
+                enabled = !model.isSaving,
                 label = { Text(stringResource(R.string.profile_name_label)) },
                 singleLine = true,
                 isError = model.nameChanged && model.nameProblem != null,
