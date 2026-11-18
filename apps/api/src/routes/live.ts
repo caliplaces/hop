@@ -38,6 +38,10 @@ export const liveActivityRoutes = new Hono<AppEnv>()
     if (input.platform === "apns" && input.environment !== c.env.APNS_ENVIRONMENT) {
       return fail(c, 409, "wrong_environment", "Push updates aren't available for this build.");
     }
+    // The app registers each event and relaunch; a script registering made-up
+    // tokens by the hundred is stopped here, and by the cap below.
+    const { success } = await c.env.PROFILE_LIMITER.limit({ key: `live:${user.id}` });
+    if (!success) return fail(c, 429, "rate_limited", "Too many requests. Try again in a minute.");
     const db = getDb(c.env.DB);
     const hop = await db
       .select({ id: hops.id })
@@ -60,12 +64,19 @@ export const liveActivityRoutes = new Hono<AppEnv>()
       })
       .onConflictDoUpdate({
         target: liveActivities.token,
-        set: { hopId: hop.id, since: input.since, expiresAt: now + LIVE_ACTIVITY_TTL_MS },
-        // A token is only ever its own athlete's, and its own platform's.
-        setWhere: and(
-          eq(liveActivities.userId, user.id),
-          eq(liveActivities.platform, input.platform),
-        ),
+        set: {
+          userId: user.id,
+          hopId: hop.id,
+          since: input.since,
+          expiresAt: now + LIVE_ACTIVITY_TTL_MS,
+        },
+        // A token is only ever its own platform's. A Live Activity's is only
+        // ever its own athlete's. Android's is the app install's, so it moves
+        // to whoever signed in there, like the phone's (routes/devices.ts).
+        setWhere:
+          input.platform === "fcm"
+            ? eq(liveActivities.platform, "fcm")
+            : and(eq(liveActivities.userId, user.id), eq(liveActivities.platform, "apns")),
       })
       .returning({ token: liveActivities.token })
       .get();

@@ -1,8 +1,8 @@
 import { deviceSchema } from "@hop/shared";
-import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { getDb } from "../db";
-import { devices } from "../db/schema";
+import { devices, liveActivities } from "../db/schema";
 import type { AppEnv } from "../env";
 import { FCM_TOKEN } from "../lib/fcm";
 import { fail } from "../lib/http";
@@ -74,6 +74,13 @@ export const deviceRoutes = new Hono<AppEnv>()
       .returning({ token: devices.token })
       .get();
     if (!registered) return fail(c, 409, "token_taken");
+    // On Android, Event mode updates go to the same token. One the last
+    // account there left running (its sign-out never reached the API) stops.
+    if (input.platform === "fcm") {
+      await db
+        .delete(liveActivities)
+        .where(and(eq(liveActivities.token, token), ne(liveActivities.userId, user.id)));
+    }
     // Their newest few phones; older ones are forgotten.
     const keep = db
       .select({ token: devices.token })

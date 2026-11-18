@@ -10,7 +10,7 @@ import { base64url, pkcs8 } from "./crypto";
  *
  * Every message is a data message. The app builds the notification itself,
  * in its own channels and colours, and drops any meant for an account that
- * has since signed out of that phone.
+ * has since signed out of that phone (see `recipient`).
  */
 
 /** What Hop needs of the service account's key file (JSON, from Google Cloud). */
@@ -136,16 +136,48 @@ type Message = {
   collapseKey?: string;
 };
 
-/** FCM's error for a token whose app is gone from the phone, or that has expired. */
-const GONE = "UNREGISTERED";
+type FcmErrorDetail = {
+  "@type"?: string;
+  errorCode?: string;
+  fieldViolations?: { field?: string }[];
+};
+
+/**
+ * Whether FCM says the token is no good: UNREGISTERED (the app is gone from
+ * the phone, or the token expired), or INVALID_ARGUMENT about the token
+ * itself (it was never one).
+ */
+function tokenGone(code: string | undefined, details: FcmErrorDetail[]): boolean {
+  if (code === "UNREGISTERED") return true;
+  return (
+    code === "INVALID_ARGUMENT" &&
+    details.some(
+      (detail) =>
+        detail["@type"]?.endsWith("google.rpc.BadRequest") &&
+        detail.fieldViolations?.some((violation) => violation.field === "message.token"),
+    )
+  );
+}
+
+/**
+ * Who a message is for, as the app on that phone can tell: a hash of the
+ * account and the token, so Google gets no account ID to link phones by.
+ */
+export async function recipient(userId: string, token: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${userId}:${token}`),
+  );
+  return base64url(new Uint8Array(digest)).slice(0, 22);
+}
 
 /**
  * Sends one data message, at high priority so it's delivered at once, even
  * in Doze: each one ends up on the screen (a notification, or the count on
  * Event mode's).
  *
- * Only UNREGISTERED counts as "gone". Others, such as SENDER_ID_MISMATCH or
- * INVALID_ARGUMENT, are more likely this server's setup than the phone, so
+ * Only a token FCM says is no good counts as "gone". Other errors, such as
+ * SENDER_ID_MISMATCH, are more likely this server's setup than the phone, so
  * the token is kept and the problem logged; tokens nobody refreshes expire anyway.
  */
 async function send(
@@ -177,13 +209,14 @@ async function send(
   if (response.ok) return "sent";
   const error = (
     (await response.json().catch(() => null)) as {
-      error?: { status?: string; details?: { "@type"?: string; errorCode?: string }[] };
+      error?: { status?: string; details?: FcmErrorDetail[] };
     } | null
   )?.error;
+  const details = Array.isArray(error?.details) ? error.details : [];
   const code =
-    error?.details?.find((detail) => detail["@type"]?.endsWith("google.firebase.fcm.v1.FcmError"))
+    details.find((detail) => detail["@type"]?.endsWith("google.firebase.fcm.v1.FcmError"))
       ?.errorCode ?? error?.status;
-  if (code === GONE) return "gone";
+  if (tokenGone(code, details)) return "gone";
   if (response.status === 401) forgetAccessToken();
   console.error("fcm: push failed", response.status, code);
   return "failed";
@@ -194,7 +227,7 @@ async function send(
  * expire: the same text as on the iPhone, and the same `data` to open the
  * right screen. `userId` is the account it's for.
  */
-export function pushFcmAlert(
+export async function pushFcmAlert(
   env: Env,
   token: string,
   userId: string,
@@ -207,7 +240,7 @@ export function pushFcmAlert(
     {
       data: {
         ...data,
-        user: userId,
+        recipient: await recipient(userId, token),
         title: alert.title,
         body: alert.body,
         // Grouped together on the phone, and replacing each other, as on the iPhone.
@@ -225,7 +258,7 @@ export function pushFcmAlert(
  * sent the latest. With `alert`, the app also lets the phone know (once
  * every few minutes, as on the iPhone).
  */
-export function pushFcmEventUpdate(
+export async function pushFcmEventUpdate(
   env: Env,
   token: string,
   {
@@ -250,7 +283,7 @@ export function pushFcmEventUpdate(
     {
       data: {
         hop: "event",
-        user: userId,
+        recipient: await recipient(userId, token),
         hopId,
         clips: String(clips),
         ...(latest ? { latest } : {}),

@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import worker from "./index";
 import { forgetProviderToken } from "./lib/apns";
 import { fromBase64url, randomToken, sha256Hex } from "./lib/crypto";
-import { forgetAccessToken, pushFcmAlert, serviceAccount } from "./lib/fcm";
+import { forgetAccessToken, pushFcmAlert, recipient, serviceAccount } from "./lib/fcm";
 import { pushToPhones } from "./lib/phones";
 import { ALERT_EVERY_MS, pushArrivals } from "./live";
 import { announceNewClips } from "./notify";
@@ -21,6 +21,8 @@ const IPHONE = "a1".repeat(32);
 const ACCESS_TOKEN = "test-access-token";
 
 let keys: CryptoKeyPair;
+/** Who messages to PHONE for usr_a are for, as the app works it out. */
+let TO_PHONE: string;
 let account: string;
 let env: Env;
 let db: ReturnType<typeof getDb>;
@@ -39,6 +41,7 @@ let messages: {
 let apns: string[];
 let tokenReply: () => Response;
 let fcmReply: (token: string) => Response;
+let limited: boolean;
 
 const fcmError = (status: number, code: string, errorCode?: string) =>
   Response.json(
@@ -54,6 +57,28 @@ const fcmError = (status: number, code: string, errorCode?: string) =>
     { status },
   );
 
+/** FCM's answer when a field of the message is wrong. */
+const badRequest = (field: string) =>
+  Response.json(
+    {
+      error: {
+        code: 400,
+        status: "INVALID_ARGUMENT",
+        details: [
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            errorCode: "INVALID_ARGUMENT",
+          },
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            fieldViolations: [{ field, description: `${field} is invalid` }],
+          },
+        ],
+      },
+    },
+    { status: 400 },
+  );
+
 async function pem(key: CryptoKey) {
   const der = new Uint8Array((await crypto.subtle.exportKey("pkcs8", key)) as ArrayBuffer);
   const base64 = btoa(String.fromCharCode(...der));
@@ -61,6 +86,7 @@ async function pem(key: CryptoKey) {
 }
 
 beforeAll(async () => {
+  TO_PHONE = await recipient("usr_a", PHONE);
   keys = (await crypto.subtle.generateKey(
     {
       name: "RSASSA-PKCS1-v1_5",
@@ -100,7 +126,7 @@ beforeEach(async () => {
     APPLE_TEAM_ID: "TEAM123456",
     APPLE_BUNDLE_ID: "com.onmyhop.app",
     FCM_SERVICE_ACCOUNT: account,
-    PROFILE_LIMITER: { limit: async () => ({ success: true }) },
+    PROFILE_LIMITER: { limit: async () => ({ success: !limited }) },
   } as unknown as Env;
   db = getDb(DB);
   await db.insert(users).values([
@@ -120,6 +146,7 @@ beforeEach(async () => {
     expiresAt: Date.now() + 24 * 60 * MIN,
   });
 
+  limited = false;
   tokenRequests = [];
   messages = [];
   apns = [];
@@ -159,12 +186,25 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function call(path: string, init: RequestInit = {}) {
+function call(path: string, init: RequestInit = {}, as = session) {
   const request = new Request(`https://onmyhop.com/api${path}`, {
     ...init,
-    headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${as}`, "content-type": "application/json" },
   });
   return worker.fetch(request, env, {} as ExecutionContext);
+}
+
+/** Signs Blake in, as on a phone Alex used. */
+async function blake() {
+  const token = `hs_${randomToken()}`;
+  await db.insert(sessions).values({
+    id: await sha256Hex(token),
+    userId: "usr_b",
+    kind: "app",
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 24 * 60 * MIN,
+  });
+  return token;
 }
 
 async function phone(token: string, platform: "apns" | "fcm", environment = "sandbox") {
@@ -199,6 +239,13 @@ async function clip(completedAt: number, from: string | null = "Mia") {
     completedAt,
   });
 }
+
+const register = (token: string, body: Record<string, unknown>, as?: string) =>
+  call(
+    `/me/live-activities/${encodeURIComponent(token)}`,
+    { method: "PUT", body: JSON.stringify(body) },
+    as,
+  );
 
 const alert = { title: "2 new clips", body: "From Mia and Leo, in Jam" };
 const decode = (part: string) => JSON.parse(new TextDecoder().decode(fromBase64url(part)));
@@ -279,6 +326,10 @@ describe("the FCM sender", () => {
     // This server's setup, more likely than the phone: kept, and logged.
     expect(await outcome(fcmError(403, "PERMISSION_DENIED", "SENDER_ID_MISMATCH"))).toBe("failed");
     expect(await outcome(fcmError(400, "INVALID_ARGUMENT", "INVALID_ARGUMENT"))).toBe("failed");
+    // Never a token at all, as FCM says about made-up ones.
+    expect(await outcome(badRequest("message.token"))).toBe("gone");
+    // Something else in the message: this server's doing.
+    expect(await outcome(badRequest("message.data"))).toBe("failed");
     expect(await outcome(fcmError(429, "RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED"))).toBe("failed");
     expect(await outcome(new Response("Service Unavailable", { status: 503 }))).toBe("failed");
   });
@@ -294,12 +345,23 @@ describe("the FCM sender", () => {
   });
 });
 
+describe("who a message is for", () => {
+  it("is a hash of the account and the token, never the account ID", async () => {
+    // The Android app works out the same thing (its tests use this example).
+    expect(await recipient("usr_a", "cPhone1:Fcm_example")).toBe("Te1GZioAhh50qkVmoV8VSO");
+    expect(TO_PHONE).not.toContain("usr_a");
+    expect(await recipient("usr_a", OTHER_PHONE)).not.toBe(TO_PHONE);
+    expect(await recipient("usr_b", PHONE)).not.toBe(TO_PHONE);
+  });
+});
+
 describe("Android phones", () => {
-  const put = (token: string, body: Record<string, unknown>) =>
-    call(`/me/devices/${encodeURIComponent(token)}`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+  const put = (token: string, body: Record<string, unknown>, as?: string) =>
+    call(
+      `/me/devices/${encodeURIComponent(token)}`,
+      { method: "PUT", body: JSON.stringify(body) },
+      as,
+    );
   const remove = (token: string) =>
     call(`/me/devices/${encodeURIComponent(token)}`, { method: "DELETE" });
 
@@ -324,6 +386,13 @@ describe("Android phones", () => {
     expect((await put(`${PHONE}/x`, { platform: "fcm" })).status).toBe(400);
     expect((await put(PHONE, { platform: "android" })).status).toBe(400);
     expect(await db.select().from(devices)).toEqual([]);
+  });
+
+  it("stop Event mode updates for the account that last used the phone", async () => {
+    await register(PHONE, { hopId: "hop_jam", since: T0, platform: "fcm" });
+    expect((await put(PHONE, { platform: "fcm" }, await blake())).status).toBe(200);
+    expect(await db.select().from(liveActivities)).toEqual([]);
+    expect(await db.select().from(devices).get()).toMatchObject({ userId: "usr_b" });
   });
 
   it("never turn an iPhone's token into an Android one", async () => {
@@ -360,7 +429,7 @@ describe("Android phones", () => {
         data: {
           hop: "clips",
           hopId: "hop_jam",
-          user: "usr_a",
+          recipient: TO_PHONE,
           title: alert.title,
           body: alert.body,
           group: "hop_jam",
@@ -408,16 +477,11 @@ describe("Android phones", () => {
     await clip(T0 - 12 * MIN);
     await announceNewClips({ ...env, APNS_KEY: undefined }, T0);
     expect(messages).toHaveLength(1);
-    expect(messages[0]?.message.data).toMatchObject({ hop: "clips", user: "usr_a" });
+    expect(messages[0]?.message.data).toMatchObject({ hop: "clips", recipient: TO_PHONE });
   });
 });
 
 describe("Event mode on Android", () => {
-  const register = (token: string, body: Record<string, unknown>) =>
-    call(`/me/live-activities/${encodeURIComponent(token)}`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
   const watch = () => register(PHONE, { hopId: "hop_jam", since: T0, platform: "fcm" });
 
   it("registers the app's FCM token for the event, and drops it when Event mode ends", async () => {
@@ -455,6 +519,28 @@ describe("Event mode on Android", () => {
     expect(await db.select().from(liveActivities).get()).toMatchObject({ platform: "apns" });
   });
 
+  it("moves the app's token to whoever signed in on the phone", async () => {
+    await watch();
+    expect(
+      (
+        await register(
+          PHONE,
+          { hopId: "hop_theirs", since: T0 + MIN, platform: "fcm" },
+          await blake(),
+        )
+      ).status,
+    ).toBe(200);
+    expect(await db.select().from(liveActivities)).toMatchObject([
+      { token: PHONE, userId: "usr_b", hopId: "hop_theirs", since: T0 + MIN },
+    ]);
+  });
+
+  it("can't be registered by the hundred", async () => {
+    limited = true;
+    expect((await watch()).status).toBe(429);
+    expect(await db.select().from(liveActivities)).toEqual([]);
+  });
+
   it("updates the count as clips land, letting the phone know at most every five minutes", async () => {
     await watch();
     await clip(T0 + MIN);
@@ -468,7 +554,7 @@ describe("Event mode on Android", () => {
         token: PHONE,
         data: {
           hop: "event",
-          user: "usr_a",
+          recipient: TO_PHONE,
           hopId: "hop_jam",
           clips: "1",
           latest: "Mia",
@@ -481,7 +567,7 @@ describe("Event mode on Android", () => {
         token: PHONE,
         data: {
           hop: "event",
-          user: "usr_a",
+          recipient: TO_PHONE,
           hopId: "hop_jam",
           clips: "2",
           latest: "Leo",
@@ -493,7 +579,7 @@ describe("Event mode on Android", () => {
         token: PHONE,
         data: {
           hop: "event",
-          user: "usr_a",
+          recipient: TO_PHONE,
           hopId: "hop_jam",
           clips: "3",
           at: String(T0 + MIN + ALERT_EVERY_MS),
