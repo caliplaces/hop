@@ -29,6 +29,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButtonShapes
 import androidx.compose.material3.TopAppBar
@@ -76,11 +79,13 @@ fun MyHopTab(session: Session, inbox: InboxModel, accountButton: @Composable () 
     // Clips and events, once the inbox has loaded them.
     val stats = if (inbox.phase == InboxModel.Phase.Loaded) PassStats(inbox.hops) else null
     val story = rememberGraphicsLayer()
+    val snackbar = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(stringResource(R.string.tab_my_hop)) }, actions = { accountButton() })
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             if (me == null || link == null) {
@@ -104,7 +109,7 @@ fun MyHopTab(session: Session, inbox: InboxModel, accountButton: @Composable () 
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(24.dp))
-                    LinkActions(link, story)
+                    LinkActions(link, story, snackbar)
                     Spacer(Modifier.height(12.dp))
                     FilledTonalButton(
                         onClick = openQr,
@@ -118,7 +123,7 @@ fun MyHopTab(session: Session, inbox: InboxModel, accountButton: @Composable () 
 
 /** Copy, Share (the link, or the pass as a story image) and Open, as one connected button group. */
 @Composable
-private fun LinkActions(link: HttpUrl, story: GraphicsLayer) {
+private fun LinkActions(link: HttpUrl, story: GraphicsLayer, snackbar: SnackbarHostState) {
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val haptics = LocalHapticFeedback.current
@@ -133,6 +138,22 @@ private fun LinkActions(link: HttpUrl, story: GraphicsLayer) {
     }
     val shareTitle = stringResource(R.string.share_link)
     val passTitle = stringResource(R.string.share_pass_image)
+    val failed = stringResource(R.string.share_pass_failed)
+    val tryAgain = stringResource(R.string.try_again)
+
+    /** Shares the pass's story, saying so (with Try again) if it can't. */
+    fun sharePass() {
+        scope.launch {
+            try {
+                // The story, as drawn moments ago, at 1080 × 1920.
+                PassImages.share(context, story.toImageBitmap().asAndroidBitmap(), passTitle)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                if (snackbar.showSnackbar(failed, actionLabel = tryAgain) == SnackbarResult.ActionPerformed) sharePass()
+            }
+        }
+    }
     val height = ButtonDefaults.MediumContainerHeight
 
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
@@ -172,16 +193,7 @@ private fun LinkActions(link: HttpUrl, story: GraphicsLayer) {
                     leadingIcon = { Icon(painterResource(R.drawable.ic_image), null) },
                     onClick = {
                         menu = false
-                        scope.launch {
-                            // The story, as drawn moments ago, at 1080 × 1920.
-                            try {
-                                PassImages.share(context, story.toImageBitmap().asAndroidBitmap(), passTitle)
-                            } catch (error: CancellationException) {
-                                throw error
-                            } catch (_: Exception) {
-                                // Nothing to share if it couldn't be drawn; the link still can be.
-                            }
-                        }
+                        sharePass()
                     },
                 )
             }

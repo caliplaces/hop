@@ -1,6 +1,11 @@
 package com.onmyhop.app.feature.myhop
 
 import android.content.Context
+import androidx.compose.ui.platform.LocalView
+import android.view.Surface
+import android.os.Looper
+import android.os.Handler
+import android.database.ContentObserver
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -17,26 +22,31 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * How the phone is tilting, -1…1 on each axis, for the Hop pass's foil.
+ * How the phone is tilting, -1…1 on each axis of the screen, for the Hop
+ * pass's foil.
  *
  * It's relative to how the phone is being held: the resting pose slowly
  * follows it, so tilting the phone moves the foil and holding it still lets
- * it settle back, whatever the angle. Zero when animations are off.
+ * it settle back, whatever the angle. Zero while [still].
  */
 @Composable
-fun rememberTilt(): State<Offset> {
+fun rememberTilt(still: Boolean): State<Offset> {
     val context = LocalContext.current
+    val view = LocalView.current
     val tilt = remember { mutableStateOf(Offset.Zero) }
-    val reduceMotion = remember { animationsOff(context) }
-    DisposableEffect(reduceMotion) {
+    DisposableEffect(still) {
         val sensors = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val gravity = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY)
-        if (reduceMotion || gravity == null) return@DisposableEffect onDispose {}
+        if (still || gravity == null) {
+            tilt.value = Offset.Zero
+            return@DisposableEffect onDispose {}
+        }
         var rest: Offset? = null
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
-                // Gravity across the screen, in g, like the iPhone's (x right, y up).
-                val now = Offset(-event.values[0] / SensorManager.GRAVITY_EARTH, -event.values[1] / SensorManager.GRAVITY_EARTH)
+                // The sensor's axes are the phone's; the pass turns with the screen's.
+                val rotation = view.display?.rotation ?: Surface.ROTATION_0
+                val now = TiltMath.screenGravity(event.values[0], event.values[1], rotation)
                 val (value, settled) = TiltMath.step(now, rest ?: now)
                 rest = settled
                 tilt.value = value
@@ -53,11 +63,50 @@ fun rememberTilt(): State<Offset> {
     return tilt
 }
 
+/**
+ * The system's "Remove animations" setting (animator duration scale off),
+ * kept up to date if it's changed in Settings while the pass is showing.
+ */
+@Composable
+fun rememberAnimationsOff(): State<Boolean> {
+    val context = LocalContext.current
+    val off = remember { mutableStateOf(animationsOff(context)) }
+    DisposableEffect(context) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                off.value = animationsOff(context)
+            }
+        }
+        context.contentResolver.registerContentObserver(
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            false,
+            observer,
+        )
+        onDispose { context.contentResolver.unregisterContentObserver(observer) }
+    }
+    return off
+}
+
 /** The system's "Remove animations" setting: animator duration scale off. */
 fun animationsOff(context: Context): Boolean =
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
 object TiltMath {
+    /**
+     * Gravity across the screen, in g (x right, y up, like the iPhone's), from
+     * the sensor's readings along the phone's own axes and how the screen is
+     * turned.
+     */
+    fun screenGravity(x: Float, y: Float, rotation: Int): Offset {
+        val (screenX, screenY) = when (rotation) {
+            Surface.ROTATION_90 -> -y to x
+            Surface.ROTATION_180 -> -x to -y
+            Surface.ROTATION_270 -> y to -x
+            else -> x to y
+        }
+        return Offset(-screenX / SensorManager.GRAVITY_EARTH, -screenY / SensorManager.GRAVITY_EARTH)
+    }
+
     /** Gravity this far from the resting pose is a full tilt. */
     const val RANGE = 0.35f
 

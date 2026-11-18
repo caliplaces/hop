@@ -124,6 +124,7 @@
     <string name="pass_tagline">Upload it on my Hop</string>
     <string name="pass_story_invitation">Filmed me? Send me your clips</string>
     <string name="share_pass_image">Share pass image</string>
+    <string name="share_pass_failed">Couldn’t share the pass image</string>
     <string name="qr_show">Show QR code</string>
     <string name="qr_scan">Scan to send me your clips</string>
     <string name="qr_save">Save QR code</string>

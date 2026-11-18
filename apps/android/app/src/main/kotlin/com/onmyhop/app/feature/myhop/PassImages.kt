@@ -53,7 +53,11 @@ object PassImages {
     suspend fun share(context: Context, image: Bitmap, title: String) {
         val file = withContext(Dispatchers.IO) {
             val dir = File(context.cacheDir, "shared/pass").apply { mkdirs() }
-            File(dir, "hop-pass.png").apply { outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+            // Its own file each time: an app that keeps the image keeps this one,
+            // whatever's shared after. The folder is emptied at the next launch.
+            File(dir, "hop-pass-${System.currentTimeMillis()}.png").apply {
+                outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
         }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
         val send = Intent(Intent.ACTION_SEND)

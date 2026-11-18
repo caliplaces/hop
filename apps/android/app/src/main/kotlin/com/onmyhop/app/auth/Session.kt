@@ -8,6 +8,7 @@ import com.onmyhop.app.core.Me
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -137,14 +138,18 @@ class Session(
      */
     suspend fun deleteAccount() {
         val asked = token ?: return
-        try {
-            api.delete("api/me")
-        } catch (error: ApiError) {
-            // The session is already gone, most likely a retry after the reply
-            // to a deletion that went through was lost: it can't be used either way.
-            if (error.status != 401) throw error
-        }
-        if (token == asked) forget()
+        // In the session's own scope: once confirmed, leaving the screen that
+        // asked can't stop it, or leave the phone signed in to a deleted account.
+        scope.async {
+            try {
+                client(asked).delete("api/me")
+            } catch (error: ApiError) {
+                // The session is already gone, most likely a retry after the reply
+                // to a deletion that went through was lost: it can't be used either way.
+                if (error.status != 401) throw error
+            }
+            if (token == asked) forget()
+        }.await()
     }
 
     /**

@@ -35,7 +35,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -156,9 +155,8 @@ fun HopPass(me: Me, link: HttpUrl, stats: PassStats?, modifier: Modifier = Modif
  */
 @Composable
 fun TurningPass(me: Me, link: HttpUrl, stats: PassStats?, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val still = remember { animationsOff(context) }
-    val tilt by rememberTilt()
+    val still by rememberAnimationsOff()
+    val tilt by rememberTilt(still)
     val drag = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val scope = rememberCoroutineScope()
     val reach = with(LocalDensity.current) { 140.dp.toPx() }
@@ -189,7 +187,7 @@ fun TurningPass(me: Me, link: HttpUrl, stats: PassStats?, modifier: Modifier = M
                 if (still) {
                     Modifier
                 } else {
-                    Modifier.pointerInput(Unit) {
+                    Modifier.pointerInput(still) {
                         detectDragGestures(
                             onDragEnd = {
                                 scope.launch { drag.animateTo(Offset.Zero, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessLow)) }

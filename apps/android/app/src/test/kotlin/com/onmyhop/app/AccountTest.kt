@@ -32,3 +32,24 @@ class AccountTest {
         assertEquals(Offset.Zero, still)
     }
 }
+
+class ScreenGravityTest {
+    private val g = android.hardware.SensorManager.GRAVITY_EARTH
+
+    /**
+     * The phone tipped so gravity pulls along its own right edge: on screen
+     * that's across in portrait, and up or down when the screen is turned.
+     */
+    @Test
+    fun followsTheScreensRotation() {
+        fun check(expected: Offset, rotation: Int) {
+            val actual = TiltMath.screenGravity(g, 0f, rotation)
+            assertEquals(expected.x, actual.x, 1e-5f)
+            assertEquals(expected.y, actual.y, 1e-5f)
+        }
+        check(Offset(-1f, 0f), android.view.Surface.ROTATION_0)
+        check(Offset(0f, -1f), android.view.Surface.ROTATION_90)
+        check(Offset(1f, 0f), android.view.Surface.ROTATION_180)
+        check(Offset(0f, 1f), android.view.Surface.ROTATION_270)
+    }
+}
