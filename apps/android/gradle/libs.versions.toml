@@ -17,7 +17,10 @@ coil = "3.6.3"
 media3 = "1.11.1"
 zxing = "3.5.4"
 glance = "1.2.0"
+# Glance alone brings WorkManager 2.7.1 (see app/build.gradle.kts).
+work = "2.12.0"
 firebaseBom = "35.1.0"
+playBilling = "9.1.0"
 colorUtilities = "5.0.1"
 junit = "4.13.2"
 turbine = "1.2.1"
@@ -50,9 +53,11 @@ coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version
 media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 media3-ui-compose-material3 = { module = "androidx.media3:media3-ui-compose-material3", version.ref = "media3" }
 glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
+androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+play-billing = { module = "com.android.billingclient:billing-ktx", version.ref = "playBilling" }
 junit = { module = "junit:junit", version.ref = "junit" }
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 

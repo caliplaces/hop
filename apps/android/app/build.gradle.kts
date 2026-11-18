@@ -30,6 +30,17 @@ fun com.android.build.api.dsl.VariantDimension.firebase() {
     resValue("bool", "push_enabled", complete.toString())
 }
 
+/**
+ * The upload key release builds are signed with for Google Play, which signs
+ * what it delivers with its own key. It comes from
+ * `hop.upload.<storeFile|storePassword|keyAlias|keyPassword>` (in
+ * ~/.gradle/gradle.properties, never in the repository). Without them,
+ * release builds are unsigned.
+ */
+val upload = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").associateWith { field ->
+    providers.gradleProperty("hop.upload.$field").orElse("").get()
+}
+
 android {
     namespace = "com.onmyhop.app"
     compileSdk = 37
@@ -38,9 +49,22 @@ android {
         applicationId = "com.onmyhop.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        // Each upload to Play needs a higher one: -Phop.versionCode=<yyyymmdd><n>,
+        // like the iPhone app's build numbers.
+        versionCode = providers.gradleProperty("hop.versionCode").orElse("1").get().toInt()
+        versionName = "1.0.0"
         firebase()
+    }
+
+    signingConfigs {
+        if (upload.values.all { it.isNotBlank() }) {
+            create("upload") {
+                storeFile = file(upload.getValue("storeFile"))
+                storePassword = upload.getValue("storePassword")
+                keyAlias = upload.getValue("keyAlias")
+                keyPassword = upload.getValue("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -52,6 +76,7 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "API_URL", "\"https://onmyhop.com\"")
+            signingConfig = signingConfigs.findByName("upload")
         }
     }
 
@@ -113,8 +138,12 @@ dependencies {
     implementation(libs.media3.ui.compose.material3)
     implementation(libs.zxing.core)
     implementation(libs.glance.appwidget)
+    // Glance brings WorkManager 2.7.1, whose Room R8 strips the database out
+    // of: release builds crashed at launch. A current one keeps what it needs.
+    implementation(libs.androidx.work.runtime)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    implementation(libs.play.billing)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -24,7 +24,7 @@ So far it has:
 - push notifications: new clips (grouped by event), free-plan clips about to
   leave, and Event mode's count with the app closed.
 
-Hop+ comes next.
+Hop+ comes next, through Google Play.
 
 ## Running it
 
@@ -119,8 +119,8 @@ The API says where the redirect goes, and the app accepts only Hop's own:
 
 - the https callback on the API's own host, which production uses. Chrome
   hands it only to the app the site lists in its Digital Asset Links
-  (`/.well-known/assetlinks.json`), which the API will serve before the Play
-  Store release;
+  (`/.well-known/assetlinks.json`, which the API serves from
+  `ANDROID_CERT_FINGERPRINTS`: see Releasing);
 - in debug builds only, the custom scheme `com.onmyhop.app:/auth/callback`,
   which staging still uses. Any app can claim a scheme and pose as Hop with
   it, so release builds refuse it, and only the debug manifest registers it.
@@ -131,6 +131,39 @@ callback as a verified app link (once the site's Digital Asset Links list the
 app) and, in debug builds, the custom scheme. Either way, it only finishes a
 sign-in already under way, and only if it's exactly that flow's callback with
 that flow's `state`.
+
+## Releasing
+
+Release builds go to Google Play as an Android App Bundle, signed with Hop's
+upload key. Play checks that key, then signs what it delivers with its own
+app signing key. The upload key's settings go in `~/.gradle/gradle.properties`,
+never in the repository, and the key file is kept with the team's other keys:
+
+```properties
+hop.upload.storeFile=/path/to/hop-upload.jks
+hop.upload.storePassword=…
+hop.upload.keyAlias=upload
+hop.upload.keyPassword=…
+```
+
+Without them, release builds are unsigned (as in CI). Build from main, which
+is what production runs, with a fresh version code: like the iPhone app's
+build numbers, `<yyyymmdd><n>`.
+
+```sh
+./gradlew :app:bundleRelease -Phop.versionCode=202611181
+# app/build/outputs/bundle/release/app-release.aab
+```
+
+Sign-in on production needs the site's Digital Asset Links to list the
+certificates the app is signed with: production's `ANDROID_CERT_FINGERPRINTS`
+in `apps/api/wrangler.jsonc` has the upload key's SHA-256, for builds
+installed by hand, and Google Play's app signing key's, from Play Console ›
+Test and release › App integrity. To see the upload key's:
+
+```sh
+keytool -list -v -keystore /path/to/hop-upload.jks -alias upload | grep SHA256
+```
 
 ## Tests
 
