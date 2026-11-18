@@ -4,6 +4,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.auth.SignInCallback
 import com.onmyhop.app.auth.TokenStore
@@ -224,17 +225,20 @@ class SessionTest {
         store.token = "hs_abc"
         server.enqueue(json("""{"me":null}"""))
         val session = session()
-        val told = mutableListOf<String?>()
-        session.onSignOut = { told += it?.token }
+        // The hook runs on its own, maybe on another thread, once the session has gone.
+        val told = Channel<String?>(Channel.UNLIMITED)
+        session.onSignOut = { told.send(it?.token) }
         session.refresh()
         assertFalse(session.state.value.isSignedIn)
+        assertNull(told.receive())
 
         store.token = "hs_def"
         server.enqueue(json("""{"ok":true}"""))
         val again = session()
-        again.onSignOut = { told += it?.token }
+        again.onSignOut = { told.send(it?.token) }
         again.deleteAccount()
-        assertEquals(listOf<String?>(null, null), told)
+        assertNull(told.receive())
+        assertTrue(told.tryReceive().isFailure)
     }
 
     /** Deleting an account whose session is already gone (a retry, say) still forgets it. */
