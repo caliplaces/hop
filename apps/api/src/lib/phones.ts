@@ -1,16 +1,24 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import type { Db } from "../db";
 import { devices } from "../db/schema";
 import type { Env } from "../env";
-import { type PushAlertOptions, pushAlert } from "./apns";
+import { type PushAlertOptions, type PushOutcome, pushAlert } from "./apns";
+import { pushFcmAlert, serviceAccount } from "./fcm";
 
 /** Phones pushed to per athlete; registering keeps no more (routes/devices.ts). */
 export const PHONES_PER_ATHLETE = 5;
 
+/** Whether this server can push to any phone at all: it has an APNs key or an FCM service account. */
+export function canPush(env: Env): boolean {
+  return Boolean(env.APNS_KEY) || serviceAccount(env) !== null;
+}
+
 /**
  * Pushes a notification to each of the athlete's phones this server can
- * reach (their APNs environment matches); true if any took it. Phones Apple
- * says are gone are forgotten. Best effort: failures are logged, never thrown.
+ * reach: iPhones through APNs (their environment matching this server's
+ * key), Android phones through FCM. True if any took it. Phones Apple or
+ * Google say are gone are forgotten. Best effort: failures are logged, never
+ * thrown.
  */
 export async function pushToPhones(
   env: Env,
@@ -19,36 +27,35 @@ export async function pushToPhones(
   alert: { title: string; body: string },
   options: PushAlertOptions,
 ): Promise<boolean> {
-  if (!env.APNS_KEY) return false;
+  const reachable = [
+    ...(env.APNS_KEY
+      ? [and(eq(devices.platform, "apns"), eq(devices.environment, env.APNS_ENVIRONMENT))]
+      : []),
+    ...(serviceAccount(env) ? [eq(devices.platform, "fcm")] : []),
+  ];
+  if (reachable.length === 0) return false;
   try {
-    return await pushEach(env, db, userId, alert, options);
+    const phones = await db
+      .select({ token: devices.token, platform: devices.platform })
+      .from(devices)
+      .where(and(eq(devices.userId, userId), or(...reachable)))
+      .limit(PHONES_PER_ATHLETE);
+    const outcomes = await Promise.all(
+      phones.map(async ({ token, platform }) => {
+        const outcome: PushOutcome = await (platform === "fcm"
+          ? pushFcmAlert(env, token, userId, alert, options)
+          : pushAlert(env, token, alert, options)
+        ).catch((error) => {
+          console.error("push: failed", platform, error);
+          return "failed" as const;
+        });
+        if (outcome === "gone") await db.delete(devices).where(eq(devices.token, token));
+        return outcome;
+      }),
+    );
+    return outcomes.includes("sent");
   } catch (error) {
     console.error("push: failed", userId, error);
     return false;
   }
-}
-
-async function pushEach(
-  env: Env,
-  db: Db,
-  userId: string,
-  alert: { title: string; body: string },
-  options: PushAlertOptions,
-): Promise<boolean> {
-  const phones = await db
-    .select({ token: devices.token })
-    .from(devices)
-    .where(and(eq(devices.userId, userId), eq(devices.environment, env.APNS_ENVIRONMENT)))
-    .limit(PHONES_PER_ATHLETE);
-  const outcomes = await Promise.all(
-    phones.map(async ({ token }) => {
-      const outcome = await pushAlert(env, token, alert, options).catch((error) => {
-        console.error("push: failed", error);
-        return "failed" as const;
-      });
-      if (outcome === "gone") await db.delete(devices).where(eq(devices.token, token));
-      return outcome;
-    }),
-  );
-  return outcomes.includes("sent");
 }

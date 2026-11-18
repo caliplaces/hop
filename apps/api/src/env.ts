@@ -81,6 +81,12 @@ export type Env = {
    */
   APPLE_SANDBOX_USERS?: string;
   /**
+   * Firebase Cloud Messaging, for the Android app's notifications and Event
+   * mode's count (lib/fcm.ts): the Firebase project's service account key
+   * file (JSON, a secret). Without it nothing is pushed to Android phones.
+   */
+  FCM_SERVICE_ACCOUNT?: string;
+  /**
    * Hop+ on the website, through Stripe (lib/stripe.ts). STRIPE_SECRET_KEY
    * is the API key, a restricted one will do; STRIPE_WEBHOOK_SECRET is the
    * webhook endpoint's signing secret (whsec_…). Both are secrets: test mode

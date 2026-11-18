@@ -5,6 +5,7 @@ import { liveActivities } from "./db/schema";
 import type { Env } from "./env";
 import { pushLiveActivity } from "./lib/apns";
 import { arrivalsSince } from "./lib/arrivals";
+import { pushFcmEventUpdate, serviceAccount } from "./lib/fcm";
 
 /**
  * At most one alert (screen lights up, Dynamic Island expands) per Live
@@ -14,17 +15,24 @@ import { arrivalsSince } from "./lib/arrivals";
 export const ALERT_EVERY_MS = 5 * 60 * 1000;
 
 /**
- * After a clip lands in a hop: updates every Live Activity counting it with
- * the clips since its own start, and who sent the latest. Tokens Apple no
- * longer accepts are forgotten.
+ * After a clip lands in a hop: updates every Event mode counting it (an
+ * iPhone's Live Activity, or an Android phone's notification) with the clips
+ * since its own start, and who sent the latest. Tokens Apple or Google no
+ * longer accept are forgotten.
  */
 export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
-  if (!env.APNS_KEY) return;
+  const reachable = [
+    ...(env.APNS_KEY ? [eq(liveActivities.platform, "apns")] : []),
+    ...(serviceAccount(env) ? [eq(liveActivities.platform, "fcm")] : []),
+  ];
+  if (reachable.length === 0) return;
   const db = getDb(env.DB);
   const watching = await db
     .select()
     .from(liveActivities)
-    .where(and(eq(liveActivities.hopId, hopId), gt(liveActivities.expiresAt, now)));
+    .where(
+      and(eq(liveActivities.hopId, hopId), gt(liveActivities.expiresAt, now), or(...reachable)),
+    );
 
   await Promise.all(
     watching.map(async (activity) => {
@@ -51,18 +59,31 @@ export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
           )
           .returning({ token: liveActivities.token })
           .get()) !== undefined;
-      const outcome = await pushLiveActivity(
-        env,
-        activity.token,
-        { clips: count, latest: sender },
-        {
-          now,
-          alert: alerting
-            ? { title: "New clip", body: sender ? `${sender} sent a clip` : "A clip just landed" }
-            : undefined,
-        },
+      const outcome = await (activity.platform === "fcm"
+        ? pushFcmEventUpdate(env, activity.token, {
+            userId: activity.userId,
+            hopId,
+            clips: count,
+            latest: sender,
+            alert: alerting,
+            now,
+          })
+        : pushLiveActivity(
+            env,
+            activity.token,
+            { clips: count, latest: sender },
+            {
+              now,
+              alert: alerting
+                ? {
+                    title: "New clip",
+                    body: sender ? `${sender} sent a clip` : "A clip just landed",
+                  }
+                : undefined,
+            },
+          )
       ).catch((error) => {
-        console.error("live activity: push failed", error);
+        console.error("live activity: push failed", activity.platform, error);
         return "failed" as const;
       });
       if (outcome === "sent") {
