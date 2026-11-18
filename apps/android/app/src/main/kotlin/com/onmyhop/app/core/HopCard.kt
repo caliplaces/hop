@@ -2,6 +2,8 @@ package com.onmyhop.app.core
 
 import android.content.Context
 import androidx.core.content.edit
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 
 /**
@@ -32,12 +34,21 @@ data class HopCard(
             context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY, null)
                 ?.let { runCatching { HopJson.decodeFromString(serializer(), it) }.getOrNull() }
 
+        private val lock = Any()
+        private var current: MutableStateFlow<HopCard?>? = null
+
+        /** The card as it changes, for a widget to observe while it draws. */
+        fun changes(context: Context): StateFlow<HopCard?> = synchronized(lock) {
+            current ?: MutableStateFlow(load(context)).also { current = it }
+        }
+
         /** Stores the card, or clears it with null. Returns whether anything changed. */
-        fun save(context: Context, card: HopCard?): Boolean {
+        fun save(context: Context, card: HopCard?): Boolean = synchronized(lock) {
             if (card == load(context)) return false
             context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit(commit = true) {
                 if (card == null) remove(KEY) else putString(KEY, HopJson.encodeToString(serializer(), card))
             }
+            (current ?: MutableStateFlow<HopCard?>(null).also { current = it }).value = card
             return true
         }
     }

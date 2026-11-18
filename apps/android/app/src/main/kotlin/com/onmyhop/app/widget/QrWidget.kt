@@ -3,6 +3,9 @@ package com.onmyhop.app.widget
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -49,10 +52,14 @@ class QrWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Single
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val card = HopCard.load(context)
-        // The code's modules, drawn once per update rather than on every frame.
-        val qr = card?.let { QrCodes.bitmap(it.link, moduleSize = 8, cornerModules = 3f) }
-        provideContent { Content(context, card, qr) }
+        val changes = HopCard.changes(context)
+        provideContent {
+            // Observed while the widget draws: a sign-out or a new handle shows at once.
+            val card by changes.collectAsState()
+            // The code's modules, drawn once per card rather than on every frame.
+            val qr = remember(card?.link) { card?.let { QrCodes.bitmap(it.link, moduleSize = 8, cornerModules = 3f) } }
+            Content(context, card, qr)
+        }
     }
 
     @Composable
