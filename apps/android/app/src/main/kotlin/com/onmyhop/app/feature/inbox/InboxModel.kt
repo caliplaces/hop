@@ -164,7 +164,12 @@ class InboxModel(private val session: Session) : ViewModel() {
         }
     }
 
+    /** Plan requests in the order they were made, and the newest one shown. */
+    private var planAsked = 0
+    private var planShown = 0
+
     private suspend fun loadPlan() {
+        val asked = ++planAsked
         val status = try {
             session.api.get<PlanStatus>("api/me/plan")
         } catch (error: CancellationException) {
@@ -172,8 +177,11 @@ class InboxModel(private val session: Session) : ViewModel() {
         } catch (_: Exception) {
             return
         }
-        // An older reading than the one shown is stale.
-        if (status.revision >= (plan?.revision ?: Long.MIN_VALUE)) plan = status
+        // Stale: asked before the reading shown (storage moves with every delete), or
+        // read before a subscription change the one shown already reflects.
+        if (asked < planShown || status.revision < (plan?.revision ?: Long.MIN_VALUE)) return
+        plan = status
+        planShown = asked
     }
 
     /** Deletes a clip for good, and takes it out of its event's list and totals. */

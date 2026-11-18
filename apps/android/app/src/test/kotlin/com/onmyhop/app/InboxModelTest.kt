@@ -203,6 +203,29 @@ class InboxModelTest {
         waitFor { model.plan?.storage?.usedBytes == 0L }
     }
 
+    /** Deleting two clips quickly: the plan read after the second wins, whichever answers last. */
+    @Test
+    fun aLaterPlanReadingWins() {
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 2)}]}"""
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":9,"limitBytes":10},"revision":1}"""
+        replies["/api/me/files?hopId=h"] = """{"files":[${clip("c2", "h", 2)},${clip("c1", "h", 1)}],"nextCursor":null}"""
+        replies["/api/me/files/c2"] = """{"ok":true}"""
+        replies["/api/me/files/c1"] = """{"ok":true}"""
+        val model = model()
+        model.refresh()
+        waitFor { model.clips("h").loadedOnce && model.plan != null }
+        // The first reading after a delete answers slowly, with the older figure.
+        firstReplies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":5,"limitBytes":10},"revision":1}""" to 400L
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":0,"limitBytes":10},"revision":1}"""
+        kotlinx.coroutines.runBlocking {
+            model.delete(model.clips("h").items[0])
+            Thread.sleep(50)
+            model.delete(model.clips("h").items[0])
+        }
+        Thread.sleep(700)
+        assertEquals(0L, model.plan?.storage?.usedBytes)
+    }
+
     /** Offline before anything loaded: the inbox says so; with events shown, they stay. */
     @Test
     fun failsOnlyWhenThereIsNothingToShow() {
