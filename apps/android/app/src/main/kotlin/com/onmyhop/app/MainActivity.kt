@@ -2,6 +2,7 @@ package com.onmyhop.app
 
 import androidx.core.net.toUri
 import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
@@ -14,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.auth.SignInCallback
+import com.onmyhop.app.core.HopLink
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -51,7 +53,21 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        if (savedInstanceState == null) handle(intent)
         setContent { HopApp(container) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handle(intent)
+    }
+
+    /** Opens what a notification (or a tile, widget or shortcut) asked for. */
+    private fun handle(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_EVENT_STAGE -> container.links.open(HopLink.EventStage)
+            ACTION_QR_CODE -> container.links.open(HopLink.QrCode)
+        }
     }
 
     private fun openSignInPage(started: Session.Started) {
@@ -67,7 +83,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        const val SPLASH_MAX_MS = 1_500L
+    companion object {
+        private const val SPLASH_MAX_MS = 1_500L
+
+        /** Opens Event mode's stage, as its notification does. */
+        const val ACTION_EVENT_STAGE = "com.onmyhop.app.action.EVENT_STAGE"
+
+        /** Opens the QR code full screen: Event mode's, if it's running. */
+        const val ACTION_QR_CODE = "com.onmyhop.app.action.QR_CODE"
     }
 }

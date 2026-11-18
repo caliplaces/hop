@@ -7,14 +7,20 @@ dark, and Material's expressive shapes and motion run throughout.
 
 So far it has:
 
-- the welcome screen;
-- Sign in with Caliplaces, in an Auth Tab;
-- claiming a Hop link and picking a colour;
-- "This is you", with a profile photo from the system photo picker;
-- the signed-in shell, with the Inbox and My Hop tabs and the account screen.
+- the welcome screen, Sign in with Caliplaces (in an Auth Tab), claiming a Hop
+  link and picking a colour, and "This is you";
+- the inbox: event covers, each event's clips, and a viewer that plays them,
+  with save to the gallery, share, delete, report and block;
+- My Hop: the Hop pass with its holographic foil and QR code, the code full
+  screen, and the pass as a story image;
+- Event mode: the QR code on stage, the clips counted as they land, and an
+  ongoing notification (a Live Update on Android 16);
+- the account: profile, plan and storage, new-clip emails, blocked senders,
+  and deleting the account.
 
-The clip grid, the viewer, the Hop pass with its QR code, Event mode,
-notifications and Hop+ come next.
+The QR code from a tile, widget and shortcut, notifications of new clips, and
+Hop+ come next. Until push notifications arrive, Event mode counts while the
+app is open; the notification shows the last count it saw.
 
 ## Running it
 

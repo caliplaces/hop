@@ -24,6 +24,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.onmyhop.app.feature.event.EventStageScreen
+import com.onmyhop.app.feature.event.EventMode
+import com.onmyhop.app.core.HopLinks
+import com.onmyhop.app.core.HopLink
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
@@ -62,6 +69,9 @@ private data object BlockedKey : NavKey
 private data object QrKey : NavKey
 
 @Serializable
+private data object EventStageKey : NavKey
+
+@Serializable
 private data object EditProfileKey : NavKey
 
 @Serializable
@@ -79,14 +89,38 @@ private data class ViewerKey(val hopId: String, val clipId: String) : NavKey
  * clips with Material's container transform.
  */
 @Composable
-fun HomeScreen(session: Session, transfers: ClipTransfers) {
+fun HomeScreen(session: Session, transfers: ClipTransfers, eventMode: EventMode, links: HopLinks) {
     val backStack = rememberNavBackStack(TabsKey)
     val state by session.state.collectAsStateWithLifecycle()
+    val event by eventMode.state.collectAsStateWithLifecycle()
     // One inbox for the tabs, the events and the viewer, as long as the app is signed in.
     val inbox = viewModel { InboxModel(session) }
-    // Again whenever the link moves to another event.
-    LaunchedEffect(state.me?.activeHopId) { inbox.refresh(state.me?.activeHopId) }
+    // Again whenever the link moves to another event, and as clips land in Event mode.
+    LaunchedEffect(state.me?.activeHopId, event.clips) { inbox.refresh(state.me?.activeHopId) }
     val back: () -> Unit = { backStack.removeLastOrNull() }
+    val onStage = backStack.lastOrNull() == EventStageKey
+
+    // Event mode counts while the app is open: often while the QR code is on stage, now and then otherwise.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(event.run?.hopId, onStage) {
+        if (event.run == null) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            eventMode.watch(session.api, if (onStage) 4_000 else 15_000)
+        }
+    }
+
+    // A notification, tile, widget or shortcut asked for a screen. It waits until
+    // Event mode has settled, or it could open the pass while an event runs.
+    LaunchedEffect(event.hasSettled) {
+        if (!event.hasSettled) return@LaunchedEffect
+        links.incoming.collect { link ->
+            val target = if (eventMode.run != null) EventStageKey else QrKey
+            when (link) {
+                HopLink.EventStage -> if (eventMode.run != null) backStack.showOnTop(EventStageKey)
+                HopLink.QrCode -> backStack.showOnTop(target)
+            }
+        }
+    }
 
     SharedTransitionLayout {
         CompositionLocalProvider(LocalSharedTransitionScope provides this) {
@@ -106,8 +140,11 @@ fun HomeScreen(session: Session, transfers: ClipTransfers) {
                             openAccount = { backStack.add(AccountKey) },
                             openEvent = { backStack.add(EventKey(it)) },
                             openQr = { backStack.add(QrKey) },
+                            eventMode = eventMode,
+                            openStage = { backStack.showOnTop(EventStageKey) },
                         )
                     }
+                    entry<EventStageKey> { EventStageScreen(session, eventMode, onMinimize = { backStack.remove(EventStageKey) }) }
                     entry<QrKey> { QrScreen(session, onClose = { backStack.remove(QrKey) }) }
                     entry<AccountKey> {
                         AccountScreen(
@@ -156,6 +193,8 @@ private fun Tabs(
     openAccount: () -> Unit,
     openEvent: (String) -> Unit,
     openQr: () -> Unit,
+    eventMode: EventMode,
+    openStage: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.Inbox) }
     val accountButton: @Composable () -> Unit = { AccountButton(session, openAccount) }
@@ -174,7 +213,7 @@ private fun Tabs(
     ) {
         when (tab) {
             Tab.Inbox -> InboxTab(inbox, session, accountButton, openEvent)
-            Tab.MyHop -> MyHopTab(session, inbox, accountButton, openQr)
+            Tab.MyHop -> MyHopTab(session, inbox, accountButton, openQr, eventMode, openStage)
         }
     }
 }
@@ -188,4 +227,10 @@ private fun AccountButton(session: Session, onClick: () -> Unit) {
         // Read out as "Account", not the initial on the avatar.
         Box(Modifier.clearAndSetSemantics {}) { Avatar(state.me, 32.dp) }
     }
+}
+
+/** Puts [key] on top of the stack, once: if it's already there, it moves up rather than repeats. */
+private fun MutableList<NavKey>.showOnTop(key: NavKey) {
+    remove(key)
+    add(key)
 }
