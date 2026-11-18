@@ -52,6 +52,12 @@ class Push(
 
     private val changes = Mutex()
 
+    /**
+     * Showing a push and clearing them all at sign-out take turns: one shown
+     * before the clear is cleared, and one after finds nobody signed in.
+     */
+    private val showing = Any()
+
     private val _askDismissed = MutableStateFlow(preferences.getBoolean(ASK_DISMISSED, false))
 
     /** The inbox's card asking for notifications was put away. */
@@ -112,7 +118,7 @@ class Push(
      * is, while nobody is: not while a sign-out is still taking the token
      * back. Any thread.
      */
-    fun received(data: Map<String, String>) {
+    fun received(data: Map<String, String>): Unit = synchronized(showing) {
         if (session.token == null) return
         val registration = registration ?: return
         // Someone else signed in before their own registration took this one's place.
@@ -123,8 +129,12 @@ class Push(
                 _arrivals.update { it + 1 }
             }
             is PushMessage.Expiring -> notifier.expiring(message)
-            is PushMessage.Event -> scope.launch {
-                eventMode.pushed(registration.userId, message.hopId, message.clips, message.latest, message.at)
+            is PushMessage.Event -> {
+                scope.launch {
+                    // Event mode lives on the main thread; still theirs by the time it gets there.
+                    if (session.token == null) return@launch
+                    eventMode.pushed(registration.userId, message.hopId, message.since, message.clips, message.latest, message.at)
+                }
             }
             null -> Unit
         }
@@ -138,7 +148,7 @@ class Push(
      * of this; until that has worked, each launch signed out tries again.
      */
     suspend fun signedOut(api: ApiClient?) {
-        notifier.clear()
+        synchronized(showing) { notifier.clear() }
         changes.withLock {
             registeredFor = null
             val registration = registration

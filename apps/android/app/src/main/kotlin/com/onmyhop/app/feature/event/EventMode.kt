@@ -84,6 +84,12 @@ class EventMode(
     /** Bumped whenever the run starts, ends or is reset, so an older answer can't change the current one. */
     private var generation = 0
 
+    /**
+     * The count the notification shows, which only goes up: a push can be
+     * ahead of the app's own checks, and a check answered late behind it.
+     */
+    private var shown = -1
+
     /** Clips already announced, so none is celebrated twice. */
     private val announced = mutableSetOf<String>()
 
@@ -124,7 +130,8 @@ class EventMode(
             val clips = preferences.getInt(PUSHED_CLIPS, 0)
             val latest = preferences.getString(PUSHED_LATEST, null)
             _state.value = State(run = saved, clips = clips, latest = latest, hasSettled = true)
-            notifier.show(saved, clips, latest)
+            shown = -1
+            show(saved, clips, latest)
             return
         }
         clear()
@@ -149,7 +156,8 @@ class EventMode(
             removePushed()
         }
         _state.value = State(run = started, hasSettled = true)
-        notifier.show(started, clips = 0, latest = null)
+        shown = -1
+        show(started, clips = 0, latest = null)
     }
 
     /** Stops Event mode. The link keeps uploading into the event, for the clips sent on the way home. */
@@ -173,9 +181,11 @@ class EventMode(
      * checks keep the count, celebrating what lands; a push only moves the
      * notification ahead of them, never back.
      */
-    fun pushed(userId: String, hopId: String, clips: Int, latest: String?, at: Long) {
+    fun pushed(userId: String, hopId: String, since: Long?, clips: Int, latest: String?, at: Long) {
         val current = run ?: saved()
         if (current == null || current.userId != userId || current.hopId != hopId) return
+        // Only this run's: not one from before Event mode started again for the same event.
+        if ((since != null && since != current.since) || at < current.since) return
         if (now() - current.startedAt >= MAX_DURATION_MS) return
         if (at <= preferences.getLong(PUSHED_AT, 0L)) return
         preferences.edit(commit = true) {
@@ -184,7 +194,7 @@ class EventMode(
             if (latest != null) putString(PUSHED_LATEST, latest) else remove(PUSHED_LATEST)
         }
         if (run != null && clips <= _state.value.clips) return
-        notifier.show(current, clips, latest)
+        show(current, clips, latest)
     }
 
     /** Checks for new clips once. */
@@ -212,7 +222,7 @@ class EventMode(
             }
             val before = _state.value
             _state.value = before.copy(clips = reply.count, latest = latest, arrival = arrival, isOffline = false)
-            if (before.clips != reply.count || before.latest != latest) notifier.show(current, reply.count, latest)
+            if (before.clips != reply.count || before.latest != latest) show(current, reply.count, latest)
         } catch (error: CancellationException) {
             throw error
         } catch (error: ApiError) {
@@ -250,6 +260,13 @@ class EventMode(
         }
     }
 
+    /** Updates the notification, never to fewer clips than it shows. */
+    private fun show(run: Run, clips: Int, latest: String?) {
+        if (clips < shown) return
+        shown = clips
+        notifier.show(run, clips, latest)
+    }
+
     private fun saved(): Run? =
         preferences.getString(KEY, null)?.let { runCatching { HopJson.decodeFromString<Run>(it) }.getOrNull() }
 
@@ -260,6 +277,7 @@ class EventMode(
     }
 
     private fun clear() {
+        shown = -1
         preferences.edit(commit = true) {
             remove(KEY)
             removePushed()

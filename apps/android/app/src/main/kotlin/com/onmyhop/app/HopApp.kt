@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -74,6 +75,14 @@ fun HopApp(container: AppContainer) {
                 wait = (wait * 2).coerceAtMost(1.minutes)
             }
         }
+    }
+
+    // Notifications allowed anywhere (Event mode's setup, Android's settings):
+    // this phone registers for them as the app comes back. Already
+    // registered this launch, it does nothing.
+    LifecycleResumeEffect(state.token) {
+        if (state.token != null) container.push.refresh()
+        onPauseOrDispose {}
     }
 
     // Carries on with an event that was running when the app quit, or ends it:

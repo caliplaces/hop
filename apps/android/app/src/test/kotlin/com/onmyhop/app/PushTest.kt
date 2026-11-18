@@ -58,8 +58,8 @@ class PushMessageTest {
             ),
         )
         assertEquals(
-            PushMessage.Event(hopId = "hop_1", clips = 4, latest = null, at = 99),
-            PushMessage.parse(mapOf("hop" to "event", "hopId" to "hop_1", "clips" to "4", "at" to "99", "recipient" to to), registration),
+            PushMessage.Event(hopId = "hop_1", since = 50, clips = 4, latest = null, at = 99),
+            PushMessage.parse(mapOf("hop" to "event", "hopId" to "hop_1", "since" to "50", "clips" to "4", "at" to "99", "recipient" to to), registration),
         )
     }
 
@@ -262,7 +262,7 @@ class PushTest {
         assertEquals(1, notifier.expiring.size)
 
         startEvent()
-        push.received(mapOf("hop" to "event", "hopId" to "h1", "clips" to "3", "latest" to "Mia", "at" to "10", "recipient" to to))
+        push.received(mapOf("hop" to "event", "hopId" to "h1", "since" to "555", "clips" to "3", "latest" to "Mia", "at" to "1000", "recipient" to to))
         assertEquals(Triple("h1", 3, "Mia"), eventNotifier.shown.last())
     }
 

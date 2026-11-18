@@ -264,6 +264,7 @@ export async function pushFcmEventUpdate(
   {
     userId,
     hopId,
+    since,
     clips,
     latest,
     alert,
@@ -271,6 +272,8 @@ export async function pushFcmEventUpdate(
   }: {
     userId: string;
     hopId: string;
+    /** The Event mode run it counts for (its registration's `since`), so the app can tell runs apart. */
+    since: number;
     clips: number;
     latest: string | null;
     alert: boolean;
@@ -285,6 +288,7 @@ export async function pushFcmEventUpdate(
         hop: "event",
         recipient: await recipient(userId, token),
         hopId,
+        since: String(since),
         clips: String(clips),
         ...(latest ? { latest } : {}),
         // Lets the app drop an update that arrives after a newer one.

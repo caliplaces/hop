@@ -35,8 +35,12 @@ sealed interface PushMessage {
     /** Free-plan clips about to leave. Each notice replaces the one before it. */
     data class Expiring(val title: String, val body: String, val tag: String?) : PushMessage
 
-    /** Event mode's count: clips since it started, and who sent the latest, as of `at` (server clock). */
-    data class Event(val hopId: String, val clips: Int, val latest: String?, val at: Long) : PushMessage
+    /**
+     * Event mode's count: clips since it started, and who sent the latest, as
+     * of `at` (server clock). `since` is the run it counts for, when the API
+     * says.
+     */
+    data class Event(val hopId: String, val since: Long?, val clips: Int, val latest: String?, val at: Long) : PushMessage
 
     companion object {
         /**
@@ -61,6 +65,7 @@ sealed interface PushMessage {
                 )
                 "event" -> Event(
                     hopId = data["hopId"] ?: return null,
+                    since = data["since"]?.toLongOrNull(),
                     clips = data["clips"]?.toIntOrNull()?.takeIf { it >= 0 } ?: return null,
                     latest = data["latest"],
                     at = data["at"]?.toLongOrNull() ?: return null,

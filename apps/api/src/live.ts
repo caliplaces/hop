@@ -63,6 +63,7 @@ export async function pushArrivals(env: Env, hopId: string, now = Date.now()) {
         ? pushFcmEventUpdate(env, activity.token, {
             userId: activity.userId,
             hopId,
+            since: activity.since,
             clips: count,
             latest: sender,
             alert: alerting,

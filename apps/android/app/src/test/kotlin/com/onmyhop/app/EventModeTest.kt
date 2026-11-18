@@ -171,23 +171,49 @@ class EventModeTest {
         replies["POST /api/me/hops/h1/activate"] = """{"ok":true,"activatedAt":555}"""
         val mode = eventMode()
         mode.start(EventMode.Target.Existing(com.onmyhop.app.core.Hop("h1", "x", "X", "open", 1, 0, 0)), me, api())
-        mode.pushed("u1", "h1", clips = 2, latest = "Mia", at = 10)
+        mode.pushed("u1", "h1", since = 555, clips = 2, latest = "Mia", at = 1010)
         assertEquals(Triple("h1", 2, "Mia"), notifier.shown.last())
         val shown = notifier.shown.size
-        mode.pushed("u1", "h1", clips = 1, latest = null, at = 9) // older
-        mode.pushed("u1", "h2", clips = 5, latest = null, at = 11) // another event
-        mode.pushed("u2", "h1", clips = 5, latest = null, at = 12) // another athlete
+        mode.pushed("u1", "h1", since = 555, clips = 1, latest = null, at = 1009) // older
+        mode.pushed("u1", "h2", since = 555, clips = 5, latest = null, at = 1011) // another event
+        mode.pushed("u2", "h1", since = 555, clips = 5, latest = null, at = 1012) // another athlete
         assertEquals(shown, notifier.shown.size)
 
         // The app's own count is ahead: the notification stays with it.
         replies["GET /api/me/hops/h1/arrivals"] = """{"count":4,"latest":[${clip("c4", "Leo")}]}"""
         mode.poll(api())
-        mode.pushed("u1", "h1", clips = 3, latest = "Mia", at = 13)
+        mode.pushed("u1", "h1", since = 555, clips = 3, latest = "Mia", at = 1013)
         assertEquals(Triple("h1", 4, "Leo"), notifier.shown.last())
         // The app's count stays its own, so it still celebrates what it finds.
-        mode.pushed("u1", "h1", clips = 6, latest = "Ana", at = 14)
+        mode.pushed("u1", "h1", since = 555, clips = 6, latest = "Ana", at = 1014)
         assertEquals(Triple("h1", 6, "Ana"), notifier.shown.last())
         assertEquals(4, mode.state.value.clips)
+    }
+
+    /** Only the run going now: not a late update from before Event mode started again for the same event. */
+    @Test
+    fun pushesOnlyForThisRun() = runBlocking {
+        replies["POST /api/me/hops/h1/activate"] = """{"ok":true,"activatedAt":555}"""
+        val mode = eventMode()
+        mode.start(EventMode.Target.Existing(com.onmyhop.app.core.Hop("h1", "x", "X", "open", 1, 0, 0)), me, api())
+        mode.pushed("u1", "h1", since = 444, clips = 9, latest = null, at = 1000)
+        mode.pushed("u1", "h1", since = null, clips = 9, latest = null, at = 500)
+        assertEquals(Triple("h1", 0, null), notifier.shown.last())
+        mode.pushed("u1", "h1", since = null, clips = 2, latest = null, at = 600)
+        assertEquals(Triple("h1", 2, null), notifier.shown.last())
+    }
+
+    /** A check answered after a newer push doesn't take the notification back. */
+    @Test
+    fun aLateCheckDoesntLowerTheNotification() = runBlocking {
+        replies["POST /api/me/hops/h1/activate"] = """{"ok":true,"activatedAt":555}"""
+        val mode = eventMode()
+        mode.start(EventMode.Target.Existing(com.onmyhop.app.core.Hop("h1", "x", "X", "open", 1, 0, 0)), me, api())
+        mode.pushed("u1", "h1", since = 555, clips = 6, latest = "Ana", at = 1000)
+        replies["GET /api/me/hops/h1/arrivals"] = """{"count":5,"latest":[${clip("c5", "Leo")}]}"""
+        mode.poll(api())
+        assertEquals(5, mode.state.value.clips)
+        assertEquals(Triple("h1", 6, "Ana"), notifier.shown.last())
     }
 
     /** With the app closed, a push still updates the notification, and the app opens on that count. */
@@ -196,7 +222,7 @@ class EventModeTest {
         replies["POST /api/me/hops/h1/activate"] = """{"ok":true,"activatedAt":555}"""
         eventMode().start(EventMode.Target.Existing(com.onmyhop.app.core.Hop("h1", "x", "X", "open", 1, 0, 0)), me, api())
         val closed = eventMode()
-        closed.pushed("u1", "h1", clips = 3, latest = "Mia", at = 10)
+        closed.pushed("u1", "h1", since = 555, clips = 3, latest = "Mia", at = 1010)
         assertEquals(Triple("h1", 3, "Mia"), notifier.shown.last())
         assertNull(closed.run)
 
@@ -208,7 +234,7 @@ class EventModeTest {
         // A new event starts from nothing.
         replies["POST /api/me/hops/h2/activate"] = """{"ok":true,"activatedAt":777}"""
         opened.start(EventMode.Target.Existing(com.onmyhop.app.core.Hop("h2", "y", "Y", "open", 1, 0, 0)), me, api())
-        opened.pushed("u1", "h2", clips = 1, latest = null, at = 5)
+        opened.pushed("u1", "h2", since = 777, clips = 1, latest = null, at = 1005)
         assertEquals(Triple("h2", 1, null), notifier.shown.last())
     }
 
