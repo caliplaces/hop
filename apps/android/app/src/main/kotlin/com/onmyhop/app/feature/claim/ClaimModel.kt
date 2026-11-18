@@ -37,7 +37,12 @@ class ClaimModel(me: Me, private val session: Session, private val debounceMs: L
         private set
 
     /** Why the last claim failed, when it wasn't the handle's fault. */
-    var problem: String? by mutableStateOf(null)
+    sealed interface Problem {
+        data object Offline : Problem
+        data class Server(val message: String) : Problem
+    }
+
+    var problem: Problem? by mutableStateOf(null)
         private set
 
     val handle: String get() = HandleRules.normalize(input)
@@ -53,6 +58,14 @@ class ClaimModel(me: Me, private val session: Session, private val debounceMs: L
         if (text == input) return
         input = text
         scheduleCheck()
+    }
+
+    /** Whether the last check couldn't reach Hop, so it's worth asking again. */
+    val checkFailed: Boolean get() = (status as? Status.Unavailable)?.reason == Reason.Offline
+
+    /** Checks the same handle again, after a check that couldn't reach Hop. */
+    fun retry() {
+        if (checkFailed) scheduleCheck()
     }
 
     /** Checks the handle a moment after they stop typing, dropping older checks. */
@@ -101,10 +114,11 @@ class ClaimModel(me: Me, private val session: Session, private val debounceMs: L
                         status = Status.Unavailable(if (error.code == "handle_taken") Reason.Taken else Reason.Invalid)
                     }
                 } else {
-                    problem = error.message
+                    problem = Problem.Server(error.message ?: "")
                 }
             } catch (_: java.io.IOException) {
-                status = Status.Unavailable(Reason.Offline)
+                // The handle may well be fine: they can tap again once online.
+                problem = Problem.Offline
             } finally {
                 isClaiming = false
             }

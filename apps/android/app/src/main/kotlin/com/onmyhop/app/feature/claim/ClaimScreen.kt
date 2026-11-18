@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.onmyhop.app.R
 import com.onmyhop.app.auth.Session
@@ -58,6 +60,11 @@ import com.onmyhop.app.feature.account.SignOutMenu
 @Composable
 fun ClaimScreen(me: Me, session: Session) {
     val model = viewModel { ClaimModel(me, session) }
+    // Back online after a check that failed: try it again.
+    LifecycleResumeEffect(model) {
+        model.retry()
+        onPauseOrDispose {}
+    }
     HopTheme(model.color) {
         Scaffold(
             topBar = {
@@ -72,9 +79,14 @@ fun ClaimScreen(me: Me, session: Session) {
                     Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)).padding(horizontal = 24.dp, vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    AnimatedVisibility(model.problem != null) {
+                    val problem = when (val current = model.problem) {
+                        ClaimModel.Problem.Offline -> stringResource(R.string.offline)
+                        is ClaimModel.Problem.Server -> current.message
+                        null -> null
+                    }
+                    AnimatedVisibility(problem != null) {
                         Text(
-                            model.problem.orEmpty(),
+                            problem.orEmpty(),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(bottom = 12.dp),
@@ -153,7 +165,7 @@ private fun HandleField(model: ClaimModel) {
             keyboardType = KeyboardType.Ascii,
             imeAction = ImeAction.Done,
         ),
-        keyboardActions = KeyboardActions(onDone = { model.claim() }),
+        keyboardActions = KeyboardActions(onDone = { if (model.checkFailed) model.retry() else model.claim() }),
         trailingIcon = {
             when (status) {
                 ClaimModel.Status.Checking -> LoadingIndicator(Modifier.size(28.dp))
@@ -162,7 +174,13 @@ private fun HandleField(model: ClaimModel) {
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                 )
-                is ClaimModel.Status.Unavailable -> Icon(painterResource(R.drawable.ic_error), contentDescription = null)
+                is ClaimModel.Status.Unavailable -> if (model.checkFailed) {
+                    IconButton(onClick = model::retry) {
+                        Icon(painterResource(R.drawable.ic_refresh), stringResource(R.string.try_again))
+                    }
+                } else {
+                    Icon(painterResource(R.drawable.ic_error), contentDescription = null)
+                }
                 ClaimModel.Status.Idle -> {}
             }
         },

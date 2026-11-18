@@ -10,6 +10,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -52,62 +58,92 @@ import com.onmyhop.app.design.athlete
 
 /**
  * Signed out: Bobble in a slowly breathing bubble, and one way in, with a
- * Caliplaces account. New athletes claim their link right after.
+ * Caliplaces account. New athletes claim their link right after. Side by
+ * side when the screen is wider than it is tall, as a landscape phone is.
  */
 @Composable
 fun WelcomeScreen(signIn: SignIn) {
-    val status by signIn.status.collectAsStateWithLifecycle()
-    val working = status == SignIn.Status.Working
-    val failure = (status as? SignIn.Status.Failed)?.message
-
-    Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.Center) {
-        Column(
-            Modifier.widthIn(max = ReadableWidth).fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(Modifier.weight(1f))
-            BreathingBubble(Modifier.fillMaxWidth(0.78f))
-            Spacer(Modifier.height(36.dp))
-            Text(
-                stringResource(R.string.welcome_title),
-                style = MaterialTheme.typography.displaySmallEmphasized,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                stringResource(R.string.welcome_message),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.weight(1f))
-            AnimatedVisibility(failure != null) {
-                Text(
-                    failure.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.Center) {
+        if (maxWidth > maxHeight) {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    BreathingBubble(Modifier.fillMaxHeight(0.9f))
+                }
+                Column(
+                    Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Greeting()
+                    Spacer(Modifier.height(24.dp))
+                    SignInControls(signIn)
+                }
             }
-            BigButton(
-                text = stringResource(R.string.welcome_continue),
-                onClick = {
-                    signIn.dismissError()
-                    signIn.start()
-                },
-                working = working,
-                athlete = MaterialTheme.athlete,
-            )
-            Text(
-                stringResource(R.string.welcome_footnote),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 12.dp),
-            )
+        } else {
+            Column(
+                Modifier.widthIn(max = ReadableWidth).fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // The bubble takes what's left, up to a square, so the button always fits.
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    BreathingBubble(Modifier.fillMaxWidth(0.78f))
+                }
+                Spacer(Modifier.height(24.dp))
+                Greeting()
+                Spacer(Modifier.height(32.dp))
+                SignInControls(signIn)
+            }
         }
     }
+}
+
+@Composable
+private fun Greeting() {
+    Text(
+        stringResource(R.string.welcome_title),
+        style = MaterialTheme.typography.displaySmallEmphasized,
+        textAlign = TextAlign.Center,
+    )
+    Spacer(Modifier.height(12.dp))
+    Text(
+        stringResource(R.string.welcome_message),
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+    )
+}
+
+@Composable
+private fun ColumnScope.SignInControls(signIn: SignIn) {
+    val status by signIn.status.collectAsStateWithLifecycle()
+    val failure = (status as? SignIn.Status.Failed)?.message
+    AnimatedVisibility(failure != null) {
+        Text(
+            failure.orEmpty(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+    }
+    BigButton(
+        text = stringResource(R.string.welcome_continue),
+        onClick = {
+            signIn.dismissError()
+            signIn.start()
+        },
+        working = status == SignIn.Status.Working,
+        athlete = MaterialTheme.athlete,
+    )
+    Text(
+        stringResource(R.string.welcome_footnote),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.padding(top = 12.dp),
+    )
 }
 
 /**
@@ -130,7 +166,8 @@ private fun BreathingBubble(modifier: Modifier = Modifier) {
         animationSpec = infiniteRepeatable(tween(40_000, easing = LinearEasing)),
         label = "turn",
     )
-    Box(modifier.aspectRatio(1f), contentAlignment = Alignment.Center) {
+    // Square, and as big as the space allows in either direction.
+    Box(modifier.aspectRatio(1f, matchHeightConstraintsFirst = true), contentAlignment = Alignment.Center) {
         Box(
             Modifier
                 .fillMaxSize()
