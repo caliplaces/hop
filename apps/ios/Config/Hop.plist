@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Hop's only encryption is Apple's: HTTPS and the Keychain. That's exempt
+	     from export rules, so App Store Connect doesn't ask about each build. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!-- Event mode's count changes with every clip, so the API pushes updates
 	     often. People can turn this off in Settings. -->
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
