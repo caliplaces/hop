@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws everything; the window only needs Hop's canvas behind it. -->
+    <style name="Theme.Hop" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/canvas</item>
+    </style>
+
+    <!-- Bobble on Hop's canvas while the app starts. -->
+    <style name="Theme.Hop.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/canvas</item>
+        <item name="postSplashScreenTheme">@style/Theme.Hop</item>
+    </style>
+
+    <!-- Invisible, for the activity that only passes a sign-in redirect along. -->
+    <style name="Theme.Hop.Invisible" parent="Theme.Hop">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+</resources>

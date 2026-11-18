@@ -1,0 +1,62 @@
+name: Android
+
+# Builds the Android app, runs its unit tests and lint, and checks the release
+# build shrinks cleanly. Runs only when the app, or the shared files its tests
+# compare against, change.
+on:
+  pull_request:
+    branches: [staging, main]
+    paths:
+      - "apps/android/**"
+      - "packages/shared/src/colors.ts"
+      - "packages/shared/src/handles.ts"
+      - ".github/workflows/android.yml"
+  push:
+    branches: [staging, main]
+    paths:
+      - "apps/android/**"
+      - "packages/shared/src/colors.ts"
+      - "packages/shared/src/handles.ts"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/**/*.gradle.kts
+            apps/android/gradle/libs.versions.toml
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+
+      # The wrapper jar runs before anything else, so it must be Gradle's own:
+      # checked against the checksum Gradle publishes for that version. (The
+      # distribution it downloads is pinned by distributionSha256Sum.)
+      - name: Check the Gradle wrapper
+        run: |
+          version="$(sed -n 's/^distributionUrl=.*gradle-\([0-9.]*\)-bin\.zip$/\1/p' gradle/wrapper/gradle-wrapper.properties)"
+          expected="$(curl -fsSL "https://services.gradle.org/distributions/gradle-${version}-wrapper.jar.sha256")"
+          echo "${expected}  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
+
+      - name: Unit tests, lint, and debug and release builds
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease --console=plain

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Hop's canvas, as on the website and the iPhone app. -->
+    <color name="canvas">#FAFAF7</color>
+    <color name="ic_launcher_background">#FAFAF7</color>
+</resources>
