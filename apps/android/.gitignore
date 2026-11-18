@@ -1,0 +1,13 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+# Signing keys and service configuration never go in the repository.
+*.jks
+*.keystore
+google-services.json
