@@ -169,6 +169,15 @@
     <string name="event_channel">Event mode</string>
     <string name="event_channel_description">The clip count while Event mode is on.</string>
 
+    <!-- The QR code from outside the app -->
+    <string name="widget_name">Hop QR code</string>
+    <string name="widget_picker_description">Your Hop QR code, for anyone to scan and send you clips.</string>
+    <string name="widget_signed_out">Sign in to Hop to show your QR code here.</string>
+    <string name="widget_description">QR code for %1$s</string>
+    <string name="tile_label">Hop QR code</string>
+    <string name="shortcut_qr_short">QR code</string>
+    <string name="shortcut_qr_long">Show my QR code</string>
+
     <!-- Account -->
     <string name="account_title">Account</string>
     <string name="account_signed_in">Signed in</string>

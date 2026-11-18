@@ -39,13 +39,25 @@ object QrCodes {
             mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M, EncodeHintType.MARGIN to 0),
         )
 
-    /** The code as an image, for saving: [moduleSize] pixels a module, with a 4-module white border. */
-    fun bitmap(text: String, moduleSize: Int = 24): Bitmap {
+    /**
+     * The code as an image, for saving or a widget: [moduleSize] pixels a
+     * module, with a 4-module white border, its corners rounded by
+     * [cornerModules] modules (transparent beyond them).
+     */
+    fun bitmap(text: String, moduleSize: Int = 24, cornerModules: Float = 0f): Bitmap {
         val matrix = matrix(text)
         val quiet = 4
         val side = (matrix.width + quiet * 2) * moduleSize
         val bitmap = createBitmap(side, side)
-        bitmap.eraseColor(android.graphics.Color.WHITE)
+        if (cornerModules > 0f) {
+            val radius = cornerModules * moduleSize
+            android.graphics.Canvas(bitmap).drawRoundRect(
+                0f, 0f, side.toFloat(), side.toFloat(), radius, radius,
+                android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE },
+            )
+        } else {
+            bitmap.eraseColor(android.graphics.Color.WHITE)
+        }
         for (y in 0 until matrix.height) {
             for (x in 0 until matrix.width) {
                 if (!matrix[x, y]) continue

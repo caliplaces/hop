@@ -22,12 +22,14 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import coil3.SingletonImageLoader
+import com.onmyhop.app.core.HopCard
 import com.onmyhop.app.design.HopTheme
 import com.onmyhop.app.design.Palette
 import com.onmyhop.app.feature.claim.ClaimScreen
 import com.onmyhop.app.feature.home.HomeScreen
 import com.onmyhop.app.feature.profile.ProfileSetupScreen
 import com.onmyhop.app.feature.welcome.WelcomeScreen
+import com.onmyhop.app.widget.QrWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -51,6 +53,7 @@ fun HopApp(container: AppContainer) {
     val session = container.session
     val state by session.state.collectAsStateWithLifecycle()
     val me = state.me
+    val context = LocalContext.current
     val stage = when {
         !state.isSignedIn -> Stage.Welcome
         me != null && me.handle == null -> Stage.Claim
@@ -75,12 +78,19 @@ fun HopApp(container: AppContainer) {
         }
     }
 
+    // The widget and the tile show this athlete's QR code, and nobody's once they sign out.
+    LaunchedEffect(me, state.isSignedIn) {
+        val card = if (state.isSignedIn) HopCard.from(me) else null
+        // A profile still loading isn't a sign-out: keep the card until it says otherwise.
+        if (state.isSignedIn && me == null) return@LaunchedEffect
+        if (withContext(Dispatchers.IO) { HopCard.save(context, card) }) QrWidget.refresh(context)
+    }
+
     // Carries on with an event that was running when the app quit, or ends it:
     // it belongs to whoever is signed in, and only to them.
     LaunchedEffect(me?.id) { me?.let(container.eventMode::resume) }
 
     // Images seen while signed in, such as private thumbnails, are theirs alone.
-    val context = LocalContext.current
     LaunchedEffect(state.isSignedIn) {
         if (!state.isSignedIn) {
             // A save or share under way, and Event mode, belonged to whoever was signed in.

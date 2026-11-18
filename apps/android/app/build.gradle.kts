@@ -91,6 +91,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui.compose.material3)
     implementation(libs.zxing.core)
+    implementation(libs.glance.appwidget)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
