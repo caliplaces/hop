@@ -68,9 +68,13 @@ class MainActivity : ComponentActivity() {
             ACTION_EVENT_STAGE -> container.links.open(HopLink.EventStage)
             ACTION_QR_CODE -> container.links.open(HopLink.QrCode)
             // Anything can start this activity: only an ID's shape is taken
-            // from outside, and only the signed-in athlete's events open.
-            ACTION_CLIPS -> container.links.open(HopLink.Clips(intent.getStringExtra(EXTRA_HOP_ID)?.takeIf(HOP_ID::matches)))
-            ACTION_EXPIRING -> container.links.open(HopLink.Expiring)
+            // from outside, and only the signed-in athlete's events open. A
+            // notification tapped after its athlete signed out opens nothing
+            // for whoever signs in next.
+            ACTION_CLIPS -> if (container.session.token != null) {
+                container.links.open(HopLink.Clips(intent.getStringExtra(EXTRA_HOP_ID)?.takeIf(HOP_ID::matches)))
+            }
+            ACTION_EXPIRING -> if (container.session.token != null) container.links.open(HopLink.Expiring)
         }
     }
 

@@ -20,6 +20,9 @@ import java.util.concurrent.atomic.AtomicInteger
 interface PushNotifier {
     fun clips(message: PushMessage.Clips)
     fun expiring(message: PushMessage.Expiring)
+
+    /** Takes down whatever is showing, as when its athlete signs out. */
+    fun clear()
 }
 
 /**
@@ -78,6 +81,10 @@ class PushNotifications(private val context: Context) : PushNotifier {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
         notify("expiring:${message.tag.orEmpty()}", 0, notification)
+    }
+
+    override fun clear() {
+        manager.cancelAll()
     }
 
     private fun builder(channel: String, icon: Int, title: String, body: String?, open: Intent): NotificationCompat.Builder {

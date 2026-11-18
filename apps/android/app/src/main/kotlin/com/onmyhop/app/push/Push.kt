@@ -81,6 +81,9 @@ class Push(
     /** Starts following the session and Event mode. Once, from the app. */
     fun start() {
         session.onSignOut = ::signedOut
+        // A sign-out the app was closed in the middle of: finished now.
+        val unfinished = registration != null || preferences.getBoolean(TOKEN_ISSUED, false)
+        if (session.token == null && unfinished) scope.launch { signedOut(null) }
         scope.launch {
             // Someone signed in, or the app launched with them signed in, once their profile is in.
             session.state.map { it.me?.id }.distinctUntilChanged().collect { if (it != null) refresh() }
@@ -104,9 +107,16 @@ class Push(
     /** FCM gave this install a new token. */
     fun tokenChanged(): Job = scope.launch { changes.withLock { register(again = true) } }
 
-    /** A push arrived; shown if it's for the athlete signed in here. Any thread. */
+    /**
+     * A push arrived; shown if it's for the athlete signed in here. Nothing
+     * is, while nobody is: not while a sign-out is still taking the token
+     * back. Any thread.
+     */
     fun received(data: Map<String, String>) {
-        val registration = registration
+        if (session.token == null) return
+        val registration = registration ?: return
+        // Someone else signed in before their own registration took this one's place.
+        if (session.me?.id.let { it != null && it != registration.userId }) return
         when (val message = PushMessage.parse(data, registration)) {
             is PushMessage.Clips -> {
                 notifier.clips(message)
@@ -114,7 +124,7 @@ class Push(
             }
             is PushMessage.Expiring -> notifier.expiring(message)
             is PushMessage.Event -> scope.launch {
-                eventMode.pushed(registration?.userId ?: return@launch, message.hopId, message.clips, message.latest, message.at)
+                eventMode.pushed(registration.userId, message.hopId, message.clips, message.latest, message.at)
             }
             null -> Unit
         }
@@ -122,21 +132,29 @@ class Push(
 
     /**
      * Someone signed out, or was (their session ended, or the account was
-     * deleted). With [api], the session the server still knows: the API stops
-     * pushing here first. Either way, FCM drops the token.
+     * deleted). Their notifications leave the phone at once. With [api], the
+     * session the server still knows, the API stops pushing here. Then FCM
+     * drops the token, so pushes to it stop even where the API never heard
+     * of this; until that has worked, each launch signed out tries again.
      */
-    suspend fun signedOut(api: ApiClient?) = changes.withLock {
-        registeredFor = null
-        val registration = registration ?: return@withLock
-        if (api != null) {
-            if (preferences.contains(WATCHING)) attempt { api.delete("api/me/live-activities/${registration.token}") }
-            attempt { api.delete("api/me/devices/${registration.token}") }
+    suspend fun signedOut(api: ApiClient?) {
+        notifier.clear()
+        changes.withLock {
+            registeredFor = null
+            val registration = registration
+            if (api != null && registration != null) {
+                if (preferences.contains(WATCHING)) attempt { api.delete("api/me/live-activities/${registration.token}") }
+                attempt { api.delete("api/me/devices/${registration.token}") }
+            }
+            preferences.edit(commit = true) {
+                remove(REGISTRATION)
+                remove(WATCHING)
+            }
+            // Whenever FCM gave a token, even one the API's reply about never came back.
+            if (preferences.getBoolean(TOKEN_ISSUED, false) && attempt { tokens?.delete() } != null) {
+                preferences.edit(commit = true) { remove(TOKEN_ISSUED) }
+            }
         }
-        preferences.edit(commit = true) {
-            remove(REGISTRATION)
-            remove(WATCHING)
-        }
-        attempt { tokens?.delete() }
     }
 
     private suspend fun register(again: Boolean) {
@@ -147,6 +165,7 @@ class Push(
         if (!again && registeredFor == me.id && registration?.userId == me.id) return
         // FCM or the API out of reach: tried again next launch.
         val token = attempt { tokens.token() } ?: return
+        preferences.edit(commit = true) { putBoolean(TOKEN_ISSUED, true) }
         attempt { session.client(sessionToken).put<DeviceBody, Done>("api/me/devices/$token", DeviceBody(FCM)) } ?: return
         // Kept even if they signed out meanwhile: the sign-out, waiting its
         // turn, then takes it back from the API.
@@ -199,6 +218,9 @@ class Push(
         /** The event the API is updating Event mode for here. */
         const val WATCHING = "push.watching"
         const val ASK_DISMISSED = "push.askDismissed"
+
+        /** FCM has given this install a token that hasn't been deleted since. */
+        const val TOKEN_ISSUED = "push.tokenIssued"
         const val ASKED = "push.asked"
     }
 }

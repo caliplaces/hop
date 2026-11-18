@@ -85,6 +85,8 @@ class PushTest {
     private val failing = mutableSetOf<String>()
     /** While set, registering waits for it: a registration on its way. */
     private var hold: CountDownLatch? = null
+    /** While set, taking a token back waits for it: a sign-out on its way. */
+    private var holdDeletes: CountDownLatch? = null
     private val store = MemoryTokenStore()
     private val preferences = MemoryPreferences()
     private val eventPreferences = MemoryPreferences()
@@ -104,6 +106,7 @@ class PushTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.url.encodedPath
                 if (request.method == "PUT" && path.startsWith("/api/me/devices/")) hold?.await(5, TimeUnit.SECONDS)
+                if (request.method == "DELETE") holdDeletes?.await(5, TimeUnit.SECONDS)
                 synchronized(requests) { requests += "${request.method} $path ${request.body?.utf8().orEmpty()}".trim() }
                 if (path in failing) return MockResponse.Builder().code(500).body("""{"error":"internal_error"}""").build()
                 val body = when {
@@ -117,8 +120,10 @@ class PushTest {
         store.token = "hs_abc"
         session = Session(store, server.url("/"), OkHttpClient(), scope)
         eventMode = EventMode(eventPreferences, eventNotifier) { 1_000_000L }
-        push = Push(session, tokens, preferences, eventMode, notifier, { allowed }, scope)
+        push = push()
     }
+
+    private fun push() = Push(session, tokens, preferences, eventMode, notifier, { allowed }, scope)
 
     @After
     fun stop() {
@@ -261,6 +266,72 @@ class PushTest {
         assertEquals(Triple("h1", 3, "Mia"), eventNotifier.shown.last())
     }
 
+    /** Nothing shows while a sign-out is still taking the token back, and what was showing goes at once. */
+    @Test
+    fun signingOutShowsNothingMore() = runBlocking {
+        signIn()
+        val to = push.registration!!.recipient
+        holdDeletes = CountDownLatch(1)
+        val signingOut = session.signOut()
+        assertTrue(notifier.cleared)
+        push.received(mapOf("hop" to "clips", "title" to "New clip", "body" to "x", "recipient" to to))
+        assertTrue(notifier.clips.isEmpty())
+        holdDeletes?.countDown()
+        signingOut.join()
+    }
+
+    /** Someone else signed in before their own registration replaced the last one: its messages aren't theirs. */
+    @Test
+    fun anotherAthleteSeesNothingOfTheLast() = runBlocking {
+        signIn()
+        val to = push.registration!!.recipient
+        allowed = false // so the new athlete's registration doesn't replace it
+        session.update(me.copy(id = "usr_b"), fromToken = "hs_abc")
+        push.received(mapOf("hop" to "clips", "title" to "New clip", "body" to "x", "recipient" to to))
+        assertTrue(notifier.clips.isEmpty())
+    }
+
+    /** The app was closed in the middle of signing out: the next launch finishes it. */
+    @Test
+    fun finishesASignOutCutShort() = runBlocking {
+        signIn()
+        // Signed out here, but the rest never ran.
+        session.onSignOut = {}
+        session.signOut().join()
+        assertTrue(push.registration != null)
+        val relaunched = push()
+        relaunched.start()
+        waitFor("finished") { relaunched.registration == null && tokens.deleted == 1 }
+    }
+
+    /** A token FCM gave is deleted even when the API's reply about it never came back. */
+    @Test
+    fun deletesATokenTheApiNeverConfirmed() = runBlocking {
+        failing += "/api/me/devices/token-1"
+        push.start()
+        session.update(me, fromToken = "hs_abc")
+        push.refresh().join()
+        assertNull(push.registration)
+        session.signOut().join()
+        assertEquals(1, tokens.deleted)
+    }
+
+    /** Deleting the token offline is tried again at each launch until it works. */
+    @Test
+    fun keepsTryingToDeleteTheToken() = runBlocking {
+        signIn()
+        tokens.deleteFailing = true
+        session.signOut().join()
+        assertEquals(0, tokens.deleted)
+        tokens.deleteFailing = false
+        val relaunched = push()
+        relaunched.start()
+        waitFor("deleted") { tokens.deleted == 1 }
+        // Done: the launch after doesn't again.
+        push().start()
+        assertEquals(1, tokens.deleted)
+    }
+
     @Test
     fun signedOutPhonesShowNothing() = runBlocking {
         signIn()
@@ -274,12 +345,14 @@ class PushTest {
     private class FakeTokens : PushTokens {
         var token = "token-1"
         var failing = false
+        var deleteFailing = false
         var deleted = 0
         override suspend fun token(): String {
             if (failing) error("FCM can't be reached")
             return token
         }
         override suspend fun delete() {
+            if (deleteFailing) error("offline")
             deleted++
         }
     }
@@ -287,11 +360,15 @@ class PushTest {
     private class RecordingPushNotifier : PushNotifier {
         val clips = mutableListOf<PushMessage.Clips>()
         val expiring = mutableListOf<PushMessage.Expiring>()
+        var cleared = false
         override fun clips(message: PushMessage.Clips) {
             clips += message
         }
         override fun expiring(message: PushMessage.Expiring) {
             expiring += message
+        }
+        override fun clear() {
+            cleared = true
         }
     }
 }
