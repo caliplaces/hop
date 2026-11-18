@@ -3,6 +3,7 @@ package com.onmyhop.app.feature.home
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -18,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -34,6 +36,8 @@ import com.onmyhop.app.auth.Session
 import com.onmyhop.app.design.Avatar
 import com.onmyhop.app.design.LocalSharedTransitionScope
 import com.onmyhop.app.feature.account.AccountScreen
+import com.onmyhop.app.feature.account.BlockedSendersScreen
+import com.onmyhop.app.feature.inbox.ClipTransfers
 import com.onmyhop.app.feature.inbox.EventScreen
 import com.onmyhop.app.feature.inbox.InboxModel
 import com.onmyhop.app.feature.inbox.InboxTab
@@ -49,6 +53,9 @@ private data object TabsKey : NavKey
 private data object AccountKey : NavKey
 
 @Serializable
+private data object BlockedKey : NavKey
+
+@Serializable
 private data class EventKey(val hopId: String) : NavKey
 
 @Serializable
@@ -60,7 +67,7 @@ private data class ViewerKey(val hopId: String, val clipId: String) : NavKey
  * clips with Material's container transform.
  */
 @Composable
-fun HomeScreen(session: Session) {
+fun HomeScreen(session: Session, transfers: ClipTransfers) {
     val backStack = rememberNavBackStack(TabsKey)
     val state by session.state.collectAsStateWithLifecycle()
     // One inbox for the tabs, the events and the viewer, as long as the app is signed in.
@@ -88,17 +95,20 @@ fun HomeScreen(session: Session) {
                             openEvent = { backStack.add(EventKey(it)) },
                         )
                     }
-                    entry<AccountKey> { AccountScreen(session, onBack = back) }
+                    entry<AccountKey> { AccountScreen(session, onBack = back, openBlocked = { backStack.add(BlockedKey) }) }
+                    entry<BlockedKey> { BlockedSendersScreen(session, onBack = back) }
+                    // Screens leave by taking only themselves off the stack, so a
+                    // second request to leave can't take the screen below too.
                     entry<EventKey> { key ->
                         EventScreen(
                             hopId = key.hopId,
                             model = inbox,
                             session = session,
-                            onBack = back,
+                            onBack = { backStack.remove(key) },
                             openClip = { backStack.add(ViewerKey(key.hopId, it)) },
                         )
                     }
-                    entry<ViewerKey> { key -> ViewerScreen(key.hopId, key.clipId, inbox, onBack = back) }
+                    entry<ViewerKey> { key -> ViewerScreen(key.hopId, key.clipId, inbox, transfers, onBack = { backStack.remove(key) }) }
                 },
             )
         }
@@ -141,6 +151,7 @@ private fun AccountButton(session: Session, onClick: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val label = stringResource(R.string.account_title)
     IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = label }) {
-        Avatar(state.me, 32.dp)
+        // Read out as "Account", not the initial on the avatar.
+        Box(Modifier.clearAndSetSemantics {}) { Avatar(state.me, 32.dp) }
     }
 }

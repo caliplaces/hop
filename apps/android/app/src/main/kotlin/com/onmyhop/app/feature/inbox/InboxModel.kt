@@ -13,6 +13,8 @@ import com.onmyhop.app.core.ClipPage
 import com.onmyhop.app.core.ClipUrl
 import com.onmyhop.app.core.Hop
 import com.onmyhop.app.core.HopsReply
+import com.onmyhop.app.core.Empty
+import com.onmyhop.app.core.Ok
 import com.onmyhop.app.core.PlanStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -22,6 +24,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 import java.io.IOException
 
 /**
@@ -69,6 +72,12 @@ class InboxModel(private val session: Session) : ViewModel() {
 
     /** The refresh under way. A newer one replaces it, so an older reply can't land last. */
     private var refreshing: Job? = null
+
+    /**
+     * Clips known to be gone (deleted, or a blocked sender's): kept out of any
+     * page that arrives later, including one requested before they went.
+     */
+    private val dropped = mutableSetOf<String>()
 
     val totalClips: Int get() = hops.sumOf { it.fileCount }
 
@@ -141,7 +150,7 @@ class InboxModel(private val session: Session) : ViewModel() {
             val knownIds = known.mapTo(HashSet()) { it.id }
             // A page can overlap the last if clips arrived meanwhile.
             clips[hopId] = ClipList(
-                items = known + page.files.filter { it.id !in knownIds },
+                items = known + page.files.filter { it.id !in knownIds && it.id !in dropped },
                 nextCursor = page.nextCursor,
                 loadedOnce = true,
             )
@@ -155,7 +164,12 @@ class InboxModel(private val session: Session) : ViewModel() {
         }
     }
 
+    /** Plan requests in the order they were made, and the newest one shown. */
+    private var planAsked = 0
+    private var planShown = 0
+
     private suspend fun loadPlan() {
+        val asked = ++planAsked
         val status = try {
             session.api.get<PlanStatus>("api/me/plan")
         } catch (error: CancellationException) {
@@ -163,9 +177,72 @@ class InboxModel(private val session: Session) : ViewModel() {
         } catch (_: Exception) {
             return
         }
-        // An older reading than the one shown is stale.
-        if (status.revision >= (plan?.revision ?: Long.MIN_VALUE)) plan = status
+        // Stale: asked before the reading shown (storage moves with every delete), or
+        // read before a subscription change the one shown already reflects.
+        if (asked < planShown || status.revision < (plan?.revision ?: Long.MIN_VALUE)) return
+        plan = status
+        planShown = asked
     }
+
+    /** Deletes a clip for good, and takes it out of its event's list and totals. */
+    suspend fun delete(clip: Clip) = owned {
+        session.api.delete("api/me/files/${clip.id}")
+        drop(mapOf(clip.id to clip))
+        // A refresh under way may have read the totals from before: it starts
+        // over. Otherwise the plan alone (storage, clips about to leave) moves.
+        if (refreshing?.isActive == true) refresh() else loadPlan()
+    }
+
+    /** Reports a clip to Hop's team. */
+    suspend fun report(clip: Clip, reason: ReportReason, note: String?) = owned {
+        session.api.post<ReportRequest, Ok>("api/me/files/${clip.id}/report", ReportRequest(reason.id, note?.trim()?.ifEmpty { null }))
+    }
+
+    /**
+     * Blocks whoever sent a clip: their clips leave the inbox (dropped here at
+     * once, then a fresh reload), and they can't send more. Returns the ids
+     * of the clips that went.
+     */
+    suspend fun block(clip: Clip): Set<String> = owned {
+        val reply = session.api.post<Empty, BlockReply>("api/me/files/${clip.id}/block", Empty)
+        val known = clips.values.flatMap { it.items }.associateBy { it.id }
+        drop(reply.removedIds.associateWith { known[it] } + (clip.id to clip))
+        refresh()
+        reply.removedIds.toSet() + clip.id
+    }
+
+    /**
+     * Runs a change in the inbox's own scope: once it's asked for, leaving the
+     * screen that asked (which cancels the wait) can't stop the request or
+     * the lists catching up with it.
+     */
+    private suspend fun <T> owned(change: suspend () -> T): T = viewModelScope.async { change() }.await()
+
+    /**
+     * Takes clips that are gone out of every event's list and totals, without
+     * waiting for a reload. Clips this hasn't loaded only stay out of later pages.
+     */
+    private fun drop(gone: Map<String, Clip?>) {
+        dropped += gone.keys
+        for ((hopId, list) in clips.toMap()) {
+            if (list.items.none { it.id in gone }) continue
+            clips[hopId] = list.copy(items = list.items.filterNot { it.id in gone })
+        }
+        val byHop = gone.values.filterNotNull().groupBy { it.hopId }
+        hops = hops.map { hop ->
+            val removed = byHop[hop.id] ?: return@map hop
+            hop.copy(
+                fileCount = (hop.fileCount - removed.size).coerceAtLeast(0),
+                totalBytes = (hop.totalBytes - removed.sumOf { it.size }).coerceAtLeast(0),
+            )
+        }
+    }
+
+    @Serializable
+    private class ReportRequest(val reason: String, val note: String? = null)
+
+    @Serializable
+    private class BlockReply(val removedIds: List<String> = emptyList())
 
     /** A short-lived link to a clip, for playing (or, with [download], saving) it. */
     suspend fun url(clip: Clip, download: Boolean = false): String {
