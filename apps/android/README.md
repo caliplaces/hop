@@ -18,8 +18,11 @@ So far it has:
 - the account: profile, plan and storage, new-clip emails, blocked senders,
   and deleting the account.
 
-The QR code from a tile, widget and shortcut, notifications of new clips, and
-Hop+ come next. Until push notifications arrive, Event mode counts while the
+- the QR code from anywhere: a home screen widget, a Quick Settings tile and
+  a "Show my QR code" app shortcut, each opening Event mode's stage while it
+  runs.
+
+Notifications of new clips and Hop+ come next. Until push notifications arrive, Event mode counts while the
 app is open; the notification shows the last count it saw.
 
 ## Running it

@@ -68,3 +68,16 @@ class StorageTextTest {
         assertEquals("1,5 GB", com.onmyhop.app.core.storageText(gib * 3 / 2, java.util.Locale.GERMANY))
     }
 }
+
+class HopCardTest {
+    /** The widget and tile show a card only once there's a handle to link to. */
+    @Test
+    fun cardsNeedAHandle() {
+        assertNull(com.onmyhop.app.core.HopCard.from(null))
+        assertNull(com.onmyhop.app.core.HopCard.from(Me(id = "u", color = "sky")))
+        val card = com.onmyhop.app.core.HopCard.from(Me(id = "u", color = "sky", handle = "maya", name = "Maya"))
+        assertEquals("maya", card?.handle)
+        assertEquals("sky", card?.color)
+        assertTrue(card!!.link.endsWith("/maya"))
+    }
+}

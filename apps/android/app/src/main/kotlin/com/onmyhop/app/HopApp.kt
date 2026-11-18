@@ -51,6 +51,7 @@ fun HopApp(container: AppContainer) {
     val session = container.session
     val state by session.state.collectAsStateWithLifecycle()
     val me = state.me
+    val context = LocalContext.current
     val stage = when {
         !state.isSignedIn -> Stage.Welcome
         me != null && me.handle == null -> Stage.Claim
@@ -80,7 +81,6 @@ fun HopApp(container: AppContainer) {
     LaunchedEffect(me?.id) { me?.let(container.eventMode::resume) }
 
     // Images seen while signed in, such as private thumbnails, are theirs alone.
-    val context = LocalContext.current
     LaunchedEffect(state.isSignedIn) {
         if (!state.isSignedIn) {
             // A save or share under way, and Event mode, belonged to whoever was signed in.

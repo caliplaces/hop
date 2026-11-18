@@ -10,13 +10,18 @@ import coil3.request.crossfade
 import com.onmyhop.app.auth.KeystoreTokenStore
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.auth.SignIn
+import com.onmyhop.app.core.HopCard
 import com.onmyhop.app.core.HopLinks
 import com.onmyhop.app.core.HopServer
 import com.onmyhop.app.feature.event.EventMode
 import com.onmyhop.app.feature.event.EventNotification
 import com.onmyhop.app.feature.inbox.ClipTransfers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.onmyhop.app.widget.QrWidget
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -47,6 +52,20 @@ class AppContainer(context: Context) {
 
     /** Event mode, which outlives any one screen. */
     val eventMode = EventMode(context.getSharedPreferences("hop.event", Context.MODE_PRIVATE), EventNotification(context))
+
+    init {
+        // The widget and the tile show this athlete's QR code, and nobody's once they
+        // sign out: kept in sync here, as long as the app runs, not by a screen that
+        // stops watching in the background (an account deleted after leaving, say).
+        scope.launch {
+            session.state.collect { state ->
+                // A profile still loading isn't a sign-out: the card stays until it says otherwise.
+                if (state.isSignedIn && state.me == null) return@collect
+                val card = if (state.isSignedIn) HopCard.from(state.me) else null
+                if (withContext(Dispatchers.IO) { HopCard.save(context, card) }) QrWidget.refresh(context)
+            }
+        }
+    }
 
     /**
      * Images from Hop's API. Requests to the API's own host carry the
