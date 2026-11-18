@@ -127,6 +127,9 @@ export function appSiteAssociation(request: Request, env: Env): Response {
 export const ASSET_LINKS_PATH = "/.well-known/assetlinks.json";
 
 const CERT_FINGERPRINT = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
+const ANDROID_PACKAGE = /^[a-zA-Z][\w]*(\.[a-zA-Z][\w]*)+$/;
+/** Each isolate says once that the setting is wrong, however often the file is read. */
+let warnedFingerprints = false;
 
 export function assetLinks(request: Request, env: Env): Response {
   const headers = { "x-content-type-options": "nosniff" };
@@ -139,15 +142,21 @@ export function assetLinks(request: Request, env: Env): Response {
     if (!fingerprint) continue;
     if (CERT_FINGERPRINT.test(fingerprint)) {
       fingerprints.push(fingerprint);
-    } else {
+    } else if (!warnedFingerprints) {
+      warnedFingerprints = true;
       console.error(
         "assetlinks: ANDROID_CERT_FINGERPRINTS has an entry that isn't a SHA-256 fingerprint",
       );
     }
   }
-  // Without the app's identity there's nothing true to say.
-  if (!env.ANDROID_PACKAGE || fingerprints.length === 0) {
-    return new Response(null, { status: 404, headers });
+  // Without the app's identity there's nothing true to say, and nothing to
+  // keep once the setting is fixed.
+  const named = env.ANDROID_PACKAGE && ANDROID_PACKAGE.test(env.ANDROID_PACKAGE);
+  if (!named || fingerprints.length === 0) {
+    return new Response(null, {
+      status: 404,
+      headers: { ...headers, "cache-control": "no-store" },
+    });
   }
   return Response.json(
     [

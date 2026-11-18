@@ -172,10 +172,9 @@
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
         "ANDROID_PACKAGE": "com.onmyhop.app",
-        // The certificates the Android app is signed with, for its Digital Asset Links
-        // (README: How the app signs in): the upload key, for builds installed by hand.
-        // Google Play's app signing key joins it once Play shows it.
-        "ANDROID_CERT_FINGERPRINTS": "D3:AE:13:DD:96:E3:C8:36:99:BD:21:91:19:C5:85:FA:50:AF:12:F9:1E:C5:1E:91:76:1C:29:E7:B0:F8:A0:6E",
+        // ANDROID_CERT_FINGERPRINTS, for the app's Digital Asset Links (README: How
+        // the app signs in), gets Google Play's app signing key once Play shows it.
+        // Only that one: never the upload key, which a thief could sign a lookalike with.
         "APNS_ENVIRONMENT": "production",
         "APNS_KEY_ID": "JNYA3Z4YF6",
         "STRIPE_PRODUCT_ID": "prod_Vd4BKOyA6xDfYn",

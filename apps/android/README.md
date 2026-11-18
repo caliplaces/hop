@@ -155,15 +155,13 @@ build numbers, `<yyyymmdd><n>`.
 # app/build/outputs/bundle/release/app-release.aab
 ```
 
-Sign-in on production needs the site's Digital Asset Links to list the
-certificates the app is signed with: production's `ANDROID_CERT_FINGERPRINTS`
-in `apps/api/wrangler.jsonc` has the upload key's SHA-256, for builds
-installed by hand, and Google Play's app signing key's, from Play Console ›
-Test and release › App integrity. To see the upload key's:
-
-```sh
-keytool -list -v -keystore /path/to/hop-upload.jks -alias upload | grep SHA256
-```
+Sign-in on production needs the site's Digital Asset Links to list Google
+Play's app signing key: its SHA-256, from Play Console › Test and release ›
+App integrity, is production's `ANDROID_CERT_FINGERPRINTS` in
+`apps/api/wrangler.jsonc`. Only Play's: a build signed with anything else,
+the upload key included, can't sign in on production, so a stolen upload key
+can't sign a lookalike that catches sign-ins (and Play can reset it). Try
+release builds through Play's internal testing, which Play signs with its key.
 
 ## Tests
 

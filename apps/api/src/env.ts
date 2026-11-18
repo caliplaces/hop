@@ -83,11 +83,11 @@ export type Env = {
   /** The Android app's package name, for its Digital Asset Links. */
   ANDROID_PACKAGE?: string;
   /**
-   * The SHA-256 fingerprints (AA:BB:…, comma separated) of the certificates
-   * the Android app is signed with: Google Play's app signing key, and the
-   * upload key for builds installed by hand. Without them there are no
-   * Digital Asset Links, and the https sign-in callback opens in the
-   * browser, not the app.
+   * The SHA-256 fingerprint (AA:BB:…; comma separated, if ever more than
+   * one) of Google Play's app signing key, which every Android app people
+   * install is signed with. Not the upload key: an app signed with a stolen
+   * one could catch sign-ins. Without it there are no Digital Asset Links,
+   * and the https sign-in callback opens in the browser, not the app.
    */
   ANDROID_CERT_FINGERPRINTS?: string;
   /**

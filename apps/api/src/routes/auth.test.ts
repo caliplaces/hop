@@ -228,14 +228,21 @@ describe("the Digital Asset Links file", () => {
       ((await response.json()) as [{ target: { sha256_cert_fingerprints: string[] } }])[0].target
         .sha256_cert_fingerprints,
     ).toEqual([PLAY]);
-    expect(error).toHaveBeenCalledTimes(2);
+    // Once per isolate, however many entries or reads.
+    expect(error).toHaveBeenCalledTimes(1);
+    await links();
+    expect(error).toHaveBeenCalledTimes(1);
 
     env.ANDROID_CERT_FINGERPRINTS = "AA:BB";
-    expect((await links()).status).toBe(404);
+    const missing = await links();
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("cache-control")).toBe("no-store");
     env.ANDROID_CERT_FINGERPRINTS = undefined;
     expect((await links()).status).toBe(404);
     env.ANDROID_CERT_FINGERPRINTS = PLAY;
     env.ANDROID_PACKAGE = undefined;
+    expect((await links()).status).toBe(404);
+    env.ANDROID_PACKAGE = 'com.onmyhop.app"}';
     expect((await links()).status).toBe(404);
     error.mockRestore();
   });

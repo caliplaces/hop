@@ -39,6 +39,12 @@ fun com.android.build.api.dsl.VariantDimension.firebase() {
  */
 val upload = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").associateWith { field ->
     providers.gradleProperty("hop.upload.$field").orElse("").get()
+}.also { settings ->
+    // A misspelt one would leave the bundle unsigned without a word.
+    val missing = settings.filterValues { it.isBlank() }.keys
+    if (missing.isNotEmpty() && missing.size < settings.size) {
+        throw GradleException("Set all four hop.upload.* properties, or none: missing ${missing.joinToString { "hop.upload.$it" }}")
+    }
 }
 
 android {
