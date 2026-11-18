@@ -44,7 +44,7 @@ data class Me(
     fun avatar(server: HttpUrl = HopServer.baseUrl): HttpUrl? {
         val path = avatarUrl ?: return null
         if (!path.startsWith("/") || path.startsWith("//")) return null
-        return server.resolve(path)?.takeIf { it.host == server.host && it.scheme == server.scheme }
+        return server.resolve(path)?.takeIf { it.scheme == server.scheme && it.host == server.host && it.port == server.port }
     }
 
     /** The first letter of what they're called, for when there's no photo. */

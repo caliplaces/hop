@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Debug builds talk to staging, which signs in through the custom scheme.
+    Any app can claim a scheme, so release builds don't: see
+    HopServer.ALLOWS_CUSTOM_SCHEME. Anything can open this activity, so it only
+    hands the URL to a sign-in already under way, which checks it's that
+    flow's callback, with that flow's state.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity
+            android:name=".auth.SignInCallbackActivity"
+            android:exported="true"
+            tools:replace="android:exported">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.onmyhop.app" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

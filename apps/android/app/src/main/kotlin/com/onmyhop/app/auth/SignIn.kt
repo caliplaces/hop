@@ -48,15 +48,23 @@ class SignIn(private val session: Session, private val scope: CoroutineScope) {
         }
     }
 
-    /** The browser came back with this URL. Only the flow's own callback finishes it. */
-    fun redirected(uri: Uri) {
+    /**
+     * The browser came back with this URL. Only the flow's own callback, with
+     * its own state, finishes it; anything else is ignored, so a stray link
+     * can't cut a sign-in short.
+     */
+    fun redirected(uri: Uri) =
+        redirected(uri.scheme, uri.host, uri.path, uri.getQueryParameter("state"), uri.toString())
+
+    internal fun redirected(scheme: String?, host: String?, path: String?, state: String?, url: String) {
         val started = pending ?: return
-        if (!started.callback.matches(uri.scheme, uri.host, uri.path)) return
+        if (!started.callback.matches(scheme, host, path)) return
+        if (started.state != null && state != started.state) return
         pending = null
         _status.value = Status.Working
         scope.launch {
             try {
-                session.finishSignIn(started, uri.toString())
+                session.finishSignIn(started, url)
                 _status.value = Status.Idle
             } catch (error: Exception) {
                 _status.value = Status.Failed(describe(error))

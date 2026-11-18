@@ -29,8 +29,9 @@ class ProfileModel(me: Me, private val session: Session) : ViewModel() {
         data object Removed : PhotoChange
     }
 
-    /** Saves belong to the session that opened this, even if they sign out meanwhile. */
+    /** Saves belong to the session that opened this, even if another signs in meanwhile. */
     private val token = session.token
+    private val api = session.client(token)
 
     var name by mutableStateOf(me.name.orEmpty())
     var photo: PhotoChange by mutableStateOf(PhotoChange.Unchanged)
@@ -123,12 +124,12 @@ class ProfileModel(me: Me, private val session: Session) : ViewModel() {
         try {
             when (val change = photo) {
                 is PhotoChange.New -> {
-                    val reply: Reply = session.api.putBytes("api/me/avatar", change.jpeg, "image/jpeg")
+                    val reply: Reply = api.putBytes("api/me/avatar", change.jpeg, "image/jpeg")
                     accept(reply.me)
                     photo = PhotoChange.Unchanged
                 }
                 PhotoChange.Removed -> {
-                    val reply: Reply = session.api.deleteFor("api/me/avatar")
+                    val reply: Reply = api.deleteFor("api/me/avatar")
                     accept(reply.me)
                     photo = PhotoChange.Unchanged
                 }
@@ -139,7 +140,7 @@ class ProfileModel(me: Me, private val session: Session) : ViewModel() {
                 profileReviewed = if (confirming && !me.profileReviewed) true else null,
             )
             if (changes.displayName != null || changes.profileReviewed != null) {
-                val reply: Reply = session.api.patch("api/me", changes)
+                val reply: Reply = api.patch("api/me", changes)
                 accept(reply.me)
             }
             return true

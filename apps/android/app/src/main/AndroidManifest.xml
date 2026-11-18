@@ -37,22 +37,16 @@
         </activity>
 
         <!--
-            Catches Caliplaces' redirect back to the app in browsers without
-            Auth Tabs. Anything can open it, so it only hands the URL to a
-            sign-in already under way, which checks it's that flow's callback.
+            Passes Caliplaces' redirect back to the sign-in under way, in
+            browsers without Auth Tabs. Release builds sign in only through
+            the https callback, which needs no entry here. Debug builds, which
+            talk to staging, add the custom scheme (src/debug).
         -->
         <activity
             android:name=".auth.SignInCallbackActivity"
             android:excludeFromRecents="true"
-            android:exported="true"
+            android:exported="false"
             android:noHistory="true"
-            android:theme="@style/Theme.Hop.Invisible">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.onmyhop.app" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.Hop.Invisible" />
     </application>
 </manifest>

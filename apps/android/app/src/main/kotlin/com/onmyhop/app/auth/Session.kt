@@ -27,9 +27,13 @@ class Session(
     private val store: TokenStore,
     val baseUrl: HttpUrl,
     private val http: OkHttpClient,
+    private val allowsCustomScheme: Boolean = HopServer.ALLOWS_CUSTOM_SCHEME,
 ) {
     data class State(val token: String?, val me: Me?) {
         val isSignedIn: Boolean get() = token != null
+
+        /** Never prints the token. */
+        override fun toString() = "State(signedIn=$isSignedIn, me=${me?.id})"
     }
 
     private val _state = MutableStateFlow(State(token = store.read(), me = null))
@@ -41,8 +45,20 @@ class Session(
     /** A client signed with this session, for the app's other screens. */
     val api: ApiClient get() = ApiClient(baseUrl, token, http)
 
+    /**
+     * A client signed with a particular session, for work that belongs to
+     * the session that started it, even if another has signed in since.
+     */
+    fun client(token: String?): ApiClient = ApiClient(baseUrl, token, http)
+
     /** A sign-in the API has started: the page to show, and what it redirects back to. */
-    data class Started(val authorizeUrl: HttpUrl, val flow: String, val callback: SignInCallback)
+    class Started(val authorizeUrl: HttpUrl, val flow: String, val callback: SignInCallback) {
+        /** The OAuth state the redirect must carry back. */
+        val state: String? get() = authorizeUrl.queryParameter("state")
+
+        /** Never prints the flow, which holds the PKCE verifier. */
+        override fun toString() = "Started(callback=$callback)"
+    }
 
     /** Step 1: asks the API for a flow, and checks it comes back somewhere only Hop can catch. */
     suspend fun startSignIn(): Started {
@@ -51,7 +67,7 @@ class Session(
             ?: throw ApiError(502, "bad_authorize_url", null)
         // Older servers don't say, and always use the custom scheme.
         val callback = reply.callback?.toCallback() ?: SignInCallback.CustomScheme
-        if (!callback.isTrusted(baseUrl)) throw ApiError(502, "untrusted_callback", null)
+        if (!callback.isTrusted(baseUrl, allowsCustomScheme)) throw ApiError(502, "untrusted_callback", null)
         return Started(url, reply.flow, callback)
     }
 
@@ -160,15 +176,18 @@ sealed interface SignInCallback {
      */
     data class Https(val host: String, val path: String) : SignInCallback
 
-    /** Only Hop's own callbacks: its custom scheme, or the callback page on the API's own host. */
-    fun isTrusted(baseUrl: HttpUrl): Boolean = when (this) {
-        is Scheme -> scheme == HopServer.CALLBACK_SCHEME
-        is Https -> host == baseUrl.host && path == HTTPS_PATH
+    /**
+     * Only Hop's own callbacks: the callback page on the API's own https
+     * host, or, where [allowsScheme] (debug builds), its custom scheme.
+     */
+    fun isTrusted(baseUrl: HttpUrl, allowsScheme: Boolean): Boolean = when (this) {
+        is Scheme -> allowsScheme && scheme == HopServer.CALLBACK_SCHEME
+        is Https -> baseUrl.isHttps && host == baseUrl.host && path == HTTPS_PATH
     }
 
-    /** Whether a redirect the app received is this callback. */
+    /** Whether a redirect the app received is exactly this callback. */
     fun matches(scheme: String?, host: String?, path: String?): Boolean = when (this) {
-        is Scheme -> scheme == this.scheme
+        is Scheme -> scheme == this.scheme && host.isNullOrEmpty() && path == SCHEME_PATH
         is Https -> scheme == "https" && host == this.host && path == this.path
     }
 
@@ -177,5 +196,8 @@ sealed interface SignInCallback {
 
         /** The API's https callback page. */
         const val HTTPS_PATH = "/api/auth/app/callback"
+
+        /** Where the custom scheme comes back to: com.onmyhop.app:/auth/callback. */
+        const val SCHEME_PATH = "/auth/callback"
     }
 }

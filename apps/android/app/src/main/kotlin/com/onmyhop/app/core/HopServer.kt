@@ -36,4 +36,12 @@ object HopServer {
      * https callback isn't in use (staging). It matches the package name.
      */
     const val CALLBACK_SCHEME = "com.onmyhop.app"
+
+    /**
+     * Whether sign-in may come back through the custom scheme. Any app can
+     * claim a scheme, and pose as Hop with it, so only debug builds (which
+     * talk to staging) accept it. Release builds only take the https
+     * callback, which Chrome checks belongs to this app.
+     */
+    val ALLOWS_CUSTOM_SCHEME: Boolean = BuildConfig.DEBUG
 }

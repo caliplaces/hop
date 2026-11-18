@@ -43,7 +43,8 @@ class AppContainer(context: Context) {
         .addInterceptor { chain ->
             val request = chain.request()
             val token = session.token
-            if (token != null && request.url.host == session.baseUrl.host && request.url.scheme == session.baseUrl.scheme) {
+            val api = session.baseUrl
+            if (token != null && request.url.scheme == api.scheme && request.url.host == api.host && request.url.port == api.port) {
                 chain.proceed(request.newBuilder().header("Authorization", "Bearer $token").build())
             } else {
                 chain.proceed(request)

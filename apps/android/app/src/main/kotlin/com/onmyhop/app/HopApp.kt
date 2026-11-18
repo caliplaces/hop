@@ -10,6 +10,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
+import coil3.SingletonImageLoader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,6 +45,16 @@ fun HopApp(container: AppContainer) {
 
     // The profile, fresh for each session (and each launch).
     LaunchedEffect(state.token) { container.session.refresh() }
+
+    // Images seen while signed in, such as private thumbnails, are theirs alone.
+    val context = LocalContext.current
+    LaunchedEffect(state.isSignedIn) {
+        if (!state.isSignedIn) {
+            val images = SingletonImageLoader.get(context)
+            images.memoryCache?.clear()
+            withContext(Dispatchers.IO) { images.diskCache?.clear() }
+        }
+    }
 
     HopTheme(color = me?.paletteColor ?: Palette.brand) {
         val motion = MaterialTheme.motionScheme

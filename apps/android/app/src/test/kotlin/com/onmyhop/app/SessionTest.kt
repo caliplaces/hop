@@ -29,7 +29,8 @@ class SessionTest {
     @After
     fun stop() = server.close()
 
-    private fun session() = Session(store, server.url("/"), OkHttpClient())
+    private fun session(allowsCustomScheme: Boolean = true) =
+        Session(store, server.url("/"), OkHttpClient(), allowsCustomScheme)
 
     private fun json(body: String, code: Int = 200) =
         MockResponse.Builder().code(code).setHeader("Content-Type", "application/json").body(body).build()
@@ -87,14 +88,48 @@ class SessionTest {
         }
     }
 
+    /** Release builds talk to production, which only signs in through the https callback. */
+    @Test
+    fun releaseBuildsRefuseTheCustomScheme() = runTest {
+        server.enqueue(json("""{"authorizeUrl":"https://accounts.example/a","flow":"f","callback":{"scheme":"com.onmyhop.app"}}"""))
+        try {
+            session(allowsCustomScheme = false).startSignIn()
+            fail("accepted the custom scheme")
+        } catch (error: ApiError) {
+            assertEquals("untrusted_callback", error.code)
+        }
+    }
+
     @Test
     fun theApisOwnHttpsCallbackIsTrusted() {
         val base = "https://onmyhop.com".toHttpUrl()
-        assertTrue(SignInCallback.Https("onmyhop.com", "/api/auth/app/callback").isTrusted(base))
-        assertFalse(SignInCallback.Https("onmyhop.com", "/elsewhere").isTrusted(base))
-        assertTrue(SignInCallback.Https("onmyhop.com", "/api/auth/app/callback").matches("https", "onmyhop.com", "/api/auth/app/callback"))
-        assertFalse(SignInCallback.Https("onmyhop.com", "/api/auth/app/callback").matches("http", "onmyhop.com", "/api/auth/app/callback"))
-        assertFalse(SignInCallback.CustomScheme.matches("com.evil.app", null, "/auth/callback"))
+        val https = SignInCallback.Https("onmyhop.com", "/api/auth/app/callback")
+        assertTrue(https.isTrusted(base, allowsScheme = false))
+        assertFalse(SignInCallback.Https("onmyhop.com", "/elsewhere").isTrusted(base, allowsScheme = true))
+        assertFalse(https.isTrusted("http://onmyhop.com".toHttpUrl(), allowsScheme = true))
+        assertTrue(https.matches("https", "onmyhop.com", "/api/auth/app/callback"))
+        assertFalse(https.matches("http", "onmyhop.com", "/api/auth/app/callback"))
+    }
+
+    /** Only com.onmyhop.app:/auth/callback, exactly, is the scheme's callback. */
+    @Test
+    fun theSchemeCallbackMatchesExactly() {
+        val scheme = SignInCallback.CustomScheme
+        assertTrue(scheme.matches("com.onmyhop.app", null, "/auth/callback"))
+        assertFalse(scheme.matches("com.evil.app", null, "/auth/callback"))
+        assertFalse(scheme.matches("com.onmyhop.app", "qr", null))
+        assertFalse(scheme.matches("com.onmyhop.app", null, "/elsewhere"))
+    }
+
+    /** Tokens and PKCE verifiers never end up in logs or crash reports through toString. */
+    @Test
+    fun neverPrintsSecrets() {
+        store.token = "hs_secret"
+        val session = session()
+        assertFalse(session.state.value.toString().contains("hs_secret"))
+        val started = Session.Started("https://a.example/x?state=s".toHttpUrl(), "flow-secret", SignInCallback.CustomScheme)
+        assertFalse(started.toString().contains("flow-secret"))
+        assertEquals("s", started.state)
     }
 
     @Test
