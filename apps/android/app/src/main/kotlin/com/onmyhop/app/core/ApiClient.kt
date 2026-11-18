@@ -47,6 +47,9 @@ class ApiClient(
     /** The raw bytes of a GET, such as an image. */
     suspend fun bytes(path: String): ByteArray = send("GET", path, emptyMap(), null)
 
+    /** A path on the API as a full URL, for loaders that fetch it themselves (images, video). */
+    fun url(path: String): HttpUrl = baseUrl.newBuilder().addPathSegments(path).build()
+
     suspend inline fun <reified B, reified T> post(path: String, body: B): T =
         decode(serializer<T>(), send("POST", path, emptyMap(), encode(body)))
 

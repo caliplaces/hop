@@ -56,6 +56,35 @@
     <string name="inbox_failed">Couldn’t load your clips</string>
     <string name="inbox_empty_title">No clips yet</string>
     <string name="inbox_empty_message">Share your Hop link at your next event. Clips people send you land here, sorted by event.</string>
+    <string name="event_open">Show this event’s clips</string>
+    <string name="event_empty_title">No clips here yet</string>
+    <string name="event_empty_message">Clips sent to this event will show up here.</string>
+    <string name="someone">Someone</string>
+    <string name="clip_video_from">Video from %1$s</string>
+    <string name="clip_photo_from">Photo from %1$s</string>
+    <string name="clip_signed_in">Signed in</string>
+    <string name="clip_failed">Couldn’t load this clip</string>
+    <plurals name="expiry_today">
+        <item quantity="one">%d clip leaves today</item>
+        <item quantity="other">%d clips leave today</item>
+    </plurals>
+    <plurals name="expiry_tomorrow">
+        <item quantity="one">%d clip leaves tomorrow</item>
+        <item quantity="other">%d clips leave tomorrow</item>
+    </plurals>
+    <plurals name="expiry_on">
+        <item quantity="one">%1$d clip leaves on %2$s</item>
+        <item quantity="other">%1$d clips leave on %2$s</item>
+    </plurals>
+    <plurals name="expiry_soon">
+        <item quantity="one">%d clip leaves soon</item>
+        <item quantity="other">%d clips leave soon</item>
+    </plurals>
+    <string name="expiry_detail">Free plans keep clips for 30 days. Save the ones you want to keep.</string>
+    <string name="storage_full">Your Hop is full</string>
+    <string name="storage_nearly_full">Your Hop is %1$d%% full</string>
+    <string name="storage_full_detail">%1$s of %2$s used. New clips can’t arrive until there’s room.</string>
+    <string name="storage_nearly_full_detail">%1$s of %2$s used.</string>
     <string name="event_your_link">Your link</string>
     <string name="event_closed">Closed</string>
     <plurals name="clip_count">
