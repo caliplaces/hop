@@ -58,6 +58,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.onmyhop.app.feature.event.EventSetupSheet
+import com.onmyhop.app.feature.event.EventMode
+import com.onmyhop.app.design.BigButton
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.onmyhop.app.R
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.design.ReadableWidth
@@ -72,7 +76,16 @@ import okhttp3.HttpUrl
  * full screen), and ways to pass the link on, the pass's story image among them.
  */
 @Composable
-fun MyHopTab(session: Session, inbox: InboxModel, accountButton: @Composable () -> Unit, openQr: () -> Unit) {
+fun MyHopTab(
+    session: Session,
+    inbox: InboxModel,
+    accountButton: @Composable () -> Unit,
+    openQr: () -> Unit,
+    eventMode: EventMode,
+    openStage: () -> Unit,
+) {
+    val event by eventMode.state.collectAsStateWithLifecycle()
+    var settingUp by rememberSaveable { mutableStateOf(false) }
     val state by session.state.collectAsStateWithLifecycle()
     val me = state.me
     val link = me?.link()
@@ -87,6 +100,18 @@ fun MyHopTab(session: Session, inbox: InboxModel, accountButton: @Composable () 
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
+        if (settingUp) {
+            EventSetupSheet(
+                session = session,
+                eventMode = eventMode,
+                hops = inbox.hops,
+                onStarted = {
+                    settingUp = false
+                    openStage()
+                },
+                onDismiss = { settingUp = false },
+            )
+        }
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             if (me == null || link == null) {
                 LoadingIndicator(Modifier.padding(top = 120.dp).size(64.dp))
@@ -109,6 +134,13 @@ fun MyHopTab(session: Session, inbox: InboxModel, accountButton: @Composable () 
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(24.dp))
+                    // Starts Event mode, or goes back to the one that's running.
+                    BigButton(
+                        text = stringResource(if (event.run != null) R.string.event_back else R.string.event_start),
+                        onClick = { if (event.run != null) openStage() else settingUp = true },
+                        athlete = me.paletteColor,
+                    )
+                    Spacer(Modifier.height(12.dp))
                     LinkActions(link, story, snackbar)
                     Spacer(Modifier.height(12.dp))
                     FilledTonalButton(

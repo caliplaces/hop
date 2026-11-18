@@ -75,12 +75,17 @@ fun HopApp(container: AppContainer) {
         }
     }
 
+    // Carries on with an event that was running when the app quit, or ends it:
+    // it belongs to whoever is signed in, and only to them.
+    LaunchedEffect(me?.id) { me?.let(container.eventMode::resume) }
+
     // Images seen while signed in, such as private thumbnails, are theirs alone.
     val context = LocalContext.current
     LaunchedEffect(state.isSignedIn) {
         if (!state.isSignedIn) {
-            // A save or share under way belonged to whoever was signed in.
+            // A save or share under way, and Event mode, belonged to whoever was signed in.
             container.transfers.cancel()
+            container.eventMode.reset()
             val images = SingletonImageLoader.get(context)
             images.memoryCache?.clear()
             withContext(Dispatchers.IO) { images.diskCache?.clear() }
@@ -111,7 +116,7 @@ fun HopApp(container: AppContainer) {
                             Stage.Welcome -> WelcomeScreen(container.signIn)
                             Stage.Claim -> current?.let { ClaimScreen(it, session) }
                             Stage.Profile -> current?.let { ProfileSetupScreen(it, session) }
-                            Stage.Home -> HomeScreen(session, container.transfers)
+                            Stage.Home -> HomeScreen(session, container.transfers, container.eventMode, container.links)
                         }
                     }
                 },

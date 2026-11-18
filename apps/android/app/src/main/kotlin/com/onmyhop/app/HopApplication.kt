@@ -10,7 +10,10 @@ import coil3.request.crossfade
 import com.onmyhop.app.auth.KeystoreTokenStore
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.auth.SignIn
+import com.onmyhop.app.core.HopLinks
 import com.onmyhop.app.core.HopServer
+import com.onmyhop.app.feature.event.EventMode
+import com.onmyhop.app.feature.event.EventNotification
 import com.onmyhop.app.feature.inbox.ClipTransfers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
@@ -38,6 +41,12 @@ class AppContainer(context: Context) {
 
     /** Saving clips to the gallery and downloading them to share, outliving any one screen. */
     val transfers = ClipTransfers(context, http, scope)
+
+    /** Places outside the app ask to open: a notification, a tile, a widget, a shortcut. */
+    val links = HopLinks()
+
+    /** Event mode, which outlives any one screen. */
+    val eventMode = EventMode(context.getSharedPreferences("hop.event", Context.MODE_PRIVATE), EventNotification(context))
 
     /**
      * Images from Hop's API. Requests to the API's own host carry the

@@ -133,6 +133,42 @@
     <string name="close">Close</string>
     <string name="my_hop_message">Anyone can scan this or open the link to send you their clips. No app or account needed.</string>
 
+    <!-- Event mode -->
+    <string name="event_mode">Event mode</string>
+    <string name="event_start">Start Event mode</string>
+    <string name="event_back">Back to Event mode</string>
+    <string name="event_setup_message">Your QR code fills the screen and the screen stays on. Hop counts the clips as they land, here and in a notification.</string>
+    <string name="event_clips_go_to">Clips go to</string>
+    <string name="event_live_now">Live now · %1$s</string>
+    <string name="event_new">A new event</string>
+    <string name="event_name">Event name</string>
+    <string name="event_go_live">Go live</string>
+    <string name="event_minimize">Minimize</string>
+    <string name="event_end">End</string>
+    <string name="event_end_title">End Event mode?</string>
+    <string name="event_end_message">Your link keeps taking clips for “%1$s”.</string>
+    <string name="event_end_confirm">End Event mode</string>
+    <string name="event_live">LIVE</string>
+    <string name="event_offline">OFFLINE</string>
+    <plurals name="event_clips_so_far">
+        <item quantity="one">clip so far</item>
+        <item quantity="other">clips so far</item>
+    </plurals>
+    <string name="event_counter_none">They show up here as they land.</string>
+    <string name="event_counter_latest">Latest from %1$s</string>
+    <string name="event_counter_just_landed">The latest just landed.</string>
+    <string name="event_arrival_one">%1$s sent a clip</string>
+    <plurals name="event_arrival_many">
+        <item quantity="one">%d new clip</item>
+        <item quantity="other">%d new clips</item>
+    </plurals>
+    <plurals name="event_notification_title">
+        <item quantity="one">%d clip so far</item>
+        <item quantity="other">%d clips so far</item>
+    </plurals>
+    <string name="event_channel">Event mode</string>
+    <string name="event_channel_description">The clip count while Event mode is on.</string>
+
     <!-- Account -->
     <string name="account_title">Account</string>
     <string name="account_signed_in">Signed in</string>
