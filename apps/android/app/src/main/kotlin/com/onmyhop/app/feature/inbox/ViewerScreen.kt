@@ -125,18 +125,19 @@ fun ViewerScreen(
     val reportedText = stringResource(R.string.report_sent)
     fun explain(error: Exception) = (error as? ApiError)?.message ?: offline
 
-    // A finished share opens the share sheet; a save or a failure says so.
+    // A finished share opens the share sheet; a save or a failure says so. The message
+    // runs on its own, since dismissing the transfer restarts this effect.
     LaunchedEffect(transfer) {
         val done = transfer ?: return@LaunchedEffect
         when (val phase = done.phase) {
             is ClipTransfers.Phase.Done -> {
                 transfers.dismiss(done.clipId)
                 phase.shared?.let { uri -> shareFile(context, uri, clips.firstOrNull { it.id == done.clipId }?.mime) }
-                if (done.kind == ClipTransfers.Kind.Save) snackbar.showSnackbar(savedText)
+                if (done.kind == ClipTransfers.Kind.Save) scope.launch { snackbar.showSnackbar(savedText) }
             }
             is ClipTransfers.Phase.Failed -> {
                 transfers.dismiss(done.clipId)
-                snackbar.showSnackbar(phase.message ?: offline)
+                scope.launch { snackbar.showSnackbar(phase.message ?: offline) }
             }
             is ClipTransfers.Phase.Downloading -> {}
         }

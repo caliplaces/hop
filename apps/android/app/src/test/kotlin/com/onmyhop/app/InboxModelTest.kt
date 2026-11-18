@@ -195,9 +195,12 @@ class InboxModelTest {
         val model = model()
         model.refresh()
         waitFor { model.clips("h").loadedOnce }
+        // Storage went down with it.
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":0,"limitBytes":10},"revision":1}"""
         kotlinx.coroutines.runBlocking { model.delete(model.clips("h").items[0]) }
         assertEquals(listOf("c1"), model.clips("h").items.map { it.id })
         assertEquals(1, model.hop("h")?.fileCount)
+        waitFor { model.plan?.storage?.usedBytes == 0L }
     }
 
     /** Offline before anything loaded: the inbox says so; with events shown, they stay. */

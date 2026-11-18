@@ -180,6 +180,8 @@ class InboxModel(private val session: Session) : ViewModel() {
     suspend fun delete(clip: Clip) {
         session.api.delete("api/me/files/${clip.id}")
         drop(mapOf(clip.id to clip))
+        // Storage and clips about to leave move with it.
+        viewModelScope.launch { loadPlan() }
     }
 
     /** Reports a clip to Hop's team. */
