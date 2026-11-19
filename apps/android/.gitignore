@@ -10,4 +10,7 @@ captures/
 # Signing keys and service configuration never go in the repository.
 *.jks
 *.keystore
+*.p12
+*.pfx
+keystore.properties
 google-services.json

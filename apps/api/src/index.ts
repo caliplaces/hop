@@ -8,7 +8,12 @@ import type { AppEnv, Env } from "./env";
 import { remindOfExpiry } from "./expiry";
 import { announceLaunch } from "./launch";
 import { fail } from "./lib/http";
-import { APP_SITE_ASSOCIATION_PATH, appSiteAssociation } from "./lib/oidc";
+import {
+  APP_SITE_ASSOCIATION_PATH,
+  ASSET_LINKS_PATH,
+  appSiteAssociation,
+  assetLinks,
+} from "./lib/oidc";
 import { loadSession } from "./lib/session";
 import { announceNewClips } from "./notify";
 import { announceReports } from "./reports";
@@ -100,10 +105,10 @@ export async function sendEmails(env: Env): Promise<void> {
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    // The one file outside /api: Apple reads it to tie this site to the app.
-    if (new URL(request.url).pathname === APP_SITE_ASSOCIATION_PATH) {
-      return appSiteAssociation(request, env);
-    }
+    // The two files outside /api: Apple and Android read them to tie this site to the app.
+    const { pathname } = new URL(request.url);
+    if (pathname === APP_SITE_ASSOCIATION_PATH) return appSiteAssociation(request, env);
+    if (pathname === ASSET_LINKS_PATH) return assetLinks(request, env);
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {

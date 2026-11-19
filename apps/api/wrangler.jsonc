@@ -9,7 +9,11 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/.well-known/apple-app-site-association"]
+    "run_worker_first": [
+      "/api/*",
+      "/.well-known/apple-app-site-association",
+      "/.well-known/assetlinks.json"
+    ]
   },
   // Hourly clean-up of abandoned uploads and expired sessions.
   // Every 5 minutes: the new-clips digest. Hourly: cleanup. See src/index.ts.
@@ -45,6 +49,7 @@
     "APPLE_TEAM_ID": "XH66L5M6JJ",
     "APPLE_BUNDLE_ID": "com.onmyhop.app",
     "APPLE_APP_ID": "6834920854",
+    "ANDROID_PACKAGE": "com.onmyhop.app",
     "APNS_ENVIRONMENT": "sandbox",
     "APNS_KEY_ID": "K4TQW3FWN6",
     // Hop+ on the website: the product in Stripe whose prices are sold, in
@@ -98,6 +103,7 @@
         "APPLE_TEAM_ID": "XH66L5M6JJ",
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
+        "ANDROID_PACKAGE": "com.onmyhop.app",
         "APNS_ENVIRONMENT": "sandbox",
         "APNS_KEY_ID": "K4TQW3FWN6",
         "STRIPE_PRODUCT_ID": "prod_VdnJFIpMsbAZlR",
@@ -165,6 +171,10 @@
         "APPLE_TEAM_ID": "XH66L5M6JJ",
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
+        "ANDROID_PACKAGE": "com.onmyhop.app",
+        // ANDROID_CERT_FINGERPRINTS, for the app's Digital Asset Links (README: How
+        // the app signs in), gets Google Play's app signing key once Play shows it.
+        // Only that one: never the upload key, which a thief could sign a lookalike with.
         "APNS_ENVIRONMENT": "production",
         "APNS_KEY_ID": "JNYA3Z4YF6",
         "STRIPE_PRODUCT_ID": "prod_Vd4BKOyA6xDfYn",
