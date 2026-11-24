@@ -123,7 +123,7 @@ class PushTest {
         push = push()
     }
 
-    private fun push() = Push(session, tokens, preferences, eventMode, notifier, { allowed }, scope)
+    private fun push() = Push(session, tokens, preferences, eventMode, notifier, { allowed }, scope, retryAfter = { 20L })
 
     @After
     fun stop() {
@@ -248,6 +248,29 @@ class PushTest {
         waitFor("watching the event") { sent().any { it.startsWith("PUT /api/me/live-activities/token-1") } }
         eventMode.end()
         waitFor("stopped watching") { sent().last() == "DELETE /api/me/live-activities/token-1" }
+    }
+
+    /** Offline as Event mode starts or ends: the API hears of it once it can be reached again. */
+    @Test
+    fun keepsTryingToFollowEventMode() = runBlocking {
+        signIn()
+        val path = "/api/me/live-activities/token-1"
+        failing += path
+        startEvent()
+        waitFor("tried again") { sent().count { it.startsWith("PUT $path") } >= 2 }
+        assertNull(preferences.getString("push.watching", null))
+        failing.clear()
+        waitFor("watching the event") { preferences.getString("push.watching", null) == "h1" }
+        val tries = sent().count { it.startsWith("PUT $path") }
+        delay(200)
+        assertEquals("no more tries once it got through", tries, sent().count { it.startsWith("PUT $path") })
+
+        failing += path
+        eventMode.end()
+        waitFor("tried again to stop") { sent().count { it == "DELETE $path" } >= 2 }
+        assertTrue(preferences.contains("push.watching"))
+        failing.clear()
+        waitFor("stopped watching") { !preferences.contains("push.watching") }
     }
 
     @Test

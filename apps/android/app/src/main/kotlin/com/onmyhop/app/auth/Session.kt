@@ -72,9 +72,12 @@ class Session(
             ?: throw ApiError(502, "bad_authorize_url", null)
         // Older servers don't say, and always use the custom scheme.
         val callback = reply.callback?.toCallback() ?: SignInCallback.CustomScheme
-        if (!callback.isTrusted(baseUrl, allowsCustomScheme)) throw ApiError(502, "untrusted_callback", null)
+        if (!trusts(callback)) throw ApiError(502, "untrusted_callback", null)
         return Started(url, reply.flow, callback)
     }
+
+    /** Whether a sign-in may come back to [callback]: only to one of Hop's own (see [SignInCallback.isTrusted]). */
+    fun trusts(callback: SignInCallback): Boolean = callback.isTrusted(baseUrl, allowsCustomScheme)
 
     /** Steps 2 and 3: hands the redirect back to the API, which signs in. */
     suspend fun finishSignIn(started: Started, callbackUrl: String) {
@@ -131,6 +134,9 @@ class Session(
             }
         }
     }
+
+    /** [refresh], in the session's own scope: leaving the screen that asked doesn't stop it. */
+    fun refreshSoon(): Job = scope.launch { refresh() }
 
     /**
      * Deletes the account on the server, for good, then forgets it here.

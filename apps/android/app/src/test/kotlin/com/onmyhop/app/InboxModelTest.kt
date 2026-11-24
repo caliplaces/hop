@@ -105,6 +105,29 @@ class InboxModelTest {
         assertFalse(model.clips("h").hasMore)
     }
 
+    /** A refresh (each push and Event mode count brings one) keeps the clips loaded past the first page. */
+    @Test
+    fun refreshingKeepsClipsFurtherDown() {
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 3)}]}"""
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":1,"limitBytes":10},"revision":1}"""
+        replies["/api/me/files?hopId=h"] = """{"files":[${clip("c3", "h", 3)},${clip("c2", "h", 2)}],"nextCursor":"2:c2"}"""
+        replies["/api/me/files?hopId=h&cursor=2%3Ac2"] = """{"files":[${clip("c1", "h", 1)}],"nextCursor":"1:c1"}"""
+        val model = model()
+        model.refresh()
+        waitFor { model.clips("h").loadedOnce }
+        model.loadMore("h")
+        waitFor { model.clips("h").items.size == 3 }
+
+        // A clip arrives, so the first page moves down by one.
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 4)}]}"""
+        replies["/api/me/files?hopId=h"] = """{"files":[${clip("c4", "h", 4)},${clip("c3", "h", 3)}],"nextCursor":"3:c3"}"""
+        model.refresh()
+        waitFor { model.clips("h").items.firstOrNull()?.id == "c4" }
+        assertEquals(listOf("c4", "c3", "c2", "c1"), model.clips("h").items.map { it.id })
+        // More pages carry on from where the list had got to.
+        assertEquals("1:c1", model.clips("h").nextCursor)
+    }
+
     /** Events with nothing in them aren't asked for clips; the plan comes with the events. */
     @Test
     fun skipsEmptyEventsAndLoadsThePlan() {

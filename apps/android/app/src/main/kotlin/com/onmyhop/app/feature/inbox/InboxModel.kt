@@ -146,14 +146,15 @@ class InboxModel(private val session: Session) : ViewModel() {
         try {
             val page = session.api.get<ClipPage>("api/me/files", query)
             if (generation(hopId) != generation) return
-            val known = if (replacing) emptyList() else clips(hopId).items
-            val knownIds = known.mapTo(HashSet()) { it.id }
-            // A page can overlap the last if clips arrived meanwhile.
-            clips[hopId] = ClipList(
-                items = known + page.files.filter { it.id !in knownIds && it.id !in dropped },
-                nextCursor = page.nextCursor,
-                loadedOnce = true,
-            )
+            val fresh = page.files.filter { it.id !in dropped }
+            clips[hopId] = if (replacing) {
+                refreshed(clips(hopId), fresh, page.nextCursor)
+            } else {
+                val known = clips(hopId).items
+                val knownIds = known.mapTo(HashSet()) { it.id }
+                // A page can overlap the last if clips arrived meanwhile.
+                ClipList(items = known + fresh.filter { it.id !in knownIds }, nextCursor = page.nextCursor, loadedOnce = true)
+            }
         } catch (error: CancellationException) {
             // A newer refresh replaced this one: no longer loading, unless a newer load already is.
             if (generation(hopId) == generation) clips[hopId] = clips(hopId).copy(isLoading = false)
@@ -162,6 +163,29 @@ class InboxModel(private val session: Session) : ViewModel() {
             if (generation(hopId) != generation) return
             clips[hopId] = clips(hopId).copy(isLoading = false, failed = true)
         }
+    }
+
+    /**
+     * A refresh's first page, then whatever was loaded past it before. A
+     * refresh comes with every push and Event mode count, so a clip open in
+     * the viewer, or further down the grid, stays where it was.
+     */
+    private fun refreshed(previous: ClipList, first: List<Clip>, nextCursor: String?): ClipList {
+        val last = first.lastOrNull()
+        // The whole event fits on the first page: nothing older is left to keep.
+        if (nextCursor == null || last == null) return ClipList(first, nextCursor, loadedOnce = true)
+        val ids = first.mapTo(HashSet()) { it.id }
+        // Pages run newest first, by when the clip arrived and then its id, as the API sorts them.
+        val older = previous.items.filter {
+            it.id !in ids && it.id !in dropped &&
+                (it.createdAt < last.createdAt || (it.createdAt == last.createdAt && it.id < last.id))
+        }
+        return ClipList(
+            items = first + older,
+            // Carrying on from where the list had got to.
+            nextCursor = if (older.isEmpty()) nextCursor else previous.nextCursor,
+            loadedOnce = true,
+        )
     }
 
     /** Reloads the plan alone, as when the account opens. */

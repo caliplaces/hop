@@ -45,7 +45,12 @@ class AppContainer(context: Context) {
         scope = scope,
     )
 
-    val signIn = SignIn(session, scope)
+    val signIn = SignIn(
+        session,
+        scope,
+        // Beside the session token, sealed with the same Keystore key.
+        saved = KeystoreTokenStore(context, account = "signIn:" + HopServer.storageKey(HopServer.baseUrl)),
+    )
 
     /** Saving clips to the gallery and downloading them to share, outliving any one screen. */
     val transfers = ClipTransfers(context, http, scope)
