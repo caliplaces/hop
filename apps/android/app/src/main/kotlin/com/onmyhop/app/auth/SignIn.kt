@@ -20,7 +20,8 @@ import java.io.IOException
  * the redirect can come back through the Auth Tab's result or, in browsers
  * without Auth Tabs, through SignInCallbackActivity. Android may even stop
  * the app meanwhile, so the flow waiting for its redirect is also kept in
- * [saved] until the API would have forgotten it.
+ * [saved], and a new process takes it up if the API still would. One the API
+ * has forgotten is deleted when the app starts, or when a redirect comes.
  */
 class SignIn(
     private val session: Session,
@@ -47,6 +48,11 @@ class SignIn(
 
     /** The flow waiting for its redirect. A newer start replaces it. */
     private var pending: Session.Started? = null
+
+    init {
+        // From a process Android stopped mid-sign-in: taken up, or deleted if too old.
+        restore()
+    }
 
     fun start() {
         if (_status.value == Status.Working) return

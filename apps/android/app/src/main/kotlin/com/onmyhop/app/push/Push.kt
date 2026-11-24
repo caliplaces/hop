@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.core.ApiClient
+import com.onmyhop.app.core.ApiError
 import com.onmyhop.app.core.HopJson
 import com.onmyhop.app.feature.event.EventMode
 import kotlinx.coroutines.CancellationException
@@ -228,13 +229,32 @@ class Push(
         val api = session.client(sessionToken)
         val path = "api/me/live-activities/${registration.token}"
         if (run != null && run.userId == registration.userId) {
-            attempt { api.put<LiveBody, Done>(path, LiveBody(run.hopId, run.since, FCM)) } ?: return false
-            preferences.edit(commit = true) { putString(WATCHING, run.hopId) }
+            when (send { api.put<LiveBody, Done>(path, LiveBody(run.hopId, run.since, FCM)) }) {
+                Sent.Through -> preferences.edit(commit = true) { putString(WATCHING, run.hopId) }
+                // The event is gone, say: asking again wouldn't change the answer.
+                Sent.Refused -> Unit
+                Sent.Again -> return false
+            }
         } else if (run == null && preferences.contains(WATCHING)) {
-            attempt { api.delete(path) } ?: return false
+            // Refused, there's nothing left to stop.
+            if (send { api.delete(path) } == Sent.Again) return false
             preferences.edit(commit = true) { remove(WATCHING) }
         }
         return true
+    }
+
+    private enum class Sent { Through, Refused, Again }
+
+    /** How a request went: through, refused for good (a 4xx, other than too many requests), or worth trying again. */
+    private suspend fun send(block: suspend () -> Unit): Sent = try {
+        block()
+        Sent.Through
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: ApiError) {
+        if (error.status in 400..499 && error.status != 429) Sent.Refused else Sent.Again
+    } catch (_: Exception) {
+        Sent.Again
     }
 
     /** Null when it failed: offline, or FCM or the API having a moment. */

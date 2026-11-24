@@ -83,6 +83,8 @@ class PushTest {
     private val requests = mutableListOf<String>()
     /** Requests to these paths fail, as when offline. */
     private val failing = mutableSetOf<String>()
+    /** Requests to these paths are refused for good, as for an event that's gone. */
+    private val refusing = mutableSetOf<String>()
     /** While set, registering waits for it: a registration on its way. */
     private var hold: CountDownLatch? = null
     /** While set, taking a token back waits for it: a sign-out on its way. */
@@ -109,6 +111,7 @@ class PushTest {
                 if (request.method == "DELETE") holdDeletes?.await(5, TimeUnit.SECONDS)
                 synchronized(requests) { requests += "${request.method} $path ${request.body?.utf8().orEmpty()}".trim() }
                 if (path in failing) return MockResponse.Builder().code(500).body("""{"error":"internal_error"}""").build()
+                if (path in refusing) return MockResponse.Builder().code(404).body("""{"error":"not_found"}""").build()
                 val body = when {
                     path.endsWith("/activate") -> """{"ok":true,"activatedAt":555}"""
                     else -> """{"ok":true}"""
@@ -271,6 +274,19 @@ class PushTest {
         assertTrue(preferences.contains("push.watching"))
         failing.clear()
         waitFor("stopped watching") { !preferences.contains("push.watching") }
+    }
+
+    /** A refusal (the event is gone, say) isn't asked again. */
+    @Test
+    fun takesNoForAnAnswer() = runBlocking {
+        signIn()
+        val path = "/api/me/live-activities/token-1"
+        refusing += path
+        startEvent()
+        waitFor("asked") { sent().any { it.startsWith("PUT $path") } }
+        delay(200)
+        assertEquals(1, sent().count { it.startsWith("PUT $path") })
+        assertNull(preferences.getString("push.watching", null))
     }
 
     @Test
