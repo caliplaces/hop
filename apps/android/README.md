@@ -156,12 +156,15 @@ build numbers, `<yyyymmdd><n>`.
 ```
 
 Sign-in on production needs the site's Digital Asset Links to list Google
-Play's app signing key: its SHA-256, from Play Console › Test and release ›
-App integrity, is production's `ANDROID_CERT_FINGERPRINTS` in
-`apps/api/wrangler.jsonc`. Only Play's: a build signed with anything else,
-the upload key included, can't sign in on production, so a stolen upload key
-can't sign a lookalike that catches sign-ins (and Play can reset it). Try
-release builds through Play's internal testing, which Play signs with its key.
+Play's app signing keys: their SHA-256s, from Play Console › Test and release
+› App integrity › App signing (Copy all certificate fingerprints), are
+production's `ANDROID_CERT_FINGERPRINTS` in `apps/api/wrangler.jsonc`. Play
+signs for Android 10–16 with the app's first key, and Android 17 also gets a
+quantum-ready pair, so all three are listed. Only Play's: a build signed with
+anything else, the upload key included, can't sign in on production, so a
+stolen upload key can't sign a lookalike that catches sign-ins (and Play can
+reset it). Try release builds through Play's internal testing, which Play
+signs with its keys.
 
 ## Tests
 
