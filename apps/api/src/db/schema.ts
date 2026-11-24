@@ -226,8 +226,14 @@ export const files = sqliteTable(
 export const liveActivities = sqliteTable(
   "live_activities",
   {
-    /** The Live Activity's APNs push token, as hex. */
+    /**
+     * Where updates go: the Live Activity's APNs push token, as hex, or the
+     * Android app's FCM token (Event mode's notification is the app's own).
+     */
     token: text("token").primaryKey(),
+    platform: text("platform", { enum: ["apns", "fcm"] })
+      .notNull()
+      .default("apns"),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -447,17 +453,22 @@ export type BlockRow = typeof blocks.$inferSelect;
 export type BlockKeyRow = typeof blockKeys.$inferSelect;
 
 /**
- * The app's push tokens, one per install: for notifications such as clips
+ * The apps' push tokens, one per install: for notifications such as clips
  * about to expire. A token signed in to another account moves to it.
  */
 export const devices = sqliteTable(
   "devices",
   {
-    /** APNs device token, as hex. */
+    /** An APNs device token, as hex, or an FCM registration token (as given; case matters). */
     token: text("token").primaryKey(),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** The iPhone app (APNs) or the Android app (FCM). */
+    platform: text("platform", { enum: ["apns", "fcm"] })
+      .notNull()
+      .default("apns"),
+    /** The APNs environment the token belongs to. FCM has only one: "production". */
     environment: text("environment", { enum: ["sandbox", "production"] }).notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),

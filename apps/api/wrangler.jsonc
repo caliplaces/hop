@@ -9,7 +9,11 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/.well-known/apple-app-site-association"]
+    "run_worker_first": [
+      "/api/*",
+      "/.well-known/apple-app-site-association",
+      "/.well-known/assetlinks.json"
+    ]
   },
   // Hourly clean-up of abandoned uploads and expired sessions.
   // Every 5 minutes: the new-clips digest. Hourly: cleanup. See src/index.ts.
@@ -40,9 +44,12 @@
     // its own key, restricted to the app's bundle ID: sandbox here and on staging
     // (debug builds), production for TestFlight and App Store builds. The key
     // itself is the APNS_KEY secret (.dev.vars locally); without it nothing is pushed.
+    // Android's pushes go through FCM with the FCM_SERVICE_ACCOUNT secret
+    // instead (README: Android pushes), which needs no settings here.
     "APPLE_TEAM_ID": "XH66L5M6JJ",
     "APPLE_BUNDLE_ID": "com.onmyhop.app",
     "APPLE_APP_ID": "6834920854",
+    "ANDROID_PACKAGE": "com.onmyhop.app",
     "APNS_ENVIRONMENT": "sandbox",
     "APNS_KEY_ID": "K4TQW3FWN6",
     // Hop+ on the website: the product in Stripe whose prices are sold, in
@@ -96,6 +103,7 @@
         "APPLE_TEAM_ID": "XH66L5M6JJ",
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
+        "ANDROID_PACKAGE": "com.onmyhop.app",
         "APNS_ENVIRONMENT": "sandbox",
         "APNS_KEY_ID": "K4TQW3FWN6",
         "STRIPE_PRODUCT_ID": "prod_VdnJFIpMsbAZlR",
@@ -163,6 +171,13 @@
         "APPLE_TEAM_ID": "XH66L5M6JJ",
         "APPLE_BUNDLE_ID": "com.onmyhop.app",
         "APPLE_APP_ID": "6834920854",
+        "ANDROID_PACKAGE": "com.onmyhop.app",
+        // For the app's Digital Asset Links (README: How the app signs in): Google
+        // Play's app signing keys, from Play Console › App integrity › App signing.
+        // Play signs for Android 10–16 with the first; Android 17 and later also get
+        // a quantum-ready pair, the classical and the post-quantum key. Only Play's:
+        // never the upload key, which a thief could sign a lookalike with.
+        "ANDROID_CERT_FINGERPRINTS": "9A:AE:E8:A7:FA:AC:EB:31:A5:FF:85:6C:79:A6:E1:49:90:92:97:75:67:90:ED:26:8C:34:42:0B:24:A6:53:47,C6:3E:0B:92:77:D3:B6:91:64:AC:F6:39:F5:AA:C2:0C:A7:40:2E:06:3A:B4:9F:F6:87:15:75:3B:99:5E:72:AF,1E:BA:33:98:F7:4E:8C:2F:65:BB:E8:47:E3:5B:FC:19:44:C7:DF:5A:4D:40:B9:EA:08:7D:9B:15:78:B8:23:8A",
         "APNS_ENVIRONMENT": "production",
         "APNS_KEY_ID": "JNYA3Z4YF6",
         "STRIPE_PRODUCT_ID": "prod_Vd4BKOyA6xDfYn",

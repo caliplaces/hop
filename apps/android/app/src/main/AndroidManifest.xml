@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- New clips, clips about to leave, and Event mode's ongoing notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 16: that notification as a Live Update, the count in the status bar. -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+
+    <!-- Browsers that can show Caliplaces' sign-in page in an Auth Tab or Custom Tab. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".HopApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Hop"
+        tools:targetApi="33">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Hop.Starting"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <!--
+            Passes Caliplaces' redirect back to the sign-in under way, in
+            browsers without Auth Tabs (with one, the result comes back to
+            MainActivity). Production redirects to its https callback, which
+            opens here once onmyhop.com's Digital Asset Links list the app;
+            until then Android leaves the link to the browser. Debug builds,
+            which talk to staging, add the custom scheme (src/debug). Anything
+            can open this activity, so it only hands a URL to a sign-in
+            already under way, which checks it's exactly that flow's callback,
+            with that flow's state.
+        -->
+        <activity
+            android:name=".auth.SignInCallbackActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Hop.Invisible">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="onmyhop.com" />
+                <data android:path="/api/auth/app/callback" />
+            </intent-filter>
+        </activity>
+        <!-- The QR code on the home screen. -->
+        <receiver
+            android:name=".widget.QrWidgetReceiver"
+            android:exported="false"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/qr_widget_info" />
+        </receiver>
+
+        <!-- The QR code from Quick Settings. -->
+        <service
+            android:name=".widget.QrTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_qr_code_2"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!--
+            Push notifications from Hop's API, through Firebase Cloud
+            Messaging: data messages the app turns into notifications. Only in
+            builds with Firebase settings (push_enabled, from build.gradle.kts).
+        -->
+        <service
+            android:name=".push.HopMessagingService"
+            android:enabled="@bool/push_enabled"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Firebase starts from HopApplication, with this build's settings, not from resources. -->
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider"
+            tools:node="remove" />
+        <!--
+            Notifications shown by the app's own process, never handed to
+            Google Play services to show (Hop only sends data messages).
+        -->
+        <meta-data
+            android:name="firebase_messaging_notification_delegation_enabled"
+            android:value="false" />
+        <!-- A push token only once someone signs in, not at every launch. -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false" />
+
+        <!-- Clips downloaded to share, readable only by the app they're shared with. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

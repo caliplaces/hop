@@ -4,10 +4,12 @@
  *   pnpm --filter @hop/web mascot:assets          # everything
  *   pnpm --filter @hop/web mascot:assets email    # only the email images
  *   pnpm --filter @hop/web mascot:assets ios      # only the iOS app images
+ *   pnpm --filter @hop/web mascot:assets android  # only the Android app images
  *
  * Starts Vite in-process, opens the mascot lab in headless Chrome, freezes
  * Bobble at an exact moment, and writes PNGs to public/bobble/ (logo) and
- * public/email/ (email heroes), or into the iOS app's asset catalog. Set
+ * public/email/ (email heroes), or into the iOS app's asset catalog or the
+ * Android app's resources. Set
  * CHROME_PATH if Chrome isn't in the default macOS location.
  */
 import fs from "node:fs";
@@ -55,7 +57,7 @@ const EMAIL_POSES = {
   busy: { state: "busy", at: 0.33, crop: { size: 0.84, top: 0.02 } },
 };
 const EMAIL_SIZE = 400;
-const only = process.argv[2]; // "email" to skip the logo images, "ios" for the iOS app only
+const only = process.argv[2]; // "email" to skip the logo images, "ios" or "android" for one app only
 /**
  * iOS app images, written straight into apps/ios's asset catalogs: two poses,
  * the face, the app icons, and Bobble idling in every athlete colour; and for
@@ -83,6 +85,22 @@ const IOS_COLOR_POSE_SIZE = 480;
 const IOS_FACE_SIZE = 96;
 const IOS_ICON_SIZE = 1024;
 const XCODE_INFO = { author: "xcode", version: 1 };
+
+/**
+ * Android app images, written into apps/android's resources as WebP: Bobble
+ * idling, in Hop's colour and in every athlete colour, and the adaptive launcher
+ * icon's layers at each density. The icon's foreground keeps Bobble inside
+ * the 66 dp circle every launcher mask shows; its monochrome layer, for
+ * themed icons, is Bobble's silhouette with the eyes cut out.
+ */
+const androidRes = path.resolve(webDir, "..", "android", "app", "src", "main", "res");
+const ANDROID_POSE_SIZE = 660;
+/** Per-colour Bobbles show at up to 160 dp: xxhdpi. */
+const ANDROID_COLOR_POSE_SIZE = 480;
+/** The launcher icon's 108 dp layers, per density. */
+const ANDROID_ICON_SIZES = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 };
+/** How much of each side of the icon's layer is left empty around Bobble. */
+const ANDROID_ICON_PADDING = 0.18;
 
 const server = await createServer({ root: webDir, logLevel: "error", server: { port: 0 } });
 await server.listen();
@@ -136,6 +154,52 @@ async function snapshot(page, size, { background = null, padding = 0, crop = nul
     crop,
   );
   return Buffer.from(dataUrl.split(",")[1], "base64");
+}
+
+if (only === "android") {
+  const webp = (png) => sharp(png).webp({ quality: 88, alphaQuality: 100, effort: 6 }).toBuffer();
+  const nodpi = path.join(androidRes, "drawable-nodpi");
+  fs.mkdirSync(nodpi, { recursive: true });
+  const hex = PALETTE[BRAND];
+  // Bobble idling, for the welcome screen.
+  const pose = IOS_POSES["bobble-idle"];
+  const posePage = await render(hex, { ...pose, framing: "stage", size: 1024 });
+  const posePng = await snapshot(posePage, ANDROID_POSE_SIZE, { crop: pose.crop });
+  fs.writeFileSync(path.join(nodpi, "bobble_idle.webp"), await webp(posePng));
+  await posePage.close();
+  const page = await render(hex, { size: 1024 });
+  for (const [density, size] of Object.entries(ANDROID_ICON_SIZES)) {
+    const dir = path.join(androidRes, `mipmap-${density}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const foreground = await snapshot(page, size, { padding: ANDROID_ICON_PADDING });
+    fs.writeFileSync(path.join(dir, "ic_launcher_foreground.webp"), await webp(foreground));
+    // Themed icons: white wherever Bobble is, except the dark of his eyes
+    // and the faint ground shadow (grey, and mostly see-through).
+    const { data, info } = await sharp(foreground).raw().toBuffer({ resolveWithObject: true });
+    for (let i = 0; i < data.length; i += 4) {
+      const [r, g, b, a] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
+      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const grey = Math.max(r, g, b) - Math.min(r, g, b) < 24;
+      const alpha = luma < 60 || (grey && a < 200) ? 0 : a;
+      data[i] = data[i + 1] = data[i + 2] = 255;
+      data[i + 3] = alpha;
+    }
+    const monochrome = await sharp(data, { raw: info }).png().toBuffer();
+    fs.writeFileSync(path.join(dir, "ic_launcher_monochrome.webp"), await webp(monochrome));
+  }
+  await page.close();
+
+  for (const [id, colorHex] of Object.entries(PALETTE)) {
+    const idle = IOS_POSES["bobble-idle"];
+    const colorPage = await render(colorHex, { ...idle, framing: "stage", size: 768 });
+    const png = await snapshot(colorPage, ANDROID_COLOR_POSE_SIZE, { crop: idle.crop });
+    fs.writeFileSync(path.join(nodpi, `bobble_${id}.webp`), await webp(png));
+    await colorPage.close();
+  }
+  await browser.close();
+  await server.close();
+  console.log("rendered Android assets");
+  process.exit(0);
 }
 
 if (only === "ios") {

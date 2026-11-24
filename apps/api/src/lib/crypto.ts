@@ -31,6 +31,19 @@ export function fromBase64url(input: string): Uint8Array {
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
 }
 
+/**
+ * A private key's DER bytes from its PEM, with or without the header lines
+ * and line breaks, and with line breaks escaped as \n (as in a JSON key file
+ * pasted somewhere that keeps them literal).
+ */
+export function pkcs8(pem: string): Uint8Array<ArrayBuffer> {
+  const base64 = pem
+    .replace(/-----[A-Z ]+-----/g, "")
+    .replace(/\\n/g, "")
+    .replace(/\s+/g, "");
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+}
+
 export function randomToken(bytes = 32): string {
   return base64url(crypto.getRandomValues(new Uint8Array(bytes)));
 }

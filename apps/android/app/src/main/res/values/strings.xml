@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hop</string>
+    <string name="back">Back</string>
+    <string name="try_again">Try again</string>
+    <string name="offline">Couldn’t reach Hop. Are you online?</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied</string>
+    <string name="share">Share</string>
+    <string name="open">Open</string>
+    <string name="share_link">Share my link</string>
+    <string name="more">More</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="block">Block</string>
+    <string name="bobble_description">Bobble, Hop’s mascot</string>
+
+    <!-- Welcome and signing in -->
+    <string name="welcome_title">Welcome to Hop</string>
+    <string name="welcome_message">Sign in with your Caliplaces account to see every clip people send you.</string>
+    <string name="welcome_continue">Continue with Caliplaces</string>
+    <string name="welcome_footnote">New here? You’ll claim your Hop link next.</string>
+    <string name="sign_in_unverified">Couldn’t confirm Hop’s sign-in page. Please try again.</string>
+    <string name="sign_in_no_browser">Signing in needs a web browser. Install one, then try again.</string>
+
+    <!-- Claiming a Hop -->
+    <string name="claim_title">Claim your Hop</string>
+    <string name="claim_message">This is the link everyone uploads your clips to.</string>
+    <string name="claim_handle_label">Handle</string>
+    <string name="claim_handle_placeholder">yourname</string>
+    <string name="claim_handle_hint">You get one, so pick something you’ll say out loud.</string>
+    <string name="claim_checking">Checking…</string>
+    <string name="claim_available">Available</string>
+    <string name="claim_invalid">2–30 characters: letters, numbers, dots and underscores.</string>
+    <string name="claim_reserved">That one is reserved.</string>
+    <string name="claim_not_allowed">That handle isn’t available.</string>
+    <string name="claim_taken">That handle is taken.</string>
+    <string name="claim_offline">Couldn’t check that. Are you online?</string>
+    <string name="claim_color_title">Pick your colour</string>
+    <string name="claim_color_message">Bobble and your upload page wear it.</string>
+    <string name="claim_button">Claim it</string>
+
+    <!-- Profile -->
+    <string name="profile_setup_title">This is you</string>
+    <string name="profile_setup_message">Your page shows this to everyone who sends you clips.</string>
+    <string name="profile_footnote">Anyone with your link sees this. It’s saved in Hop only, not in your Caliplaces account.</string>
+    <string name="profile_looks_good">Looks good</string>
+    <string name="profile_name_label">Name</string>
+    <string name="profile_name_empty">Enter a name.</string>
+    <string name="profile_name_too_long">That name is too long.</string>
+    <string name="profile_name_at">A name can’t start with @.</string>
+    <string name="profile_add_photo">Add a profile photo</string>
+    <string name="profile_change_photo">Change profile photo</string>
+    <string name="profile_choose_photo">Choose photo</string>
+    <string name="profile_remove_photo">Remove photo</string>
+
+    <!-- The signed-in app -->
+    <string name="tab_inbox">Inbox</string>
+    <string name="tab_my_hop">My Hop</string>
+    <string name="inbox_failed">Couldn’t load your clips</string>
+    <string name="inbox_empty_title">No clips yet</string>
+    <string name="inbox_empty_message">Share your Hop link at your next event. Clips people send you land here, sorted by event.</string>
+    <string name="event_open">Show this event’s clips</string>
+    <string name="event_empty_title">No clips here yet</string>
+    <string name="event_empty_message">Clips sent to this event will show up here.</string>
+    <string name="someone">Someone</string>
+    <string name="clip_video_from">Video from %1$s</string>
+    <string name="clip_photo_from">Photo from %1$s</string>
+    <string name="clip_signed_in">Signed in</string>
+    <string name="clip_failed">Couldn’t load this clip</string>
+    <string name="clip_save">Save to this phone</string>
+    <string name="clip_saved">Saved to your gallery, in Hop</string>
+    <string name="clip_report">Report clip…</string>
+    <string name="clip_block">Block %1$s</string>
+    <string name="clip_block_title">Block %1$s?</string>
+    <string name="block_explanation">Their clips leave your inbox, and they can’t send you more. You can unblock them in Account.</string>
+    <string name="clip_delete">Delete clip</string>
+    <string name="clip_delete_title">Delete this clip?</string>
+    <string name="clip_delete_message">It’s gone for good, from your inbox and from Hop.</string>
+    <string name="report_title">Report clip</string>
+    <string name="report_question">What’s wrong with it?</string>
+    <string name="report_sexual">Sexual content</string>
+    <string name="report_violence">Violence or threats</string>
+    <string name="report_harassment">Harassment or hate</string>
+    <string name="report_spam">Spam or scam</string>
+    <string name="report_other">Something else</string>
+    <string name="report_note">Anything else? (optional)</string>
+    <string name="report_footnote">Hop’s team gets your report with this clip, and looks into it.</string>
+    <string name="report_send">Send report</string>
+    <string name="report_sent">Thanks. Hop’s team will look into it.</string>
+    <plurals name="expiry_today">
+        <item quantity="one">%d clip leaves today</item>
+        <item quantity="other">%d clips leave today</item>
+    </plurals>
+    <plurals name="expiry_tomorrow">
+        <item quantity="one">%d clip leaves tomorrow</item>
+        <item quantity="other">%d clips leave tomorrow</item>
+    </plurals>
+    <plurals name="expiry_on">
+        <item quantity="one">%1$d clip leaves on %2$s</item>
+        <item quantity="other">%1$d clips leave on %2$s</item>
+    </plurals>
+    <plurals name="expiry_soon">
+        <item quantity="one">%d clip leaves soon</item>
+        <item quantity="other">%d clips leave soon</item>
+    </plurals>
+    <string name="expiry_detail">Free plans keep clips for 30 days. Save the ones you want to keep.</string>
+    <string name="storage_full">Your Hop is full</string>
+    <string name="storage_nearly_full">Your Hop is %1$d%% full</string>
+    <string name="storage_full_detail">%1$s of %2$s used. New clips can’t arrive until there’s room.</string>
+    <string name="storage_nearly_full_detail">%1$s of %2$s used.</string>
+    <string name="event_your_link">Your link</string>
+    <string name="event_closed">Closed</string>
+    <plurals name="clip_count">
+        <item quantity="one">%d clip</item>
+        <item quantity="other">%d clips</item>
+    </plurals>
+    <plurals name="event_count">
+        <item quantity="one">%d event</item>
+        <item quantity="other">%d events</item>
+    </plurals>
+    <string name="pass_description">Your Hop pass</string>
+    <string name="pass_athlete">ATHLETE PASS</string>
+    <string name="pass_tagline">Upload it on my Hop</string>
+    <string name="pass_story_invitation">Filmed me? Send me your clips</string>
+    <string name="share_pass_image">Share pass image</string>
+    <string name="share_pass_failed">Couldn’t share the pass image</string>
+    <string name="qr_show">Show QR code</string>
+    <string name="qr_scan">Scan to send me your clips</string>
+    <string name="qr_save">Save QR code</string>
+    <string name="qr_saved">QR code saved to your gallery, in Hop</string>
+    <string name="qr_save_failed">Couldn’t save the QR code</string>
+    <string name="close">Close</string>
+    <string name="my_hop_message">Anyone can scan this or open the link to send you their clips. No app or account needed.</string>
+
+    <!-- Event mode -->
+    <string name="event_mode">Event mode</string>
+    <string name="event_start">Start Event mode</string>
+    <string name="event_back">Back to Event mode</string>
+    <string name="event_setup_message">Your QR code fills the screen and the screen stays on. Hop counts the clips as they land, here and in a notification.</string>
+    <string name="event_clips_go_to">Clips go to</string>
+    <string name="event_live_now">Live now · %1$s</string>
+    <string name="event_new">A new event</string>
+    <string name="event_name">Event name</string>
+    <string name="event_go_live">Go live</string>
+    <string name="event_minimize">Minimize</string>
+    <string name="event_end">End</string>
+    <string name="event_end_title">End Event mode?</string>
+    <string name="event_end_message">Your link keeps taking clips for “%1$s”.</string>
+    <string name="event_end_confirm">End Event mode</string>
+    <string name="event_live">LIVE</string>
+    <string name="event_offline">OFFLINE</string>
+    <plurals name="event_clips_so_far">
+        <item quantity="one">clip so far</item>
+        <item quantity="other">clips so far</item>
+    </plurals>
+    <string name="event_counter_none">They show up here as they land.</string>
+    <string name="event_counter_latest">Latest from %1$s</string>
+    <string name="event_counter_just_landed">The latest just landed.</string>
+    <string name="event_arrival_one">%1$s sent a clip</string>
+    <plurals name="event_arrival_many">
+        <item quantity="one">%d new clip</item>
+        <item quantity="other">%d new clips</item>
+    </plurals>
+    <plurals name="event_notification_title">
+        <item quantity="one">%d clip so far</item>
+        <item quantity="other">%d clips so far</item>
+    </plurals>
+    <string name="event_channel">Event mode</string>
+    <string name="event_channel_description">The clip count while Event mode is on.</string>
+
+    <!-- The QR code from outside the app -->
+    <string name="widget_name">Hop QR code</string>
+    <string name="widget_picker_description">Your Hop QR code, for anyone to scan and send you clips.</string>
+    <string name="widget_signed_out">Sign in to Hop to show your QR code here.</string>
+    <string name="widget_description">QR code for %1$s</string>
+    <string name="tile_label">Hop QR code</string>
+    <string name="shortcut_qr_short">QR code</string>
+    <string name="shortcut_qr_long">Show my QR code</string>
+
+    <!-- Account -->
+    <string name="account_title">Account</string>
+    <string name="account_signed_in">Signed in</string>
+    <string name="account_privacy">Privacy</string>
+    <string name="account_terms">Terms</string>
+    <string name="sign_out">Sign out</string>
+    <string name="save">Save</string>
+    <string name="profile_edit_title">Edit profile</string>
+    <string name="account_new_clips">New clips</string>
+    <string name="account_new_clips_push">Notifications</string>
+    <string name="account_new_clips_push_allow">Allow notifications</string>
+    <string name="account_new_clips_push_off">They\'re off for Hop on this phone.</string>
+    <string name="account_new_clips_email">Email</string>
+    <string name="account_new_clips_email_detail">A burst of clips comes as one email to %1$s, once uploads go quiet.</string>
+    <string name="plan_free">Free</string>
+    <string name="plan_storage">%1$s of %2$s</string>
+    <plurals name="plan_kept_days">
+        <item quantity="one">Clips are kept %d day</item>
+        <item quantity="other">Clips are kept %d days</item>
+    </plurals>
+    <string name="plan_kept_for_good">Clips are kept for good</string>
+    <string name="plan_renews">Renews on %1$s</string>
+    <string name="plan_ends">Ends on %1$s</string>
+    <string name="plan_grace">Your payment didn’t go through. Hop+ continues until %1$s while it’s tried again.</string>
+    <string name="plan_managed_app_store">Bought on iPhone: manage it in your Apple Account’s subscriptions.</string>
+    <string name="plan_managed_website">Bought on the Hop website, where you can manage it.</string>
+    <string name="delete_account">Delete account</string>
+    <string name="delete_title">Delete your Hop account?</string>
+    <string name="delete_cant_undo">This can’t be undone.</string>
+    <string name="delete_what_happens">What happens</string>
+    <string name="delete_clips">Every clip and event in your inbox is deleted.</string>
+    <string name="delete_profile">Your name and photo are removed.</string>
+    <string name="delete_link">%1$s stops working, and nobody else can take it.</string>
+    <string name="delete_signed_out">You’re signed out on every device.</string>
+    <string name="delete_billing_renews">Deleting your account doesn’t cancel Hop+. Apple keeps billing you until you cancel it.</string>
+    <string name="delete_billing_ends">Your Hop+ is cancelled with your account, and the rest of this period isn’t refunded.</string>
+    <string name="delete_billing_unknown">If you have Hop+ from the iPhone app, deleting your account doesn’t cancel it. Apple keeps billing you until you cancel it.</string>
+    <string name="delete_footnote">Save any clips you want to keep first. Your Caliplaces account isn’t affected.</string>
+    <string name="delete_confirm_message">Your clips, events and profile are deleted for good.</string>
+    <string name="blocked_title">Blocked senders</string>
+    <string name="blocked_empty">Nobody’s blocked</string>
+    <string name="blocked_empty_message">Block someone from a clip they sent, and they’ll show up here.</string>
+    <string name="blocked_footnote">Unblocking lets them send you clips again. Clips that left with the block don’t come back.</string>
+    <string name="unblock">Unblock</string>
+
+    <!-- Push notifications -->
+    <string name="push_channel_clips">New clips</string>
+    <string name="push_channel_clips_description">When people send you clips</string>
+    <string name="push_channel_expiring">Clips leaving soon</string>
+    <string name="push_channel_expiring_description">Before free-plan clips leave your inbox</string>
+    <string name="push_clips_public">New clips</string>
+    <string name="push_ask_title">Hear when clips arrive</string>
+    <string name="push_ask_detail">Hop tells you when new clips land.</string>
+    <string name="push_ask_detail_free">Hop tells you when new clips land, and a week before any leave your inbox.</string>
+    <string name="push_ask_turn_on">Turn on</string>
+    <string name="push_ask_not_now">Not now</string>
+</resources>

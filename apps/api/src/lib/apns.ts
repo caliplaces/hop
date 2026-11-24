@@ -1,5 +1,5 @@
 import type { Env } from "../env";
-import { base64url } from "./crypto";
+import { base64url, pkcs8 } from "./crypto";
 
 /**
  * Apple Push Notification service, for Live Activity updates. Requests are
@@ -18,15 +18,6 @@ const HOSTS = {
  */
 const TOKEN_LIFETIME_MS = 50 * 60 * 1000;
 let cached: { keyId: string; value: string; issuedAt: number } | null = null;
-
-/** The key's DER bytes from its PEM, with or without the header lines and line breaks. */
-function pkcs8(pem: string): Uint8Array<ArrayBuffer> {
-  const base64 = pem
-    .replace(/-----[A-Z ]+-----/g, "")
-    .replace(/\\n/g, "")
-    .replace(/\s+/g, "");
-  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-}
 
 /** A provider token for APNs, reused while it's fresh. */
 export async function providerToken(env: Env, now = Date.now()): Promise<string> {

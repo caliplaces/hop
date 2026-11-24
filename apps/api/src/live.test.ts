@@ -52,7 +52,8 @@ beforeEach(async () => {
     APNS_ENVIRONMENT: "sandbox",
     APPLE_TEAM_ID: "TEAM123456",
     APPLE_BUNDLE_ID: "com.onmyhop.app",
-  } as Env;
+    PROFILE_LIMITER: { limit: async () => ({ success: true }) },
+  } as unknown as Env;
   db = getDb(DB);
   await db.insert(users).values([
     { id: "usr_a", oidcSub: "sub-a", handle: "alex", createdAt: T0, updatedAt: T0 },

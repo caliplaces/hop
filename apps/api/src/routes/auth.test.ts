@@ -188,6 +188,74 @@ describe("the apple-app-site-association file", () => {
   });
 });
 
+describe("the Digital Asset Links file", () => {
+  const PLAY =
+    "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99";
+  const UPLOAD =
+    "d3:ae:13:dd:96:e3:c8:36:99:bd:21:91:19:c5:85:fa:50:af:12:f9:1e:c5:1e:91:76:1c:29:e7:b0:f8:a0:6e";
+  const links = (method = "GET") =>
+    worker.fetch(
+      new Request("https://onmyhop.com/.well-known/assetlinks.json", { method }),
+      env,
+      {} as ExecutionContext,
+    );
+
+  it("ties this site to the Android app's certificates, for its sign-in callback", async () => {
+    env.ANDROID_PACKAGE = "com.onmyhop.app";
+    env.ANDROID_CERT_FINGERPRINTS = ` ${PLAY}, ${UPLOAD} `;
+    const response = await links();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await response.json()).toEqual([
+      {
+        relation: ["delegate_permission/common.handle_all_urls"],
+        target: {
+          namespace: "android_app",
+          package_name: "com.onmyhop.app",
+          sha256_cert_fingerprints: [PLAY, UPLOAD.toUpperCase()],
+        },
+      },
+    ]);
+  });
+
+  it("leaves out entries that aren't fingerprints, and says nothing without one", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    env.ANDROID_PACKAGE = "com.onmyhop.app";
+    env.ANDROID_CERT_FINGERPRINTS = `${PLAY},AA:BB,${PLAY.replaceAll(":", "")}`;
+    const response = await links();
+    expect(
+      ((await response.json()) as [{ target: { sha256_cert_fingerprints: string[] } }])[0].target
+        .sha256_cert_fingerprints,
+    ).toEqual([PLAY]);
+    // Once per isolate, however many entries or reads.
+    expect(error).toHaveBeenCalledTimes(1);
+    await links();
+    expect(error).toHaveBeenCalledTimes(1);
+
+    env.ANDROID_CERT_FINGERPRINTS = "AA:BB";
+    const missing = await links();
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("cache-control")).toBe("no-store");
+    env.ANDROID_CERT_FINGERPRINTS = undefined;
+    expect((await links()).status).toBe(404);
+    env.ANDROID_CERT_FINGERPRINTS = PLAY;
+    env.ANDROID_PACKAGE = undefined;
+    expect((await links()).status).toBe(404);
+    env.ANDROID_PACKAGE = 'com.onmyhop.app"}';
+    expect((await links()).status).toBe(404);
+    error.mockRestore();
+  });
+
+  it("is only read", async () => {
+    env.ANDROID_PACKAGE = "com.onmyhop.app";
+    env.ANDROID_CERT_FINGERPRINTS = PLAY;
+    expect((await links("HEAD")).status).toBe(200);
+    expect((await links("POST")).status).toBe(405);
+    expect((await links("DELETE")).status).toBe(405);
+  });
+});
+
 describe("app sign-in", () => {
   it("starts a PKCE flow for the app's own client and redirect", async () => {
     const { url, flow } = await start();

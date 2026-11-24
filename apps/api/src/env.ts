@@ -80,6 +80,23 @@ export type Env = {
    * elsewhere, where sandbox purchases always count.
    */
   APPLE_SANDBOX_USERS?: string;
+  /** The Android app's package name, for its Digital Asset Links. */
+  ANDROID_PACKAGE?: string;
+  /**
+   * The SHA-256 fingerprints (AA:BB:…, comma separated) of Google Play's app
+   * signing keys, which every Android app people install is signed with:
+   * Play can hold more than one, such as a quantum-ready pair beside the
+   * first key. Not the upload key: an app signed with a stolen one could
+   * catch sign-ins. Without them there are no Digital Asset Links, and the
+   * https sign-in callback opens in the browser, not the app.
+   */
+  ANDROID_CERT_FINGERPRINTS?: string;
+  /**
+   * Firebase Cloud Messaging, for the Android app's notifications and Event
+   * mode's count (lib/fcm.ts): the Firebase project's service account key
+   * file (JSON, a secret). Without it nothing is pushed to Android phones.
+   */
+  FCM_SERVICE_ACCOUNT?: string;
   /**
    * Hop+ on the website, through Stripe (lib/stripe.ts). STRIPE_SECRET_KEY
    * is the API key, a restricted one will do; STRIPE_WEBHOOK_SECRET is the

@@ -12,7 +12,7 @@ Merged pull requests deploy automatically: `staging` to staging.onmyhop.com, `ma
 ## Pull requests
 
 1. Branch off `staging` and open a pull request back into `staging`.
-2. CI must pass: `pnpm lint`, `pnpm check-types`, `pnpm test` and `pnpm build`. Run them locally first. Changes to `apps/ios` also build the iPhone app and run its tests; see [`apps/ios/README.md`](apps/ios/README.md).
+2. CI must pass: `pnpm lint`, `pnpm check-types`, `pnpm test` and `pnpm build`. Run them locally first. Changes to `apps/ios` also build the iPhone app and run its tests; see [`apps/ios/README.md`](apps/ios/README.md). Changes to `apps/android` build the Android app and run its tests and lint; see [`apps/android/README.md`](apps/android/README.md).
 3. A maintainer reviews and squash-merges it.
 
 Workflows on pull requests from first-time and outside contributors run after a maintainer approves them.
