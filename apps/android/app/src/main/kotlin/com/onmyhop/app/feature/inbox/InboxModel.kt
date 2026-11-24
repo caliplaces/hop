@@ -33,6 +33,11 @@ import java.io.IOException
  * event's grid and the viewer all read the same lists.
  */
 class InboxModel(private val session: Session) : ViewModel() {
+    private companion object {
+        /** How many pages a refresh reloads at most, to reach as far as the list had got. */
+        const val MAX_REFRESH_PAGES = 20
+    }
+
     sealed interface Phase {
         data object Loading : Phase
         data object Loaded : Phase
@@ -138,17 +143,28 @@ class InboxModel(private val session: Session) : ViewModel() {
     private suspend fun load(hopId: String, cursor: String?, replacing: Boolean) {
         if (replacing) generations[hopId] = generation(hopId) + 1
         val generation = generation(hopId)
+        // A refresh comes with every push and Event mode count. It reloads as
+        // far as the list had got, so a clip open in the viewer, or further
+        // down the grid, stays, while one deleted elsewhere (or expired) goes,
+        // and no clip is skipped however many arrived meanwhile.
+        val reachBack = if (replacing) clips(hopId).items.lastOrNull() else null
         clips[hopId] = clips(hopId).copy(isLoading = true)
-        val query = buildMap {
-            put("hopId", hopId)
-            cursor?.let { put("cursor", it) }
-        }
         try {
-            val page = session.api.get<ClipPage>("api/me/files", query)
+            var page = page(hopId, cursor)
+            val pages = mutableListOf(page)
+            var more = MAX_REFRESH_PAGES
+            while (reachBack != null && page.nextCursor != null && --more > 0 &&
+                page.files.lastOrNull()?.isNewerThan(reachBack) == true
+            ) {
+                if (generation(hopId) != generation) return
+                page = page(hopId, page.nextCursor)
+                pages += page
+            }
             if (generation(hopId) != generation) return
-            val fresh = page.files.filter { it.id !in dropped }
+            // Pages can overlap if clips arrived while they loaded.
+            val fresh = pages.flatMap { it.files }.distinctBy { it.id }.filter { it.id !in dropped }
             clips[hopId] = if (replacing) {
-                refreshed(clips(hopId), fresh, page.nextCursor)
+                ClipList(items = fresh, nextCursor = page.nextCursor, loadedOnce = true)
             } else {
                 val known = clips(hopId).items
                 val knownIds = known.mapTo(HashSet()) { it.id }
@@ -165,28 +181,15 @@ class InboxModel(private val session: Session) : ViewModel() {
         }
     }
 
-    /**
-     * A refresh's first page, then whatever was loaded past it before. A
-     * refresh comes with every push and Event mode count, so a clip open in
-     * the viewer, or further down the grid, stays where it was.
-     */
-    private fun refreshed(previous: ClipList, first: List<Clip>, nextCursor: String?): ClipList {
-        val last = first.lastOrNull()
-        // The whole event fits on the first page: nothing older is left to keep.
-        if (nextCursor == null || last == null) return ClipList(first, nextCursor, loadedOnce = true)
-        val ids = first.mapTo(HashSet()) { it.id }
-        // Pages run newest first, by when the clip arrived and then its id, as the API sorts them.
-        val older = previous.items.filter {
-            it.id !in ids && it.id !in dropped &&
-                (it.createdAt < last.createdAt || (it.createdAt == last.createdAt && it.id < last.id))
-        }
-        return ClipList(
-            items = first + older,
-            // Carrying on from where the list had got to.
-            nextCursor = if (older.isEmpty()) nextCursor else previous.nextCursor,
-            loadedOnce = true,
-        )
-    }
+    private suspend fun page(hopId: String, cursor: String?): ClipPage =
+        session.api.get("api/me/files", buildMap {
+            put("hopId", hopId)
+            cursor?.let { put("cursor", it) }
+        })
+
+    /** Pages run newest first: by when the clip arrived, then by id, as the API sorts them. */
+    private fun Clip.isNewerThan(other: Clip): Boolean =
+        createdAt > other.createdAt || (createdAt == other.createdAt && id > other.id)
 
     /** Reloads the plan alone, as when the account opens. */
     fun refreshPlan() {
