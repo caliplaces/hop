@@ -33,11 +33,6 @@ import java.io.IOException
  * event's grid and the viewer all read the same lists.
  */
 class InboxModel(private val session: Session) : ViewModel() {
-    private companion object {
-        /** How many pages a refresh reloads at most, to reach as far as the list had got. */
-        const val MAX_REFRESH_PAGES = 20
-    }
-
     sealed interface Phase {
         data object Loading : Phase
         data object Loaded : Phase
@@ -152,12 +147,13 @@ class InboxModel(private val session: Session) : ViewModel() {
         try {
             var page = page(hopId, cursor)
             val pages = mutableListOf(page)
-            var more = MAX_REFRESH_PAGES
-            while (reachBack != null && page.nextCursor != null && --more > 0 &&
-                page.files.lastOrNull()?.isNewerThan(reachBack) == true
-            ) {
+            // As many pages as had been loaded: no more than the athlete scrolled through.
+            while (reachBack != null && page.files.lastOrNull()?.isNewerThan(reachBack) == true) {
+                val next = page.nextCursor ?: break
                 if (generation(hopId) != generation) return
-                page = page(hopId, page.nextCursor)
+                page = page(hopId, next)
+                // A cursor that doesn't move on would never get there.
+                if (page.nextCursor == next) break
                 pages += page
             }
             if (generation(hopId) != generation) return
