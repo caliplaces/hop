@@ -97,9 +97,10 @@ fun EventSetupSheet(
         scope.launch {
             try {
                 eventMode.start(target, me, session.api)
-                onStarted()
                 // The link moved: the profile (and the inbox's "Your link") follows.
-                session.refresh()
+                // In the session's scope, as closing the sheet ends this one.
+                session.refreshSoon()
+                onStarted()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

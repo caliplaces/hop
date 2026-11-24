@@ -138,22 +138,35 @@ class InboxModel(private val session: Session) : ViewModel() {
     private suspend fun load(hopId: String, cursor: String?, replacing: Boolean) {
         if (replacing) generations[hopId] = generation(hopId) + 1
         val generation = generation(hopId)
+        // A refresh comes with every push and Event mode count. It reloads as
+        // far as the list had got, so a clip open in the viewer, or further
+        // down the grid, stays, while one deleted elsewhere (or expired) goes,
+        // and no clip is skipped however many arrived meanwhile.
+        val reachBack = if (replacing) clips(hopId).items.lastOrNull() else null
         clips[hopId] = clips(hopId).copy(isLoading = true)
-        val query = buildMap {
-            put("hopId", hopId)
-            cursor?.let { put("cursor", it) }
-        }
         try {
-            val page = session.api.get<ClipPage>("api/me/files", query)
+            var page = page(hopId, cursor)
+            val pages = mutableListOf(page)
+            // As many pages as had been loaded: no more than the athlete scrolled through.
+            while (reachBack != null && page.files.lastOrNull()?.isNewerThan(reachBack) == true) {
+                val next = page.nextCursor ?: break
+                if (generation(hopId) != generation) return
+                page = page(hopId, next)
+                // A cursor that doesn't move on would never get there.
+                if (page.nextCursor == next) break
+                pages += page
+            }
             if (generation(hopId) != generation) return
-            val known = if (replacing) emptyList() else clips(hopId).items
-            val knownIds = known.mapTo(HashSet()) { it.id }
-            // A page can overlap the last if clips arrived meanwhile.
-            clips[hopId] = ClipList(
-                items = known + page.files.filter { it.id !in knownIds && it.id !in dropped },
-                nextCursor = page.nextCursor,
-                loadedOnce = true,
-            )
+            // Pages can overlap if clips arrived while they loaded.
+            val fresh = pages.flatMap { it.files }.distinctBy { it.id }.filter { it.id !in dropped }
+            clips[hopId] = if (replacing) {
+                ClipList(items = fresh, nextCursor = page.nextCursor, loadedOnce = true)
+            } else {
+                val known = clips(hopId).items
+                val knownIds = known.mapTo(HashSet()) { it.id }
+                // A page can overlap the last if clips arrived meanwhile.
+                ClipList(items = known + fresh.filter { it.id !in knownIds }, nextCursor = page.nextCursor, loadedOnce = true)
+            }
         } catch (error: CancellationException) {
             // A newer refresh replaced this one: no longer loading, unless a newer load already is.
             if (generation(hopId) == generation) clips[hopId] = clips(hopId).copy(isLoading = false)
@@ -163,6 +176,16 @@ class InboxModel(private val session: Session) : ViewModel() {
             clips[hopId] = clips(hopId).copy(isLoading = false, failed = true)
         }
     }
+
+    private suspend fun page(hopId: String, cursor: String?): ClipPage =
+        session.api.get("api/me/files", buildMap {
+            put("hopId", hopId)
+            cursor?.let { put("cursor", it) }
+        })
+
+    /** Pages run newest first: by when the clip arrived, then by id, as the API sorts them. */
+    private fun Clip.isNewerThan(other: Clip): Boolean =
+        createdAt > other.createdAt || (createdAt == other.createdAt && id > other.id)
 
     /** Reloads the plan alone, as when the account opens. */
     fun refreshPlan() {

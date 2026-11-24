@@ -4,11 +4,14 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.onmyhop.app.auth.Session
 import com.onmyhop.app.core.ApiClient
+import com.onmyhop.app.core.ApiError
 import com.onmyhop.app.core.HopJson
 import com.onmyhop.app.feature.event.EventMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 /**
@@ -41,6 +45,10 @@ class Push(
     /** Whether Hop may show notifications here. */
     private val allowed: () -> Boolean,
     private val scope: CoroutineScope,
+    /** How long to wait before telling the API about Event mode again, after [failures] tries that failed. */
+    private val retryAfter: (failures: Int) -> Long = { failures ->
+        (RETRY_FIRST_MS shl (failures - 1).coerceIn(0, 10)).coerceAtMost(RETRY_MOST_MS)
+    },
 ) {
     /** Whether this build has push notifications at all. */
     val isAvailable: Boolean get() = tokens != null
@@ -98,7 +106,7 @@ class Push(
             // Only once Event mode has caught up with the launch, so an event
             // about to resume isn't taken back first.
             eventMode.state.filter { it.hasSettled }.map { it.run }.distinctUntilChanged()
-                .collect { run -> changes.withLock { follow(run) } }
+                .collect { run -> keepFollowing(run) }
         }
     }
 
@@ -184,22 +192,69 @@ class Push(
         }
         registeredFor = me.id
         // Event mode already running: its count comes here too.
-        follow(eventMode.run)
+        keepFollowing(eventMode.run)
     }
 
-    /** Has the API update Event mode's count on this phone while it runs, and stop when it ends. */
-    private suspend fun follow(run: EventMode.Run?) {
-        val registration = registration ?: return
-        val sessionToken = session.token ?: return
+    /** Bringing the API in line with Event mode, for its newest run. */
+    private var following: Job? = null
+    private val followingLock = Any()
+
+    /**
+     * Has the API follow [run], or stop following when it's null. While the
+     * API can't be reached it tries again, waiting longer each time, until it
+     * gets through or Event mode changes: a phone offline as an event starts
+     * still gets its count once it's back, and one offline as it ends still
+     * stops, so the event's notifications of new clips aren't held back.
+     */
+    private fun keepFollowing(run: EventMode.Run?) = synchronized(followingLock) {
+        following?.cancel()
+        following = scope.launch {
+            var failures = 0
+            // A try runs to its end once begun, so what the phone notes the API follows stays true.
+            while (!changes.withLock { withContext(NonCancellable) { follow(run) } }) {
+                delay(retryAfter(++failures))
+            }
+        }
+    }
+
+    /**
+     * Has the API update Event mode's count on this phone while it runs, and
+     * stop when it ends. False when the API couldn't be reached, to try again.
+     * Nothing to do (true) without a registration: registering follows Event
+     * mode itself.
+     */
+    private suspend fun follow(run: EventMode.Run?): Boolean {
+        val registration = registration ?: return true
+        val sessionToken = session.token ?: return true
         val api = session.client(sessionToken)
         val path = "api/me/live-activities/${registration.token}"
         if (run != null && run.userId == registration.userId) {
-            attempt { api.put<LiveBody, Done>(path, LiveBody(run.hopId, run.since, FCM)) } ?: return
-            preferences.edit(commit = true) { putString(WATCHING, run.hopId) }
+            when (send { api.put<LiveBody, Done>(path, LiveBody(run.hopId, run.since, FCM)) }) {
+                Sent.Through -> preferences.edit(commit = true) { putString(WATCHING, run.hopId) }
+                // The event is gone, say: asking again wouldn't change the answer.
+                Sent.Refused -> Unit
+                Sent.Again -> return false
+            }
         } else if (run == null && preferences.contains(WATCHING)) {
-            attempt { api.delete(path) } ?: return
+            // Refused, there's nothing left to stop.
+            if (send { api.delete(path) } == Sent.Again) return false
             preferences.edit(commit = true) { remove(WATCHING) }
         }
+        return true
+    }
+
+    private enum class Sent { Through, Refused, Again }
+
+    /** How a request went: through, refused for good (a 4xx, other than too many requests), or worth trying again. */
+    private suspend fun send(block: suspend () -> Unit): Sent = try {
+        block()
+        Sent.Through
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: ApiError) {
+        if (error.status in 400..499 && error.status != 429) Sent.Refused else Sent.Again
+    } catch (_: Exception) {
+        Sent.Again
     }
 
     /** Null when it failed: offline, or FCM or the API having a moment. */
@@ -232,5 +287,9 @@ class Push(
         /** FCM has given this install a token that hasn't been deleted since. */
         const val TOKEN_ISSUED = "push.tokenIssued"
         const val ASKED = "push.asked"
+
+        /** Event mode's retries: after 2 s, doubling up to 5 minutes. */
+        const val RETRY_FIRST_MS = 2_000L
+        const val RETRY_MOST_MS = 5 * 60_000L
     }
 }

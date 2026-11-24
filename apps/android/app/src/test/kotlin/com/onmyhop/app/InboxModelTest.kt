@@ -105,6 +105,33 @@ class InboxModelTest {
         assertFalse(model.clips("h").hasMore)
     }
 
+    /**
+     * A refresh (each push and Event mode count brings one) reloads as far as
+     * the list had got: the clips further down stay, one deleted elsewhere goes.
+     */
+    @Test
+    fun refreshingKeepsClipsFurtherDown() {
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 3)}]}"""
+        replies["/api/me/plan"] = """{"plan":"free","storage":{"usedBytes":1,"limitBytes":10},"revision":1}"""
+        replies["/api/me/files?hopId=h"] = """{"files":[${clip("c3", "h", 3)},${clip("c2", "h", 2)}],"nextCursor":"2:c2"}"""
+        replies["/api/me/files?hopId=h&cursor=2%3Ac2"] = """{"files":[${clip("c1", "h", 1)}],"nextCursor":"1:c1"}"""
+        val model = model()
+        model.refresh()
+        waitFor { model.clips("h").loadedOnce }
+        model.loadMore("h")
+        waitFor { model.clips("h").items.size == 3 }
+
+        // Two clips arrive, more than a page, and c2 is deleted on another phone.
+        replies["/api/me/hops"] = """{"hops":[${hop("h", 1, 4)}]}"""
+        replies["/api/me/files?hopId=h"] = """{"files":[${clip("c5", "h", 5)},${clip("c4", "h", 4)}],"nextCursor":"4:c4"}"""
+        replies["/api/me/files?hopId=h&cursor=4%3Ac4"] = """{"files":[${clip("c3", "h", 3)},${clip("c1", "h", 1)}],"nextCursor":"1:c1"}"""
+        model.refresh()
+        waitFor { model.clips("h").items.firstOrNull()?.id == "c5" }
+        assertEquals(listOf("c5", "c4", "c3", "c1"), model.clips("h").items.map { it.id })
+        // More pages carry on from where the list had got to.
+        assertEquals("1:c1", model.clips("h").nextCursor)
+    }
+
     /** Events with nothing in them aren't asked for clips; the plan comes with the events. */
     @Test
     fun skipsEmptyEventsAndLoadsThePlan() {
