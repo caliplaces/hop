@@ -132,11 +132,11 @@ Until launch (December 1, 2026), the landing page collects a waitlist. `POST /ap
 
 The list is only for the launch email (`src/launch.ts`, template `src/email/launch.tsx`):
 
-- **When:** from `LAUNCH_AT` in `packages/shared/src/launch.ts` (midnight CET, December 1), on the five-minute cron.
+- **When:** from `LAUNCH_AT` in `packages/shared/src/launch.ts` (midnight CET, November 25), on the five-minute cron.
 - **How:** one email at a time, for up to three and a half minutes a run. `sendEmail` spaces every send to Resend, so the launch email and the digest stay under its rate limit together. Each address is claimed first and has a fixed idempotency key, so neither overlapping runs nor retries email anyone twice.
 - **Failures:** a failed send is tried again five minutes later, five times at most, and never after 23 hours, before Resend could forget the key. A rate limit ends the run. If Resend already had a different email under the key (the App Store link was added meanwhile), the earlier one went out, and it counts as sent.
 - **Afterwards:** `notified_at` marks who has had it. The hourly cleanup deletes each address a day later, as the email tells them.
-- **The app:** set `APP_STORE_URL` once the app is out, and the email links it too.
+- **The app:** the email links the App Store too (`APP_STORE_URL` in `packages/shared/src/stores.ts`).
 - **Trying it out:** the email lab (`/email-lab.html` while `pnpm dev` runs) shows the email. To send it for real on staging before launch, set `LAUNCH_AT` there to an ISO time: everyone on staging's waitlist gets it.
 
 To read the list:

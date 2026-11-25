@@ -1,4 +1,4 @@
-import { LAUNCH_AT } from "@hop/shared";
+import { APP_STORE_URL, LAUNCH_AT } from "@hop/shared";
 import { and, asc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { waitlist } from "./db/schema";
@@ -60,7 +60,7 @@ export async function announceLaunch(
       ),
     );
 
-  const email = await launchEmail({ appUrl: env.APP_URL, appStoreUrl: env.APP_STORE_URL });
+  const email = await launchEmail({ appUrl: env.APP_URL, appStoreUrl: APP_STORE_URL });
   let sent = 0;
   let suppressed = 0;
   let failed = 0;

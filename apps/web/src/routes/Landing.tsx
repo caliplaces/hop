@@ -8,12 +8,10 @@ import { FinalCta } from "../features/landing/FinalCta";
 import { Footer } from "../features/landing/Footer";
 import { Hero } from "../features/landing/Hero";
 import { HowItWorks } from "../features/landing/HowItWorks";
-import { useLaunched } from "../features/landing/launch";
 import { Marquee } from "../features/landing/Marquee";
 import { Nav } from "../features/landing/Nav";
 import { ProductStage } from "../features/landing/stage/ProductStage";
 import { useSpotlight } from "../features/landing/useSpotlight";
-import { useWaitlist } from "../features/landing/useWaitlist";
 import { usePageTheme } from "../lib/pageTheme";
 import { queries } from "../lib/queries";
 import "../features/landing/landing.css";
@@ -28,8 +26,6 @@ export function Landing() {
   usePageTheme("dark");
   const { data: me } = useQuery(queries.me());
   const signedIn = Boolean(me?.handle);
-  const launched = useLaunched();
-  const waitlist = useWaitlist();
   const spotlightSteps = useSpotlight();
   const spotlightTiles = useSpotlight();
   const authError = new URLSearchParams(window.location.search).get("authError");
@@ -44,7 +40,7 @@ export function Landing() {
       <AmbientBackground />
       <CursorGlow color="#7C4DFF" />
 
-      <Nav launched={launched} signedIn={signedIn} joined={waitlist.status.kind === "joined"} />
+      <Nav signedIn={signedIn} />
 
       {authError && (
         <p
@@ -56,13 +52,13 @@ export function Landing() {
       )}
 
       <main className="mx-auto max-w-6xl px-4 sm:px-6">
-        <Hero launched={launched} signedIn={signedIn} waitlist={waitlist} />
+        <Hero signedIn={signedIn} />
         <ProductStage />
         <Marquee />
         <HowItWorks spotlight={spotlightSteps} />
         <Features spotlight={spotlightTiles} />
         <Faq />
-        <FinalCta launched={launched} signedIn={signedIn} waitlist={waitlist} />
+        <FinalCta signedIn={signedIn} />
       </main>
 
       <div className="mx-auto max-w-6xl px-5 sm:px-6">

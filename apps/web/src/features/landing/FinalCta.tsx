@@ -3,10 +3,8 @@ import { ArrowRight } from "lucide-react";
 import { LogoMark } from "../../components/Logo";
 import { buttonClass } from "../../components/ui/Button";
 import { signInUrl } from "../../lib/api";
-import { Countdown } from "./Countdown";
+import { StoreBadges } from "./StoreBadges";
 import { useReveal } from "./useReveal";
-import type { Waitlist } from "./useWaitlist";
-import { WaitlistForm } from "./WaitlistForm";
 
 /** Bobbles drifting around the panel's edges (percent positions, size in px). */
 const CROWD = [
@@ -18,15 +16,7 @@ const CROWD = [
   { color: "indigo", left: "1%", top: "44%", size: 46, delay: "-5s" },
 ] as const;
 
-export function FinalCta({
-  launched,
-  signedIn,
-  waitlist,
-}: {
-  launched: boolean;
-  signedIn: boolean;
-  waitlist: Waitlist;
-}) {
+export function FinalCta({ signedIn }: { signedIn: boolean }) {
   const reveal = useReveal();
   return (
     <section aria-labelledby="cta-title" className="py-16 sm:py-24">
@@ -61,30 +51,22 @@ export function FinalCta({
           id="cta-title"
           className="text-[2.4rem] leading-[1.02] font-semibold tracking-[-0.04em] text-balance sm:text-6xl"
         >
-          <span className="block">{launched ? "Your next comp," : "Be first on day one."}</span>
-          <span className="block text-white/40">
-            {launched ? "every clip in one place." : "December 1, 2026."}
-          </span>
+          <span className="block">Your next comp,</span>
+          <span className="block text-white/40">every clip in one place.</span>
         </h2>
 
-        {launched ? (
-          <div className="mt-10 flex justify-center">
-            {signedIn ? (
-              <Link to="/app" className={buttonClass({ size: "lg" })}>
-                Open your Hop <ArrowRight className="size-4" />
-              </Link>
-            ) : (
-              <a href={signInUrl("/app")} className={buttonClass({ size: "lg" })}>
-                Get your Hop <ArrowRight className="size-4" />
-              </a>
-            )}
-          </div>
-        ) : (
-          <>
-            <Countdown className="mt-10" />
-            <WaitlistForm id="footer" waitlist={waitlist} className="mt-10" />
-          </>
-        )}
+        <div className="mt-10 flex justify-center">
+          {signedIn ? (
+            <Link to="/app" className={buttonClass({ size: "lg" })}>
+              Open your Hop <ArrowRight className="size-4" />
+            </Link>
+          ) : (
+            <a href={signInUrl("/app")} className={buttonClass({ size: "lg" })}>
+              Get your Hop <ArrowRight className="size-4" />
+            </a>
+          )}
+        </div>
+        <StoreBadges className="mt-6" />
       </div>
     </section>
   );
