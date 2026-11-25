@@ -1,12 +1,12 @@
+import { GOOGLE_PLAY_URL } from "@hop/shared";
 import { Plus } from "lucide-react";
-import { LAUNCH_DAY } from "./launch";
 import { SectionHeading } from "./SectionHeading";
 import { useReveal } from "./useReveal";
 
 const QUESTIONS = [
   {
-    q: "When can I get my Hop?",
-    a: `On ${LAUNCH_DAY}, 2026. Join the waitlist and we’ll email you the moment Hop opens, so you can claim your handle before someone else does.`,
+    q: "How do I get my Hop?",
+    a: "Sign in and pick your handle. Your link, onmyhop.com/you, and its QR code are ready straight away, so claim yours before someone else does.",
   },
   {
     q: "Do the people filming me need an app or an account?",
@@ -26,7 +26,9 @@ const QUESTIONS = [
   },
   {
     q: "Is there an app for athletes?",
-    a: "Hop works in any browser. On iPhone, the Hop app adds Event mode with a live clip count on your Lock Screen, plus your QR code in widgets and Control Center. Android is next.",
+    a: GOOGLE_PLAY_URL
+      ? "Yes, for iPhone and Android, though Hop works in any browser too. The app adds Event mode, which counts clips live on your Lock Screen, plus your QR code in widgets and quick controls."
+      : "Yes, for iPhone, and Android’s is coming soon to Google Play. Hop works in any browser too. The app adds Event mode, which counts clips live on your Lock Screen, plus your QR code in widgets and Control Center.",
   },
   {
     q: "Is Hop open source?",

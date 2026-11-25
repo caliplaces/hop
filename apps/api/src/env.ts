@@ -58,8 +58,6 @@ export type Env = {
    * early. Defaults to LAUNCH_AT in packages/shared.
    */
   LAUNCH_AT?: string;
-  /** The App Store page, once the app is out; the launch email links it. */
-  APP_STORE_URL?: string;
   /**
    * Apple's push service, for Event mode's Live Activity. APNS_KEY is the .p8
    * signing key (PEM, a secret); without it nothing is pushed. The key is

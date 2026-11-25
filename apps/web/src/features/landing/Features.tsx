@@ -218,7 +218,7 @@ const TILES = [
   },
   {
     title: "Live on your Lock Screen",
-    body: "Event mode on iPhone counts clips as they land, even with your phone in your bag.",
+    body: "Event mode in the app counts clips as they land, even with your phone in your bag.",
     visual: <LockScreenVisual />,
   },
   {

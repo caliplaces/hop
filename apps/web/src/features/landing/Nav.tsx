@@ -10,25 +10,7 @@ const LINKS = [
   { href: "#faq", label: "FAQ" },
 ];
 
-/** Brings the hero's waitlist form into view and focuses its email field. */
-function focusWaitlist() {
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  document
-    .getElementById("join")
-    ?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
-  document.getElementById("waitlist-hero")?.focus({ preventScroll: true });
-}
-
-export function Nav({
-  launched,
-  signedIn,
-  joined,
-}: {
-  launched: boolean;
-  signedIn: boolean;
-  /** Already on the waitlist: no need to keep asking. */
-  joined: boolean;
-}) {
+export function Nav({ signedIn }: { signedIn: boolean }) {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -70,24 +52,11 @@ export function Nav({
               Sign in
             </a>
           )}
-          {launched
-            ? !signedIn && (
-                <a
-                  href={signInUrl("/app")}
-                  className="btn btn-sm bg-fg text-canvas hover:opacity-90"
-                >
-                  Get your Hop
-                </a>
-              )
-            : !joined && (
-                <button
-                  type="button"
-                  onClick={focusWaitlist}
-                  className="btn btn-sm bg-fg text-canvas hover:opacity-90"
-                >
-                  Join waitlist
-                </button>
-              )}
+          {!signedIn && (
+            <a href={signInUrl("/app")} className="btn btn-sm bg-fg text-canvas hover:opacity-90">
+              Get your Hop
+            </a>
+          )}
         </div>
       </div>
     </header>
