@@ -1,4 +1,4 @@
-import { colorFor } from "@hop/shared";
+import { APP_STORE_URL, colorFor } from "@hop/shared";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -90,12 +90,7 @@ const EMAIL_PREVIEWS: Record<string, (appUrl: string, query: Query) => Promise<R
       day: statedDay(Date.now() - (query("when") === "reminder" ? 6 : 0) * 24 * 60 * 60 * 1000),
       when: query("when") === "reminder" ? "reminder" : "notice",
     }),
-  // ?app=1 adds the App Store link.
-  launch: (appUrl, query) =>
-    launchEmail({
-      appUrl,
-      appStoreUrl: query("app") ? "https://apps.apple.com/app/id6834920854" : undefined,
-    }),
+  launch: (appUrl) => launchEmail({ appUrl, appStoreUrl: APP_STORE_URL }),
   "new-clips": (appUrl, query) => {
     const hops = [
       { id: "hop_1", slug: "street-kings-prague", title: "Street Kings Prague" },

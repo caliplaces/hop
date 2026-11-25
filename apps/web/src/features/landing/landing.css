@@ -243,35 +243,6 @@
   }
 }
 
-/* ---------- Waitlist ---------- */
-
-/* Confetti from the button when someone joins (offsets set inline). */
-.lp-confetti {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 7px;
-  height: 11px;
-  border-radius: 2px;
-  pointer-events: none;
-  animation: lp-burst 1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-@keyframes lp-burst {
-  from {
-    transform: translate(-50%, -50%) rotate(0deg) scale(1);
-    opacity: 1;
-  }
-  to {
-    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(var(--r)) scale(0.6);
-    opacity: 0;
-  }
-}
-
-/* The pill around the email field shows focus (border and ring), not the field itself. */
-.lp-field input:focus-visible {
-  outline: none;
-}
-
 /* ---------- FAQ ---------- */
 
 /* Answers slide open where the browser can animate to height: auto. */
@@ -301,8 +272,7 @@
   .lp .animate-ping {
     animation: none;
   }
-  .lp-travel,
-  .lp-confetti {
+  .lp-travel {
     display: none;
   }
   [data-reveal] {

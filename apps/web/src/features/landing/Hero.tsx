@@ -5,51 +5,28 @@ import { buttonClass } from "../../components/ui/Button";
 import { signInUrl } from "../../lib/api";
 import { useMediaQuery } from "../../lib/useMediaQuery";
 import { Mascot } from "../mascot/Mascot";
-import { CountdownInline } from "./Countdown";
-import { LAUNCH_DAY } from "./launch";
+import { StoreBadges } from "./StoreBadges";
 import { SHOWCASE, showcaseHex } from "./showcase";
 import { useCycle } from "./useCycle";
-import type { Waitlist } from "./useWaitlist";
-import { WaitlistForm } from "./WaitlistForm";
 
 const rise = (ms: number) => ({ animationDelay: `${ms}ms` }) as CSSProperties;
 
-function LaunchBadge({ launched }: { launched: boolean }) {
+function LiveBadge() {
   return (
-    <span className="inline-flex h-8 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] pr-3.5 pl-3 text-[12px] font-medium whitespace-nowrap backdrop-blur min-[400px]:gap-2.5 min-[400px]:text-[13px]">
+    <span className="inline-flex h-8 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] pr-3.5 pl-3 text-[13px] font-medium whitespace-nowrap backdrop-blur">
       <span className="relative flex size-2">
         <span className="absolute inset-0 animate-ping rounded-full bg-[#3DDC97] opacity-75" />
         <span className="relative size-2 rounded-full bg-[#3DDC97]" />
       </span>
-      {launched ? (
-        "Hop is live"
-      ) : (
-        <>
-          <span>
-            Launching <span className="min-[400px]:hidden">Dec 1</span>
-            <span className="hidden min-[400px]:inline">{LAUNCH_DAY}</span>
-          </span>
-          <span aria-hidden="true" className="h-3 w-px bg-white/15" />
-          <CountdownInline />
-        </>
-      )}
+      Hop is live
     </span>
   );
 }
 
-export function Hero({
-  launched,
-  signedIn,
-  waitlist,
-}: {
-  launched: boolean;
-  signedIn: boolean;
-  waitlist: Waitlist;
-}) {
+export function Hero({ signedIn }: { signedIn: boolean }) {
   const index = useCycle(SHOWCASE.length, 3000);
   const large = useMediaQuery("(min-width: 1024px)");
   const medium = useMediaQuery("(min-width: 640px)");
-  const joined = waitlist.status.kind === "joined";
 
   return (
     <section className="relative pt-6 pb-16 text-center sm:pt-10 sm:pb-24">
@@ -57,7 +34,7 @@ export function Hero({
         <Mascot
           color={showcaseHex(index)}
           size={large ? 230 : medium ? 200 : 168}
-          state={joined ? "cheer" : "idle"}
+          state="idle"
           follow
           interactive
           label="Bobble, Hop’s mascot. Poke it!"
@@ -65,7 +42,7 @@ export function Hero({
       </div>
 
       <div className="lp-rise mt-1" style={rise(120)}>
-        <LaunchBadge launched={launched} />
+        <LiveBadge />
       </div>
 
       <h1 className="mx-auto mt-6 max-w-5xl text-[2.7rem] leading-[0.98] font-semibold tracking-[-0.045em] text-balance sm:text-7xl lg:text-[5.75rem]">
@@ -85,23 +62,20 @@ export function Hero({
         straight to your link. No app, no account, no chasing DMs.
       </p>
 
-      <div id="join" className="lp-rise mt-8 scroll-mt-28 px-1 sm:mt-10" style={rise(520)}>
-        {launched ? (
-          <div className="flex flex-col items-center gap-3">
-            {signedIn ? (
-              <Link to="/app" className={buttonClass({ size: "lg" })}>
-                Open your Hop <ArrowRight className="size-4" />
-              </Link>
-            ) : (
-              <a href={signInUrl("/app")} className={buttonClass({ size: "lg" })}>
-                Get your Hop <ArrowRight className="size-4" />
-              </a>
-            )}
-            <span className="text-sm text-white/45">Free to start</span>
-          </div>
-        ) : (
-          <WaitlistForm id="hero" waitlist={waitlist} />
-        )}
+      <div className="lp-rise mt-8 px-1 sm:mt-10" style={rise(520)}>
+        <div className="flex flex-col items-center gap-3">
+          {signedIn ? (
+            <Link to="/app" className={buttonClass({ size: "lg" })}>
+              Open your Hop <ArrowRight className="size-4" />
+            </Link>
+          ) : (
+            <a href={signInUrl("/app")} className={buttonClass({ size: "lg" })}>
+              Get your Hop <ArrowRight className="size-4" />
+            </a>
+          )}
+          <span className="text-sm text-white/45">Free to start</span>
+        </div>
+        <StoreBadges className="mt-7" />
       </div>
     </section>
   );

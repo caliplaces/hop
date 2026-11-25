@@ -1,6 +1,5 @@
 /**
- * When Hop launches: midnight in Central Europe on December 1, 2026. Until
- * then the landing page collects a waitlist; from then, the launch email
- * goes out to it.
+ * When Hop launched: 25 November 2026, ahead of the 1 December first planned.
+ * From then on, the launch email goes out to the waitlist.
  */
-export const LAUNCH_AT = Date.parse("2026-12-01T00:00:00+01:00");
+export const LAUNCH_AT = Date.parse("2026-11-25T00:00:00+01:00");
